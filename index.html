@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>深 · 聊</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #08080f;
+    --surface: #11111e;
+    --surface2: #18182a;
+    --user-bubble: #e8e0d4;
+    --ai-bubble: #16162a;
+    --accent: #7aaed4;
+    --text-primary: #e6e0d8;
+    --text-secondary: #7a7a9a;
+    --text-user: #1a1a2a;
+    --border: rgba(122, 174, 212, 0.12);
+    --radius: 18px;
+    --radius-sm: 8px;
+  }
+
+  body {
+    font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ─── Header ─── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    background: var(--bg);
+  }
+
+  .header-title {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+
+  .header-sub {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+    letter-spacing: 0.02em;
+  }
+
+  .btn-icon {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: var(--radius-sm);
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    transition: color 0.2s;
+  }
+
+  .btn-icon:hover { color: var(--text-primary); }
+
+  /* ─── Setup overlay ─── */
+  .setup-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 24px;
+    gap: 20px;
+  }
+
+  .setup-title {
+    font-size: 22px;
+    font-weight: 300;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+  }
+
+  .setup-sub {
+    font-size: 13px;
+    color: var(--text-secondary);
+    text-align: center;
+    line-height: 1.6;
+  }
+
+  .setup-input {
+    width: 100%;
+    max-width: 340px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 14px;
+    padding: 12px 14px;
+    outline: none;
+    font-family: monospace;
+    letter-spacing: 0.03em;
+  }
+
+  .setup-input:focus { border-color: var(--accent); }
+
+  .setup-textarea {
+    width: 100%;
+    max-width: 340px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 13px;
+    padding: 12px 14px;
+    outline: none;
+    resize: none;
+    height: 90px;
+    line-height: 1.5;
+  }
+
+  .setup-textarea:focus { border-color: var(--accent); }
+
+  .setup-label {
+    width: 100%;
+    max-width: 340px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #06060f;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 12px 32px;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: opacity 0.2s;
+    max-width: 340px;
+    width: 100%;
+  }
+
+  .btn-primary:hover { opacity: 0.88; }
+
+  /* ─── Chat area ─── */
+  .chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    scroll-behavior: smooth;
+  }
+
+  .chat-area::-webkit-scrollbar { width: 2px; }
+  .chat-area::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .msg-row {
+    display: flex;
+    flex-direction: column;
+    max-width: 82%;
+    gap: 3px;
+  }
+
+  .msg-row.user { align-self: flex-end; align-items: flex-end; }
+  .msg-row.ai   { align-self: flex-start; align-items: flex-start; }
+
+  .bubble {
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    font-size: 15px;
+    line-height: 1.55;
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+
+  .bubble.user {
+    background: var(--user-bubble);
+    color: var(--text-user);
+    border-bottom-right-radius: 6px;
+  }
+
+  .bubble.ai {
+    background: var(--ai-bubble);
+    color: var(--text-primary);
+    border-bottom-left-radius: 6px;
+    border: 1px solid var(--border);
+  }
+
+  .msg-time {
+    font-size: 10px;
+    color: var(--text-secondary);
+    padding: 0 4px;
+  }
+
+  /* thinking block */
+  .thinking-block {
+    font-size: 12px;
+    color: var(--text-secondary);
+    padding: 8px 12px;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    border-left: 2px solid var(--accent);
+    margin-bottom: 6px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+
+  .thinking-label {
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  /* typing indicator */
+  .typing {
+    display: flex;
+    gap: 5px;
+    padding: 12px 14px;
+    background: var(--ai-bubble);
+    border-radius: var(--radius);
+    border-bottom-left-radius: 6px;
+    border: 1px solid var(--border);
+    width: fit-content;
+  }
+
+  .typing span {
+    width: 6px; height: 6px;
+    background: var(--text-secondary);
+    border-radius: 50%;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+
+  .typing span:nth-child(2) { animation-delay: 0.2s; }
+  .typing span:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes pulse {
+    0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+    30% { opacity: 1; transform: scale(1); }
+  }
+
+  /* ─── Input bar ─── */
+  .input-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 10px 14px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+    flex-shrink: 0;
+  }
+
+  .input-wrap {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    display: flex;
+    align-items: flex-end;
+    padding: 8px 14px;
+    transition: border-color 0.2s;
+  }
+
+  .input-wrap:focus-within { border-color: var(--accent); }
+
+  #msg-input {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 15px;
+    font-family: inherit;
+    resize: none;
+    max-height: 120px;
+    line-height: 1.5;
+    min-height: 24px;
+  }
+
+  #msg-input::placeholder { color: var(--text-secondary); }
+
+  .btn-send {
+    width: 38px; height: 38px;
+    background: var(--accent);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: opacity 0.2s, transform 0.1s;
+  }
+
+  .btn-send:hover { opacity: 0.88; }
+  .btn-send:active { transform: scale(0.92); }
+  .btn-send:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .btn-send svg {
+    width: 18px; height: 18px;
+    fill: #06060f;
+  }
+
+  /* empty state */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--text-secondary);
+    pointer-events: none;
+  }
+
+  .empty-state-icon { font-size: 32px; opacity: 0.4; }
+  .empty-state-text { font-size: 13px; letter-spacing: 0.04em; }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- Setup overlay -->
+<div class="setup-overlay" id="setup">
+  <div class="setup-title">深 · 聊</div>
+  <div class="setup-sub">输入你的 DeepSeek API Key<br>只存在本地，不会上传</div>
+
+  <span class="setup-label">API Key</span>
+  <input class="setup-input" id="api-key-input" type="password"
+    placeholder="sk-..." autocomplete="off" spellcheck="false">
+
+  <span class="setup-label">System Prompt（可留空）</span>
+  <textarea class="setup-textarea" id="system-input"
+    placeholder="你是..."></textarea>
+
+  <button class="btn-primary" onclick="saveSetup()">开始聊天</button>
+</div>
+
+<!-- Main UI -->
+<div class="header" id="main-header" style="display:none">
+  <div>
+    <div class="header-title">深 · 聊</div>
+    <div class="header-sub">DeepSeek V4 Pro</div>
+  </div>
+  <div style="display:flex;gap:6px">
+    <button class="btn-icon" title="清空对话" onclick="clearChat()">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+        stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>
+      </svg>
+    </button>
+    <button class="btn-icon" title="重新设置" onclick="showSetup()">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+        stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<div class="chat-area hidden" id="chat-area">
+  <div class="empty-state" id="empty-state">
+    <div class="empty-state-icon">✦</div>
+    <div class="empty-state-text">开始对话</div>
+  </div>
+</div>
+
+<div class="input-bar hidden" id="input-bar">
+  <div class="input-wrap">
+    <textarea id="msg-input" rows="1" placeholder="说点什么..."
+      onInput="autoResize(this)" onKeydown="handleKey(event)"></textarea>
+  </div>
+  <button class="btn-send" id="send-btn" onclick="sendMessage()">
+    <svg viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22 11 13 2 9z"/></svg>
+  </button>
+</div>
+
+<script>
+  const MODEL = 'deepseek-v4-pro';
+  const API_URL = 'https://api.deepseek.com/v1/chat/completions';
+
+  let apiKey = '';
+  let systemPrompt = '';
+  let messages = [];
+  let isLoading = false;
+
+  // ── Init ──────────────────────────────────────────────
+  window.onload = () => {
+    apiKey = localStorage.getItem('ds_key') || '';
+    systemPrompt = localStorage.getItem('ds_system') || '';
+
+    if (apiKey) {
+      showMain();
+      loadHistory();
+    }
+  };
+
+  function showMain() {
+    document.getElementById('setup').classList.add('hidden');
+    document.getElementById('main-header').style.display = 'flex';
+    document.getElementById('chat-area').classList.remove('hidden');
+    document.getElementById('input-bar').classList.remove('hidden');
+    document.getElementById('msg-input').focus();
+  }
+
+  function showSetup() {
+    document.getElementById('api-key-input').value = apiKey;
+    document.getElementById('system-input').value = systemPrompt;
+    document.getElementById('setup').classList.remove('hidden');
+    document.getElementById('main-header').style.display = 'none';
+    document.getElementById('chat-area').classList.add('hidden');
+    document.getElementById('input-bar').classList.add('hidden');
+  }
+
+  function saveSetup() {
+    const key = document.getElementById('api-key-input').value.trim();
+    if (!key) { alert('请输入 API Key'); return; }
+    apiKey = key;
+    systemPrompt = document.getElementById('system-input').value.trim();
+    localStorage.setItem('ds_key', apiKey);
+    localStorage.setItem('ds_system', systemPrompt);
+    showMain();
+  }
+
+  // ── History ───────────────────────────────────────────
+  function loadHistory() {
+    const saved = localStorage.getItem('ds_history');
+    if (saved) {
+      messages = JSON.parse(saved);
+      renderAll();
+    }
+  }
+
+  function saveHistory() {
+    localStorage.setItem('ds_history', JSON.stringify(messages.slice(-60)));
+  }
+
+  function clearChat() {
+    if (!confirm('清空对话记录？')) return;
+    messages = [];
+    localStorage.removeItem('ds_history');
+    const area = document.getElementById('chat-area');
+    area.innerHTML = `
+      <div class="empty-state" id="empty-state">
+        <div class="empty-state-icon">✦</div>
+        <div class="empty-state-text">开始对话</div>
+      </div>`;
+  }
+
+  // ── Render ────────────────────────────────────────────
+  function renderAll() {
+    const area = document.getElementById('chat-area');
+    area.innerHTML = '';
+    messages.forEach(m => appendBubble(m.role, m.content, m.thinking, m.time));
+    scrollBottom();
+  }
+
+  function appendBubble(role, content, thinking, time) {
+    const empty = document.getElementById('empty-state');
+    if (empty) empty.remove();
+
+    const area = document.getElementById('chat-area');
+    const row = document.createElement('div');
+    row.className = `msg-row ${role === 'user' ? 'user' : 'ai'}`;
+
+    if (thinking) {
+      const th = document.createElement('div');
+      th.className = 'thinking-block';
+      th.innerHTML = `<div class="thinking-label">思考过程</div>${escHtml(thinking)}`;
+      row.appendChild(th);
+    }
+
+    const bubble = document.createElement('div');
+    bubble.className = `bubble ${role === 'user' ? 'user' : 'ai'}`;
+    bubble.textContent = content;
+    row.appendChild(bubble);
+
+    if (time) {
+      const t = document.createElement('div');
+      t.className = 'msg-time';
+      t.textContent = time;
+      row.appendChild(t);
+    }
+
+    area.appendChild(row);
+    scrollBottom();
+  }
+
+  function addTyping() {
+    const area = document.getElementById('chat-area');
+    const row = document.createElement('div');
+    row.className = 'msg-row ai';
+    row.id = 'typing-row';
+    row.innerHTML = `<div class="typing">
+      <span></span><span></span><span></span></div>`;
+    area.appendChild(row);
+    scrollBottom();
+    return row;
+  }
+
+  function scrollBottom() {
+    const area = document.getElementById('chat-area');
+    area.scrollTop = area.scrollHeight;
+  }
+
+  // ── Send ──────────────────────────────────────────────
+  async function sendMessage() {
+    if (isLoading) return;
+    const input = document.getElementById('msg-input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    input.value = '';
+    input.style.height = '';
+    isLoading = true;
+    document.getElementById('send-btn').disabled = true;
+
+    const now = new Date().toLocaleTimeString('zh', { hour:'2-digit', minute:'2-digit' });
+    messages.push({ role: 'user', content: text, time: now });
+    appendBubble('user', text, null, now);
+
+    const typingRow = addTyping();
+
+    try {
+      const payload = {
+        model: MODEL,
+        messages: [
+          ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+          ...messages.filter(m => m.role !== 'system').map(m => ({
+            role: m.role, content: m.content
+          }))
+        ],
+        stream: false
+      };
+
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error?.message || `HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      const choice = data.choices?.[0];
+      const replyContent = choice?.message?.content || '';
+      const thinking = choice?.message?.reasoning_content || null;
+
+      typingRow.remove();
+
+      const replyTime = new Date().toLocaleTimeString('zh', { hour:'2-digit', minute:'2-digit' });
+      messages.push({ role: 'assistant', content: replyContent, thinking, time: replyTime });
+      appendBubble('assistant', replyContent, thinking, replyTime);
+      saveHistory();
+
+    } catch (e) {
+      typingRow.remove();
+      appendBubble('assistant', `⚠ ${e.message}`, null, '');
+    }
+
+    isLoading = false;
+    document.getElementById('send-btn').disabled = false;
+    document.getElementById('msg-input').focus();
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+</script>
+</body>
+</html>
