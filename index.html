@@ -648,6 +648,7 @@
 
       const data = await res.json();
       const choice = data.choices?.[0];
+      console.log('API response:', JSON.stringify(choice?.message, null, 2));
       let replyContent = '';
       let thinking = null;
 
