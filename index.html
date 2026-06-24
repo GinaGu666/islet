@@ -3,21 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>深 · 聊</title>
+<title>islet</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg: #08080f;
-    --surface: #11111e;
-    --surface2: #18182a;
-    --user-bubble: #e8e0d4;
-    --ai-bubble: #16162a;
-    --accent: #7aaed4;
-    --text-primary: #e6e0d8;
-    --text-secondary: #7a7a9a;
-    --text-user: #1a1a2a;
-    --border: rgba(122, 174, 212, 0.12);
+    --bg: #1a1410;
+    --surface: #221d16;
+    --surface2: #2a241b;
+    --user-bubble: #2e2820;
+    --ai-bubble: #1e1a13;
+    --accent: #d97941;
+    --text-primary: #f0e8dc;
+    --text-secondary: #8a7b6e;
+    --text-user: #f0e8dc;
+    --border: rgba(217, 121, 65, 0.14);
     --radius: 18px;
     --radius-sm: 8px;
   }
@@ -83,7 +83,8 @@
     align-items: center;
     justify-content: center;
     padding: 32px 24px;
-    gap: 20px;
+    gap: 16px;
+    overflow-y: auto;
   }
 
   .setup-title {
@@ -115,6 +116,27 @@
   }
 
   .setup-input:focus { border-color: var(--accent); }
+
+  .setup-select {
+    width: 100%;
+    max-width: 340px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 14px;
+    padding: 12px 14px;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%237a7a9a' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
+  }
+
+  .setup-select:focus { border-color: var(--accent); }
+  .setup-select option { background: #18182a; }
 
   .setup-textarea {
     width: 100%;
@@ -196,6 +218,7 @@
     background: var(--user-bubble);
     color: var(--text-user);
     border-bottom-right-radius: 6px;
+    border: 1px solid rgba(217, 121, 65, 0.18);
   }
 
   .bubble.ai {
@@ -345,12 +368,39 @@
 
 <!-- Setup overlay -->
 <div class="setup-overlay" id="setup">
-  <div class="setup-title">深 · 聊</div>
-  <div class="setup-sub">输入你的 DeepSeek API Key<br>只存在本地，不会上传</div>
+  <div class="setup-title">islet</div>
+  <div class="setup-sub">输入你的 OpenRouter API Key<br>只存在本地，不会上传</div>
 
   <span class="setup-label">API Key</span>
   <input class="setup-input" id="api-key-input" type="password"
-    placeholder="sk-..." autocomplete="off" spellcheck="false">
+    placeholder="sk-or-..." autocomplete="off" spellcheck="false">
+
+  <span class="setup-label">选择模型</span>
+  <select class="setup-select" id="model-select">
+    <optgroup label="Anthropic">
+      <option value="anthropic/claude-sonnet-4-6">Claude Sonnet 4.6</option>
+      <option value="anthropic/claude-opus-4-8">Claude Opus 4.8</option>
+      <option value="anthropic/claude-opus-4-7">Claude Opus 4.7</option>
+      <option value="anthropic/claude-haiku-4-5">Claude Haiku 4.5</option>
+    </optgroup>
+    <optgroup label="OpenAI">
+      <option value="openai/gpt-4o">GPT-4o</option>
+      <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+      <option value="openai/o3">o3</option>
+    </optgroup>
+    <optgroup label="DeepSeek">
+      <option value="deepseek/deepseek-chat-v3-0324">DeepSeek V3</option>
+      <option value="deepseek/deepseek-r1">DeepSeek R1</option>
+    </optgroup>
+    <optgroup label="Google">
+      <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
+      <option value="google/gemini-2.5-pro">Gemini 2.5 Pro</option>
+    </optgroup>
+    <optgroup label="xAI">
+      <option value="x-ai/grok-3">Grok 3</option>
+      <option value="x-ai/grok-3-mini">Grok 3 Mini</option>
+    </optgroup>
+  </select>
 
   <span class="setup-label">System Prompt（可留空）</span>
   <textarea class="setup-textarea" id="system-input"
@@ -362,8 +412,8 @@
 <!-- Main UI -->
 <div class="header" id="main-header" style="display:none">
   <div>
-    <div class="header-title">深 · 聊</div>
-    <div class="header-sub">DeepSeek V4 Pro</div>
+    <div class="header-title">islet</div>
+    <div class="header-sub" id="model-label">-</div>
   </div>
   <div style="display:flex;gap:6px">
     <button class="btn-icon" title="清空对话" onclick="clearChat()">
@@ -400,18 +450,36 @@
 </div>
 
 <script>
-  const MODEL = 'deepseek-v4-pro';
-  const API_URL = 'https://api.deepseek.com/v1/chat/completions';
+  const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+  // 模型显示名称映射
+  const MODEL_NAMES = {
+    'anthropic/claude-sonnet-4-6': 'Claude Sonnet 4.6',
+    'anthropic/claude-opus-4-8': 'Claude Opus 4.8',
+    'anthropic/claude-opus-4-7': 'Claude Opus 4.7',
+    'anthropic/claude-haiku-4-5': 'Claude Haiku 4.5',
+    'openai/gpt-4o': 'GPT-4o',
+    'openai/gpt-4o-mini': 'GPT-4o Mini',
+    'openai/o3': 'o3',
+    'deepseek/deepseek-chat-v3-0324': 'DeepSeek V3',
+    'deepseek/deepseek-r1': 'DeepSeek R1',
+    'google/gemini-2.0-flash-001': 'Gemini 2.0 Flash',
+    'google/gemini-2.5-pro': 'Gemini 2.5 Pro',
+    'x-ai/grok-3': 'Grok 3',
+    'x-ai/grok-3-mini': 'Grok 3 Mini',
+  };
 
   let apiKey = '';
   let systemPrompt = '';
+  let selectedModel = 'anthropic/claude-sonnet-4-6';
   let messages = [];
   let isLoading = false;
 
   // ── Init ──────────────────────────────────────────────
   window.onload = () => {
-    apiKey = localStorage.getItem('ds_key') || '';
-    systemPrompt = localStorage.getItem('ds_system') || '';
+    apiKey = localStorage.getItem('or_key') || '';
+    systemPrompt = localStorage.getItem('or_system') || '';
+    selectedModel = localStorage.getItem('or_model') || 'anthropic/claude-sonnet-4-6';
 
     if (apiKey) {
       showMain();
@@ -424,12 +492,14 @@
     document.getElementById('main-header').style.display = 'flex';
     document.getElementById('chat-area').classList.remove('hidden');
     document.getElementById('input-bar').classList.remove('hidden');
+    document.getElementById('model-label').textContent = MODEL_NAMES[selectedModel] || selectedModel;
     document.getElementById('msg-input').focus();
   }
 
   function showSetup() {
     document.getElementById('api-key-input').value = apiKey;
     document.getElementById('system-input').value = systemPrompt;
+    document.getElementById('model-select').value = selectedModel;
     document.getElementById('setup').classList.remove('hidden');
     document.getElementById('main-header').style.display = 'none';
     document.getElementById('chat-area').classList.add('hidden');
@@ -441,14 +511,16 @@
     if (!key) { alert('请输入 API Key'); return; }
     apiKey = key;
     systemPrompt = document.getElementById('system-input').value.trim();
-    localStorage.setItem('ds_key', apiKey);
-    localStorage.setItem('ds_system', systemPrompt);
+    selectedModel = document.getElementById('model-select').value;
+    localStorage.setItem('or_key', apiKey);
+    localStorage.setItem('or_system', systemPrompt);
+    localStorage.setItem('or_model', selectedModel);
     showMain();
   }
 
   // ── History ───────────────────────────────────────────
   function loadHistory() {
-    const saved = localStorage.getItem('ds_history');
+    const saved = localStorage.getItem('or_history');
     if (saved) {
       messages = JSON.parse(saved);
       renderAll();
@@ -456,13 +528,13 @@
   }
 
   function saveHistory() {
-    localStorage.setItem('ds_history', JSON.stringify(messages.slice(-60)));
+    localStorage.setItem('or_history', JSON.stringify(messages.slice(-60)));
   }
 
   function clearChat() {
     if (!confirm('清空对话记录？')) return;
     messages = [];
-    localStorage.removeItem('ds_history');
+    localStorage.removeItem('or_history');
     const area = document.getElementById('chat-area');
     area.innerHTML = `
       <div class="empty-state" id="empty-state">
@@ -547,7 +619,7 @@
 
     try {
       const payload = {
-        model: MODEL,
+        model: selectedModel,
         messages: [
           ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
           ...messages.filter(m => m.role !== 'system').map(m => ({
@@ -561,7 +633,9 @@
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': window.location.href,
+          'X-Title': 'islet'
         },
         body: JSON.stringify(payload)
       });
@@ -574,6 +648,7 @@
       const data = await res.json();
       const choice = data.choices?.[0];
       const replyContent = choice?.message?.content || '';
+      // 支持 reasoning_content（DeepSeek R1）
       const thinking = choice?.message?.reasoning_content || null;
 
       typingRow.remove();
