@@ -32,7 +32,6 @@
     overflow: hidden;
   }
 
-  /* ─── Header ─── */
   .header {
     display: flex;
     align-items: center;
@@ -72,7 +71,6 @@
 
   .btn-icon:hover { color: var(--text-primary); }
 
-  /* ─── Setup overlay ─── */
   .setup-overlay {
     position: fixed;
     inset: 0;
@@ -129,14 +127,14 @@
     outline: none;
     cursor: pointer;
     appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%237a7a9a' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238a7b6e' d='M6 8L0 0h12z'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 14px center;
     padding-right: 36px;
   }
 
   .setup-select:focus { border-color: var(--accent); }
-  .setup-select option { background: #18182a; }
+  .setup-select option { background: #2a241b; }
 
   .setup-textarea {
     width: 100%;
@@ -166,7 +164,7 @@
 
   .btn-primary {
     background: var(--accent);
-    color: #06060f;
+    color: #1a1410;
     border: none;
     border-radius: var(--radius-sm);
     font-size: 14px;
@@ -181,7 +179,6 @@
 
   .btn-primary:hover { opacity: 0.88; }
 
-  /* ─── Chat area ─── */
   .chat-area {
     flex: 1;
     overflow-y: auto;
@@ -234,7 +231,6 @@
     padding: 0 4px;
   }
 
-  /* thinking block */
   .thinking-block {
     font-size: 12px;
     color: var(--text-secondary);
@@ -257,7 +253,6 @@
     margin-bottom: 4px;
   }
 
-  /* typing indicator */
   .typing {
     display: flex;
     gap: 5px;
@@ -284,7 +279,6 @@
     30% { opacity: 1; transform: scale(1); }
   }
 
-  /* ─── Input bar ─── */
   .input-bar {
     display: flex;
     align-items: flex-end;
@@ -341,12 +335,8 @@
   .btn-send:active { transform: scale(0.92); }
   .btn-send:disabled { opacity: 0.35; cursor: not-allowed; }
 
-  .btn-send svg {
-    width: 18px; height: 18px;
-    fill: #06060f;
-  }
+  .btn-send svg { width: 18px; height: 18px; fill: #1a1410; }
 
-  /* empty state */
   .empty-state {
     flex: 1;
     display: flex;
@@ -366,7 +356,6 @@
 </head>
 <body>
 
-<!-- Setup overlay -->
 <div class="setup-overlay" id="setup">
   <div class="setup-title">islet</div>
   <div class="setup-sub">输入你的 OpenRouter API Key<br>只存在本地，不会上传</div>
@@ -378,27 +367,39 @@
   <span class="setup-label">选择模型</span>
   <select class="setup-select" id="model-select">
     <optgroup label="Anthropic">
-      <option value="anthropic/claude-sonnet-4-6">Claude Sonnet 4.6</option>
-      <option value="anthropic/claude-opus-4-8">Claude Opus 4.8</option>
-      <option value="anthropic/claude-opus-4-7">Claude Opus 4.7</option>
-      <option value="anthropic/claude-haiku-4-5">Claude Haiku 4.5</option>
+      <option value="anthropic/claude-sonnet-4.6">Claude Sonnet 4.6</option>
+      <option value="anthropic/claude-opus-4.7">Claude Opus 4.7</option>
+      <option value="anthropic/claude-opus-4.6">Claude Opus 4.6</option>
+      <option value="anthropic/claude-sonnet-4.5">Claude Sonnet 4.5</option>
+      <option value="anthropic/claude-haiku-4.5">Claude Haiku 4.5</option>
     </optgroup>
     <optgroup label="OpenAI">
-      <option value="openai/gpt-4o">GPT-4o</option>
-      <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
-      <option value="openai/o3">o3</option>
+      <option value="openai/gpt-5.5">GPT-5.5</option>
+      <option value="openai/gpt-5.4-pro">GPT-5.4 Pro</option>
+      <option value="openai/gpt-5.4-mini">GPT-5.4 Mini</option>
+      <option value="openai/gpt-5.4-nano">GPT-5.4 Nano</option>
+      <option value="openai/gpt-5.3-chat">GPT-5.3 Chat</option>
+      <option value="openai/gpt-5.2-pro">GPT-5.2 Pro</option>
+      <option value="openai/gpt-5.2">GPT-5.2</option>
+      <option value="openai/gpt-5.1">GPT-5.1</option>
+      <option value="openai/gpt-5">GPT-5</option>
+      <option value="openai/gpt-5-mini">GPT-5 Mini</option>
+      <option value="openai/gpt-5-nano">GPT-5 Nano</option>
     </optgroup>
     <optgroup label="DeepSeek">
-      <option value="deepseek/deepseek-chat-v3-0324">DeepSeek V3</option>
+      <option value="deepseek/deepseek-v4-pro">DeepSeek V4 Pro</option>
+      <option value="deepseek/deepseek-v4-flash">DeepSeek V4 Flash</option>
       <option value="deepseek/deepseek-r1">DeepSeek R1</option>
     </optgroup>
     <optgroup label="Google">
-      <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
-      <option value="google/gemini-2.5-pro">Gemini 2.5 Pro</option>
+      <option value="google/gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</option>
+      <option value="google/gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite (Preview)</option>
+      <option value="google/gemini-3-flash-preview">Gemini 3 Flash (Preview)</option>
+      <option value="google/gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+      <option value="google/gemma-4-31b-it">Gemma 4 31B</option>
     </optgroup>
-    <optgroup label="xAI">
-      <option value="x-ai/grok-3">Grok 3</option>
-      <option value="x-ai/grok-3-mini">Grok 3 Mini</option>
+    <optgroup label="Z.ai">
+      <option value="z-ai/glm-5">GLM-5</option>
     </optgroup>
   </select>
 
@@ -409,7 +410,6 @@
   <button class="btn-primary" onclick="saveSetup()">开始聊天</button>
 </div>
 
-<!-- Main UI -->
 <div class="header" id="main-header" style="display:none">
   <div>
     <div class="header-title">islet</div>
@@ -452,39 +452,45 @@
 <script>
   const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
-  // 模型显示名称映射
   const MODEL_NAMES = {
-    'anthropic/claude-sonnet-4-6': 'Claude Sonnet 4.6',
-    'anthropic/claude-opus-4-8': 'Claude Opus 4.8',
-    'anthropic/claude-opus-4-7': 'Claude Opus 4.7',
-    'anthropic/claude-haiku-4-5': 'Claude Haiku 4.5',
-    'openai/gpt-4o': 'GPT-4o',
-    'openai/gpt-4o-mini': 'GPT-4o Mini',
-    'openai/o3': 'o3',
-    'deepseek/deepseek-chat-v3-0324': 'DeepSeek V3',
+    'anthropic/claude-sonnet-4.6': 'Claude Sonnet 4.6',
+    'anthropic/claude-opus-4.7': 'Claude Opus 4.7',
+    'anthropic/claude-opus-4.6': 'Claude Opus 4.6',
+    'anthropic/claude-sonnet-4.5': 'Claude Sonnet 4.5',
+    'anthropic/claude-haiku-4.5': 'Claude Haiku 4.5',
+    'openai/gpt-5.5': 'GPT-5.5',
+    'openai/gpt-5.4-pro': 'GPT-5.4 Pro',
+    'openai/gpt-5.4-mini': 'GPT-5.4 Mini',
+    'openai/gpt-5.4-nano': 'GPT-5.4 Nano',
+    'openai/gpt-5.3-chat': 'GPT-5.3 Chat',
+    'openai/gpt-5.2-pro': 'GPT-5.2 Pro',
+    'openai/gpt-5.2': 'GPT-5.2',
+    'openai/gpt-5.1': 'GPT-5.1',
+    'openai/gpt-5': 'GPT-5',
+    'openai/gpt-5-mini': 'GPT-5 Mini',
+    'openai/gpt-5-nano': 'GPT-5 Nano',
+    'deepseek/deepseek-v4-pro': 'DeepSeek V4 Pro',
+    'deepseek/deepseek-v4-flash': 'DeepSeek V4 Flash',
     'deepseek/deepseek-r1': 'DeepSeek R1',
-    'google/gemini-2.0-flash-001': 'Gemini 2.0 Flash',
-    'google/gemini-2.5-pro': 'Gemini 2.5 Pro',
-    'x-ai/grok-3': 'Grok 3',
-    'x-ai/grok-3-mini': 'Grok 3 Mini',
+    'google/gemini-3.1-pro-preview': 'Gemini 3.1 Pro (Preview)',
+    'google/gemini-3.1-flash-lite-preview': 'Gemini 3.1 Flash Lite (Preview)',
+    'google/gemini-3-flash-preview': 'Gemini 3 Flash (Preview)',
+    'google/gemini-2.5-flash-lite': 'Gemini 2.5 Flash Lite',
+    'google/gemma-4-31b-it': 'Gemma 4 31B',
+    'z-ai/glm-5': 'GLM-5',
   };
 
   let apiKey = '';
   let systemPrompt = '';
-  let selectedModel = 'anthropic/claude-sonnet-4-6';
+  let selectedModel = 'anthropic/claude-sonnet-4.6';
   let messages = [];
   let isLoading = false;
 
-  // ── Init ──────────────────────────────────────────────
   window.onload = () => {
     apiKey = localStorage.getItem('or_key') || '';
     systemPrompt = localStorage.getItem('or_system') || '';
-    selectedModel = localStorage.getItem('or_model') || 'anthropic/claude-sonnet-4-6';
-
-    if (apiKey) {
-      showMain();
-      loadHistory();
-    }
+    selectedModel = localStorage.getItem('or_model') || 'anthropic/claude-sonnet-4.6';
+    if (apiKey) { showMain(); loadHistory(); }
   };
 
   function showMain() {
@@ -518,13 +524,9 @@
     showMain();
   }
 
-  // ── History ───────────────────────────────────────────
   function loadHistory() {
     const saved = localStorage.getItem('or_history');
-    if (saved) {
-      messages = JSON.parse(saved);
-      renderAll();
-    }
+    if (saved) { messages = JSON.parse(saved); renderAll(); }
   }
 
   function saveHistory() {
@@ -535,15 +537,13 @@
     if (!confirm('清空对话记录？')) return;
     messages = [];
     localStorage.removeItem('or_history');
-    const area = document.getElementById('chat-area');
-    area.innerHTML = `
+    document.getElementById('chat-area').innerHTML = `
       <div class="empty-state" id="empty-state">
         <div class="empty-state-icon">✦</div>
         <div class="empty-state-text">开始对话</div>
       </div>`;
   }
 
-  // ── Render ────────────────────────────────────────────
   function renderAll() {
     const area = document.getElementById('chat-area');
     area.innerHTML = '';
@@ -587,8 +587,7 @@
     const row = document.createElement('div');
     row.className = 'msg-row ai';
     row.id = 'typing-row';
-    row.innerHTML = `<div class="typing">
-      <span></span><span></span><span></span></div>`;
+    row.innerHTML = `<div class="typing"><span></span><span></span><span></span></div>`;
     area.appendChild(row);
     scrollBottom();
     return row;
@@ -599,7 +598,6 @@
     area.scrollTop = area.scrollHeight;
   }
 
-  // ── Send ──────────────────────────────────────────────
   async function sendMessage() {
     if (isLoading) return;
     const input = document.getElementById('msg-input');
@@ -647,9 +645,22 @@
 
       const data = await res.json();
       const choice = data.choices?.[0];
-      const replyContent = choice?.message?.content || '';
-      // 支持 reasoning_content（DeepSeek R1）
-      const thinking = choice?.message?.reasoning_content || null;
+      let replyContent = '';
+      let thinking = null;
+
+      const msgContent = choice?.message?.content;
+
+      if (Array.isArray(msgContent)) {
+        // Claude extended thinking 格式
+        for (const block of msgContent) {
+          if (block.type === 'thinking') thinking = block.thinking;
+          else if (block.type === 'text') replyContent += block.text;
+        }
+      } else {
+        // 字符串格式（GPT / DeepSeek / Gemini 等）
+        replyContent = msgContent || '';
+        thinking = choice?.message?.reasoning_content || null;
+      }
 
       typingRow.remove();
 
@@ -669,10 +680,7 @@
   }
 
   function handleKey(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   }
 
   function autoResize(el) {
