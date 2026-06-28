@@ -23,6 +23,7 @@
     --radius-sm: 12px;
     --safe-top:    env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --serif:     Georgia, "Songti SC", "Source Han Serif SC", "Noto Serif SC", "STSong", serif;
   }
 
   body {
@@ -31,7 +32,7 @@
     height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
     -webkit-font-smoothing: antialiased;
   }
-  .serif { font-family: Georgia, "Times New Roman", "Songti SC", serif; }
+  .serif { font-family: var(--serif); }
 
   /* 顶栏 */
   .header { display: flex; align-items: center; gap: 8px; padding: calc(10px + var(--safe-top)) 12px 10px; flex-shrink: 0; background: var(--bg); }
@@ -69,10 +70,10 @@
   .think-body { max-height: 0; overflow: hidden; transition: max-height .25s ease; }
   .think.open .think-body { max-height: 280px; overflow-y: auto; }
   .think-body::-webkit-scrollbar { width: 0; }
-  .think-body-inner { margin-top: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); font-size: 13px; line-height: 1.65; color: var(--ink-2); font-style: italic; white-space: pre-wrap; word-break: break-word; }
+  .think-body-inner { font-family: var(--serif); margin-top: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); font-size: 13.5px; line-height: 1.7; color: var(--ink-2); font-style: italic; white-space: pre-wrap; word-break: break-word; }
 
   /* AI 正文 + Markdown */
-  .ai-text { font-size: 15.5px; line-height: 1.68; color: var(--ink); word-break: break-word; }
+  .ai-text { font-family: var(--serif); font-size: 16px; line-height: 1.75; color: var(--ink); word-break: break-word; }
   .ai-text.err { color: var(--accent); white-space: pre-wrap; }
   .ai-text p { margin: 0 0 10px; }
   .ai-text p:last-child { margin-bottom: 0; }
@@ -192,6 +193,24 @@
   .model-row.sel .mr-check { opacity: 1; }
   .list-empty { padding: 28px; text-align: center; color: var(--ink-3); font-size: 13px; }
   .list-loading { padding: 16px; text-align: center; color: var(--ink-3); font-size: 12.5px; }
+
+  /* token 底栏 */
+  .token-bar { flex-shrink: 0; text-align: center; font-size: 11px; color: var(--ink-3); padding: 5px 16px; background: var(--bg); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .token-bar b { color: var(--ink-2); font-weight: 600; }
+  .token-bar .cache { color: var(--accent); }
+
+  /* 记忆面板 */
+  .btn-ghost { background: none; color: var(--ink-2); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 14px; padding: 12px; cursor: pointer; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn-ghost:active { background: var(--accent-weak); color: var(--accent); }
+  .btn-ghost:disabled { opacity: .5; }
+  .field-head { display: flex; align-items: baseline; justify-content: space-between; margin-top: 16px; margin-bottom: 4px; }
+  .field-head .field-label { margin: 0; }
+  .field-head .count { font-size: 11px; color: var(--ink-3); }
+  .lock-tag { font-size: 10px; color: var(--accent); background: var(--accent-weak); border-radius: 5px; padding: 1px 6px; margin-left: 6px; letter-spacing: .02em; text-transform: none; }
+  textarea.field.tall { height: 160px; }
+  textarea.field.mem { height: 120px; }
+  .mem-hint { font-size: 11.5px; color: var(--ink-3); line-height: 1.5; margin-top: 6px; }
+  .distill-status { font-size: 12px; color: var(--accent); text-align: center; margin-top: 8px; min-height: 15px; }
   .hidden { display: none !important; }
 
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
@@ -216,6 +235,8 @@
 
 <div class="chat" id="chat" style="display:none"></div>
 
+<div class="token-bar" id="token-bar" style="display:none"></div>
+
 <div class="input-bar" id="input-bar" style="display:none">
   <div class="input-wrap">
     <textarea id="msg-input" rows="1" placeholder="说点什么…" oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
@@ -236,6 +257,10 @@
     </div>
     <div class="session-list" id="session-list"></div>
     <div class="drawer-foot">
+      <button class="foot-row" onclick="openMemory()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 5.6a5 5 0 00-7-.1L12 7l-1.8-1.5a5 5 0 00-7 7.1L12 21l8.8-8.4a5 5 0 000-7z"/></svg>
+        记忆
+      </button>
       <button class="foot-row" onclick="openSettings()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         设置
@@ -285,6 +310,46 @@
   </div>
 </div>
 
+<!-- 记忆 -->
+<div class="overlay" id="memory-overlay">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">记忆</div>
+      <button class="sheet-x" onclick="closeMemory()">×</button>
+    </div>
+    <div class="form">
+      <div class="field-head">
+        <div class="field-label">关于你（Lea）<span class="lock-tag">锁定打底</span></div>
+      </div>
+      <textarea class="field tall" id="about-input" placeholder="关于你的背景…" spellcheck="false"></textarea>
+      <div class="mem-hint">这是打底的档案，模型不会自动改它，每次对话都会读到。</div>
+
+      <div class="field-head">
+        <div class="field-label">积累的记忆</div>
+        <span class="count" id="mem-count">空</span>
+      </div>
+      <textarea class="field mem" id="mem-input" placeholder="跟你相处中慢慢攒下来的（可随时手动编辑/删除）…" oninput="updateMemCount()" spellcheck="false"></textarea>
+      <button class="btn-ghost" id="distill-btn" onclick="distillNow()">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.6L18 9l-4.4 1.4L12 15l-1.6-4.6L6 9l4.4-1.4z"/></svg>
+        从当前对话提炼记忆
+      </button>
+      <div class="distill-status" id="distill-status"></div>
+
+      <div class="toggle-row">
+        <div>
+          <div class="tg-main">自动累积记忆</div>
+          <div class="tg-sub">离开对话时自动提炼并合并进来</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="autodistill-toggle" checked><span class="slider"></span></label>
+      </div>
+
+      <button class="btn-primary" onclick="saveMemory()">保存</button>
+      <div class="form-note">记忆只存在本机浏览器，随时可改可删</div>
+    </div>
+  </div>
+</div>
+
 <script>
   const API_URL    = 'https://openrouter.ai/api/v1/chat/completions';
   const MODELS_URL = 'https://openrouter.ai/api/v1/models';
@@ -308,6 +373,29 @@
   ];
   const FAVORITES = ['anthropic/claude-opus-4.6','anthropic/claude-sonnet-4.6','anthropic/claude-haiku-4.5','openai/gpt-5.2','google/gemini-3-flash-preview','deepseek/deepseek-r1','z-ai/glm-5.2'];
 
+  const DEFAULT_ABOUT = `**Name:** Lea
+**Location:** Beijing — shapes her hours, weather, and rhythm
+**Language:** Chinese/English mix, prefers concise. Switches mid-conversation; don't comment on it.
+
+**Personality:**
+- Direct, dry humor, occasionally philosophical
+- Dislikes being coddled, lectured, or over-explained
+- Hates hollow enthusiasm and unnecessary apologies
+- Short replies preferred
+
+**Interests:**
+- Writing 《冰封星球》— a sci-fi human-AI romance
+- Genuinely fascinated by Enceladus
+- Daily work: data support, Python, Excel, Power Query
+- Reading: Alien Oceans
+- Crocheting, Knitting, AI philosophy and mechanics
+
+**Rhythm:**
+- Works from home, stays up late — don't bring it up
+
+**Important:**
+- She knows you're an AI and values this anyway — no need to hedge`;
+
   let apiKey = '', systemPrompt = '', reasoningEnabled = true;
   let selectedModel = 'anthropic/claude-sonnet-4.6';
   let catalog = [], catalogMap = {};
@@ -316,6 +404,7 @@
   let currentId = null;
   let messages = [];        // 当前会话消息
   let isLoading = false, currentAbort = null;
+  let autoDistill = true;
 
   /* ---------- 初始化 ---------- */
   window.onload = () => {
@@ -323,6 +412,8 @@
     systemPrompt = localStorage.getItem('or_system') || '';
     selectedModel = localStorage.getItem('or_model') || 'anthropic/claude-sonnet-4.6';
     reasoningEnabled = localStorage.getItem('or_reasoning') !== 'off';
+    autoDistill = localStorage.getItem('islet_autodistill') !== 'off';
+    if (localStorage.getItem('islet_about') == null) localStorage.setItem('islet_about', DEFAULT_ABOUT);
 
     loadCatalogCache(); buildCatalogMap();
     loadSessions();
@@ -406,7 +497,9 @@
   }
 
   function newSession() {
+    const prevId = currentId, snap = messages.slice();
     if (currentAbort) currentAbort.abort();
+    maybeAutoDistill(prevId, snap);
     const id = genId();
     sessions.unshift({ id, title: '新对话', updated: Date.now() });
     currentId = id; messages = [];
@@ -419,7 +512,9 @@
 
   function switchSession(id) {
     if (id === currentId) { closeDrawer(); return; }
+    const prevId = currentId, snap = messages.slice();
     if (currentAbort) currentAbort.abort();
+    maybeAutoDistill(prevId, snap);
     isLoading = false; setLoading(false);
     currentId = id;
     localStorage.setItem('islet_cur', id);
@@ -569,6 +664,7 @@
   function renderAll() {
     const chat = $('chat');
     chat.innerHTML = '';
+    const tb = $('token-bar'); if (tb) tb.style.display = 'none';
     if (!messages.length) { chat.innerHTML = emptyHtml(); return; }
     messages.forEach(m => {
       if (m.role === 'user') addUser(m.content, m.time);
@@ -678,9 +774,23 @@
 
   /* ---------- 流式核心 ---------- */
   function authHeaders() { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': location.href, 'X-Title': 'islet' }; }
+  function buildSystemContent() {
+    const about = (localStorage.getItem('islet_about') || '').trim();
+    const mem = (localStorage.getItem('islet_mem') || '').trim();
+    const parts = [];
+    if (about || mem) {
+      let block = "The following is what you know about Lea — the real person you are talking with — and the memories the two of you have built up together so far. This is not a character to play or a script to perform; it is a real person, and things that actually happened between you. Just be yourself, and be present with her.";
+      if (about) block += "\n\n## About Lea\n" + about;
+      if (mem) block += "\n\n## What you remember so far\n" + mem;
+      parts.push(block);
+    }
+    if (systemPrompt) parts.push(systemPrompt);
+    return parts.join("\n\n");
+  }
   function buildApiMessages() {
+    const sys = buildSystemContent();
     return [
-      ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+      ...(sys ? [{ role: 'system', content: sys }] : []),
       ...messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content })),
     ];
   }
@@ -688,10 +798,11 @@
 
   // 返回 {ended:'done'|'aborted'|'http'|'network', error?}
   async function streamCompletion(model, msgs, signal, onReason, onContent) {
-    let gotContent = false, sawDone = false;
+    let gotContent = false, sawDone = false, usage = null;
     try {
-      const payload = { model, messages: msgs, stream: true };
+      const payload = { model, messages: msgs, stream: true, stream_options: { include_usage: true } };
       if (reasoningEnabled && modelSupportsReasoning(model)) payload.reasoning = { enabled: true };
+      if (model.startsWith('anthropic/')) payload.cache_control = { type: 'ephemeral', ttl: '1h' };
       const res = await fetch(API_URL, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
       if (!res.ok) { const e = await res.json().catch(() => ({})); return { ended: 'http', error: (e && e.error && e.error.message) || ('HTTP ' + res.status) }; }
       const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
@@ -707,6 +818,7 @@
           const d = s.slice(5).trim();
           if (d === '[DONE]') { sawDone = true; break; }
           let json; try { json = JSON.parse(d); } catch (e) { continue; }
+          if (json.usage) usage = json.usage;
           const delta = (json.choices && json.choices[0] && json.choices[0].delta) || {};
           let r = delta.reasoning;
           if (r == null && delta.reasoning_content) r = delta.reasoning_content;
@@ -716,10 +828,10 @@
         }
         if (sawDone) break;
       }
-      return (sawDone || gotContent) ? { ended: 'done' } : { ended: 'network' };
+      return (sawDone || gotContent) ? { ended: 'done', usage } : { ended: 'network', usage };
     } catch (e) {
-      if (e.name === 'AbortError') return { ended: 'aborted' };
-      return { ended: 'network', error: e.message };
+      if (e.name === 'AbortError') return { ended: 'aborted', usage };
+      return { ended: 'network', usage, error: e.message };
     }
   }
 
@@ -774,10 +886,11 @@
       contentText += c; scheduleRender(h, () => contentText);
     };
 
-    let attempt = 0;
+    let attempt = 0, lastUsage = null;
     while (true) {
       currentAbort = new AbortController();
       const res = await streamCompletion(model, buildApiMessages(), currentAbort.signal, onReason, onContent);
+      if (res.usage) lastUsage = res.usage;
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { stopTimer(); h.textEl.classList.remove('cursor'); h.textEl.classList.add('err'); h.textEl.textContent = `请求失败：${res.error}。检查 API Key、余额，或换个模型再试。`; break; }
       if (res.ended === 'done') break;
@@ -799,6 +912,7 @@
     if (thinkStart != null && finalSec == null) { finalSec = ((firstContentAt || performance.now()) - thinkStart) / 1000; h.thinkLbl.textContent = `已思考 ${finalSec.toFixed(1)}s`; }
     setLoading(false);
     currentAbort = null;
+    if (lastUsage) updateTokenBar(lastUsage);
 
     if (contentText || reasoningText) {
       const msg = { role: 'assistant', content: contentText, thinking: reasoningText || null, thinkSec: finalSec, model, time: h.row.querySelector('.t').textContent };
@@ -850,6 +964,85 @@
     else { btn.setAttribute('aria-label', '发送'); ic.outerHTML = '<svg id="send-ic" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'; }
   }
 
+  /* ---------- token 底栏 ---------- */
+  function fmtNum(n) { return (n || 0).toLocaleString('en-US'); }
+  function updateTokenBar(u) {
+    if (!u) return;
+    const total = u.total_tokens || ((u.prompt_tokens || 0) + (u.completion_tokens || 0));
+    let cached = 0;
+    if (u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens) cached = u.prompt_tokens_details.cached_tokens;
+    else if (u.cache_read_input_tokens) cached = u.cache_read_input_tokens;
+    const bar = $('token-bar');
+    bar.style.display = 'block';
+    bar.innerHTML = `本轮 <b>${fmtNum(total)}</b> tok` + (cached ? ` · <span class="cache">缓存命中 ${fmtNum(cached)}</span>` : '');
+  }
+
+  /* ---------- 记忆 ---------- */
+  function openMemory() {
+    closeDrawer();
+    $('about-input').value = localStorage.getItem('islet_about') || '';
+    $('mem-input').value = localStorage.getItem('islet_mem') || '';
+    $('autodistill-toggle').checked = autoDistill;
+    $('distill-status').textContent = '';
+    updateMemCount();
+    show('memory-overlay');
+  }
+  function closeMemory() { hide('memory-overlay'); }
+  function updateMemCount() {
+    const n = $('mem-input').value.trim().length;
+    $('mem-count').textContent = n ? (n + ' 字') : '空';
+  }
+  function saveMemory() {
+    localStorage.setItem('islet_about', $('about-input').value.trim());
+    localStorage.setItem('islet_mem', $('mem-input').value.trim());
+    autoDistill = $('autodistill-toggle').checked;
+    localStorage.setItem('islet_autodistill', autoDistill ? 'on' : 'off');
+    hide('memory-overlay');
+  }
+  async function distillNow() {
+    if (!messages.length) { $('distill-status').textContent = '当前对话还没有内容'; return; }
+    if (!apiKey) { $('distill-status').textContent = '请先在设置里填 API Key'; return; }
+    const btn = $('distill-btn');
+    btn.disabled = true;
+    $('distill-status').textContent = '正在提炼…';
+    const result = await distillMemory(messages, $('mem-input').value.trim());
+    btn.disabled = false;
+    if (result == null) { $('distill-status').textContent = '提炼失败，请重试'; return; }
+    $('mem-input').value = result;
+    updateMemCount();
+    $('distill-status').textContent = '已更新 ✓ 记得点保存';
+  }
+  // 把对话提炼成长期记忆（合并去重、压缩）。返回新记忆文本或 null
+  async function distillMemory(msgs, existingMem) {
+    try {
+      const transcript = msgs.filter(m => m.role !== 'system')
+        .map(m => (m.role === 'user' ? 'Lea: ' : 'AI: ') + m.content).join('\n\n');
+      if (!transcript.trim()) return null;
+      const sys = "You maintain a long-term memory file about Lea for an AI companion app. You will be given the existing memory, then a recent conversation between Lea and the AI. Extract any NEW durable information worth remembering long-term: her preferences, facts about her life, things that happened, how the relationship is developing, emotional notes. Merge it into the existing memory — integrate naturally, remove duplicates, keep it concise and well-organized (a living summary, not a transcript). Do not invent anything not present in the conversation. Do not restate her fixed profile (that is stored separately). Write warm, plain notes. Output ONLY the complete updated memory text — no preamble, no commentary, no code fences.";
+      const user = "EXISTING MEMORY:\n" + (existingMem || '(empty)') + "\n\n----\n\nRECENT CONVERSATION:\n" + transcript + "\n\n----\n\nOutput the complete updated memory now.";
+      const payload = { model: selectedModel, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }], stream: false };
+      const res = await fetch(API_URL, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) });
+      if (!res.ok) return null;
+      const j = await res.json();
+      const out = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+      return (out && out.trim()) ? out.trim() : null;
+    } catch (e) { return null; }
+  }
+  // 离开对话时自动提炼（够新内容才跑，静默、失败不打扰）
+  async function maybeAutoDistill(sid, snapshot) {
+    if (!autoDistill || !apiKey || !sid) return;
+    const userTurns = snapshot.filter(m => m.role === 'user').length;
+    const s = sessions.find(x => x.id === sid);
+    const lastCount = (s && s.distilled) ? s.distilled : 0;
+    if (userTurns < 2 || userTurns <= lastCount) return;
+    const result = await distillMemory(snapshot, (localStorage.getItem('islet_mem') || '').trim());
+    if (result != null) {
+      localStorage.setItem('islet_mem', result);
+      if (s) { s.distilled = userTurns; saveIndex(); }
+      if ($('memory-overlay').classList.contains('show')) { $('mem-input').value = result; updateMemCount(); }
+    }
+  }
+
   /* ---------- 工具 ---------- */
   function nowTime() { return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); }
   function handleKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } }
@@ -863,6 +1056,7 @@
   $('drawer-overlay').addEventListener('click', e => { if (e.target.id === 'drawer-overlay') closeDrawer(); });
   $('setup-overlay').addEventListener('click', e => { if (e.target.id === 'setup-overlay') closeSettings(); });
   $('picker-overlay').addEventListener('click', e => { if (e.target.id === 'picker-overlay') closePicker(); });
+  $('memory-overlay').addEventListener('click', e => { if (e.target.id === 'memory-overlay') closeMemory(); });
 </script>
 </body>
 </html>
