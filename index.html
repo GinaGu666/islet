@@ -70,10 +70,10 @@
   .think-body { max-height: 0; overflow: hidden; transition: max-height .25s ease; }
   .think.open .think-body { max-height: 280px; overflow-y: auto; }
   .think-body::-webkit-scrollbar { width: 0; }
-  .think-body-inner { font-family: var(--serif); margin-top: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); font-size: 13.5px; line-height: 1.7; color: var(--ink-2); font-style: italic; white-space: pre-wrap; word-break: break-word; }
+  .think-body-inner { font-family: var(--serif) !important; margin-top: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); font-size: 13.5px; line-height: 1.7; color: var(--ink-2); font-style: italic; white-space: pre-wrap; word-break: break-word; }
 
   /* AI 正文 + Markdown */
-  .ai-text { font-family: var(--serif); font-size: 16px; line-height: 1.75; color: var(--ink); word-break: break-word; }
+  .ai-text { font-family: var(--serif) !important; font-size: 16px; line-height: 1.75; color: var(--ink); word-break: break-word; }
   .ai-text.err { color: var(--accent); white-space: pre-wrap; }
   .ai-text p { margin: 0 0 10px; }
   .ai-text p:last-child { margin-bottom: 0; }
