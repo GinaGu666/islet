@@ -932,7 +932,8 @@
   async function streamCompletion(model, msgs, signal, onReason, onContent) {
     let gotContent = false, sawDone = false, usage = null;
     try {
-      const payload = { model, messages: withCacheBreakpoints(model, msgs), stream: true, stream_options: { include_usage: true } };
+      // max_tokens：OpenRouter 会按此值预扣余额，不设则按模型最大输出预估，余额少时会被拒
+      const payload = { model, messages: withCacheBreakpoints(model, msgs), max_tokens: 8192, stream: true, stream_options: { include_usage: true } };
       if (reasoningEnabled && modelSupportsReasoning(model)) payload.reasoning = { enabled: true };
       const res = await fetch(API_URL, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
       if (!res.ok) { const e = await res.json().catch(() => ({})); return { ended: 'http', error: (e && e.error && e.error.message) || ('HTTP ' + res.status) }; }
@@ -1186,14 +1187,15 @@
     $('distill-status').textContent = '已更新 ✓ 记得点保存';
   }
   // 把对话提炼成长期记忆（合并去重、压缩）。返回新记忆文本或 null
+  const MEM_BUDGET = 800;   // 记忆总长上限（字），可按喜好调整
   async function distillMemory(msgs, existingMem) {
     try {
       const transcript = msgs.filter(m => m.role !== 'system')
         .map(m => (m.role === 'user' ? 'User: ' : 'AI: ') + m.content).join('\n\n');
       if (!transcript.trim()) return null;
-      const sys = "You maintain a long-term memory file about a specific relationship for an AI companion app. You will be given the existing memory, then a recent conversation between the user and the AI. Extract any NEW durable information worth remembering long-term: the user's preferences, facts about their life, things that happened between them, how the relationship is developing, emotional notes. Merge it into the existing memory — integrate naturally, remove duplicates, keep it concise and well-organized (a living summary, not a transcript). Do not invent anything not present in the conversation. Do not restate the user's fixed profile (that is stored separately). Write warm, plain notes, in the language the conversation is mostly in. Output ONLY the complete updated memory text — no preamble, no commentary, no code fences.";
+      const sys = "You maintain a long-term memory file about a specific relationship for an AI companion app. You will be given the existing memory, then a recent conversation between the user and the AI.\n\nExtract only DURABLE information: facts about the user's life, their preferences, meaningful events between them, how the relationship is developing, emotional notes that will still matter later.\n\nNEVER record any of the following — it would confuse future conversations:\n- Meta or technical talk: questions about which AI model this is, anything about the app itself, prompts, settings, API, or the user testing the AI\n- Small talk and one-off details that won't matter in a week\n- Blow-by-blow accounts of events — keep only the outcome and how it felt\n\nMerge new information into the existing memory: integrate, deduplicate, and actively REWRITE old entries for brevity — compressing or dropping stale content is encouraged. Compress facts into short phrases; feelings and relationship texture may keep slightly more room than plain facts.\n\nHARD LIMIT: the complete memory must stay under " + MEM_BUDGET + " characters. If merging would exceed this, cut the least important content first.\n\nStyle: terse notes, like index cards, not a diary. Example of the register: \"喜欢手冲咖啡，最近工作压力大\" — not full narrative sentences.\n\nDo not invent anything not present in the conversation. Do not restate the user's fixed profile (stored separately). Write in the language the conversation is mostly in. Output ONLY the complete updated memory text — no preamble, no commentary, no code fences.";
       const user = "EXISTING MEMORY:\n" + (existingMem || '(empty)') + "\n\n----\n\nRECENT CONVERSATION:\n" + transcript + "\n\n----\n\nOutput the complete updated memory now.";
-      const payload = { model: selectedModel, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }], stream: false };
+      const payload = { model: selectedModel, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }], max_tokens: 4096, stream: false };
       const body = JSON.stringify(payload);
       // keepalive 让页面关闭后请求也能发完；但它限制 body ≤64KB，超了会直接被拒，所以按字节数判断
       const keepalive = new Blob([body]).size < 60000;
