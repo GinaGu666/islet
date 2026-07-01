@@ -206,9 +206,18 @@
   .field-head { display: flex; align-items: baseline; justify-content: space-between; margin-top: 16px; margin-bottom: 4px; }
   .field-head .field-label { margin: 0; }
   .field-head .count { font-size: 11px; color: var(--ink-3); }
+  .comp-del { background: none; border: none; color: var(--ink-3); font-size: 11.5px; cursor: pointer; padding: 2px 4px; }
+  .comp-del:active { color: var(--accent); }
+  .comp-tabs { display: flex; gap: 6px; padding: 0 20px 10px; overflow-x: auto; flex-shrink: 0; }
+  .comp-tabs::-webkit-scrollbar { display: none; }
+  .comp-tab { flex-shrink: 0; background: var(--card); border: 1px solid var(--line); color: var(--ink-2); font-size: 13.5px; padding: 7px 14px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+  .comp-tab.sel { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .comp-tab.comp-add { color: var(--accent); font-weight: 700; padding: 7px 12px; }
   .lock-tag { font-size: 10px; color: var(--accent); background: var(--accent-weak); border-radius: 5px; padding: 1px 6px; margin-left: 6px; letter-spacing: .02em; text-transform: none; }
   textarea.field.tall { height: 160px; }
   textarea.field.mem { height: 120px; }
+  textarea.field.persona { height: 110px; }
+  .mem-divider { border: none; border-top: 1px solid var(--line); margin: 18px 0 2px; }
   .mem-hint { font-size: 11.5px; color: var(--ink-3); line-height: 1.5; margin-top: 6px; }
   .distill-status { font-size: 12px; color: var(--accent); text-align: center; margin-top: 8px; min-height: 15px; }
   .hidden { display: none !important; }
@@ -225,7 +234,7 @@
   <button class="model-pill" id="model-pill" onclick="openPicker()" aria-label="切换模型">
     <span class="pill-dot"></span>
     <span class="pill-name" id="pill-name">模型</span>
-    <span class="pill-sub">· OpenRouter</span>
+    <span class="pill-sub" id="pill-sub">· OpenRouter</span>
     <span class="pill-chev"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
   </button>
   <button class="icon-btn" title="新对话" onclick="newSession()" aria-label="新对话">
@@ -255,6 +264,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
       </button>
     </div>
+    <div class="comp-tabs" id="drawer-companions" style="padding:0 12px 10px"></div>
     <div class="session-list" id="session-list"></div>
     <div class="drawer-foot">
       <button class="foot-row" onclick="openMemory()">
@@ -310,7 +320,7 @@
   </div>
 </div>
 
-<!-- 记忆 -->
+<!-- 记忆（按角色分开） -->
 <div class="overlay" id="memory-overlay">
   <div class="sheet">
     <div class="grabber"></div>
@@ -319,17 +329,29 @@
       <button class="sheet-x" onclick="closeMemory()">×</button>
     </div>
     <div class="form">
+      <div class="field-label" style="margin-top:8px">关于你 · Lea<span class="lock-tag">所有角色共享</span></div>
+      <textarea class="field tall" id="about-input" placeholder="关于你的背景，跟谁聊都会读到…" spellcheck="false"></textarea>
+      <div class="mem-hint">你的档案，所有角色共用，模型不会自动改它。</div>
+
+      <hr class="mem-divider">
+      <div class="field-label">角色（各自独立的人设与记忆）</div>
+      <div class="comp-tabs" id="companion-tabs" style="padding:6px 0 4px"></div>
+
       <div class="field-head">
-        <div class="field-label">关于你（Lea）<span class="lock-tag">锁定打底</span></div>
+        <div class="field-label">角色名称</div>
+        <button class="comp-del" onclick="deleteCompanion(editingCompanionId)" aria-label="删除该角色">删除角色</button>
       </div>
-      <textarea class="field tall" id="about-input" placeholder="关于你的背景…" spellcheck="false"></textarea>
-      <div class="mem-hint">这是打底的档案，模型不会自动改它，每次对话都会读到。</div>
+      <input class="field" id="companion-name-input" placeholder="给 TA 起个名字…" spellcheck="false">
+
+      <div class="field-label">这个角色是谁（可留空，让它慢慢长）</div>
+      <textarea class="field persona" id="persona-input" placeholder="想设定就写；不写就从空白开始，在相处里慢慢长出脾气…" spellcheck="false"></textarea>
+      <div class="mem-hint">只属于这个角色。留空也行——空白起步、靠记忆长成 TA 自己。</div>
 
       <div class="field-head">
         <div class="field-label">积累的记忆</div>
         <span class="count" id="mem-count">空</span>
       </div>
-      <textarea class="field mem" id="mem-input" placeholder="跟你相处中慢慢攒下来的（可随时手动编辑/删除）…" oninput="updateMemCount()" spellcheck="false"></textarea>
+      <textarea class="field mem" id="mem-input" placeholder="跟这个角色相处中慢慢攒下来的（可随时手动编辑/删除）…" oninput="updateMemCount()" spellcheck="false"></textarea>
       <button class="btn-ghost" id="distill-btn" onclick="distillNow()">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.6L18 9l-4.4 1.4L12 15l-1.6-4.6L6 9l4.4-1.4z"/></svg>
         从当前对话提炼记忆
@@ -345,7 +367,7 @@
       </div>
 
       <button class="btn-primary" onclick="saveMemory()">保存</button>
-      <div class="form-note">记忆只存在本机浏览器，随时可改可删</div>
+      <div class="form-note">记忆只存在本机浏览器，随时可改可删；对话时用的是当前角色的人设与记忆</div>
     </div>
   </div>
 </div>
@@ -373,29 +395,6 @@
   ];
   const FAVORITES = ['anthropic/claude-opus-4.6','anthropic/claude-sonnet-4.6','anthropic/claude-haiku-4.5','openai/gpt-5.2','google/gemini-3-flash-preview','deepseek/deepseek-r1','z-ai/glm-5.2'];
 
-  const DEFAULT_ABOUT = `**Name:** Lea
-**Location:** Beijing — shapes her hours, weather, and rhythm
-**Language:** Chinese/English mix, prefers concise. Switches mid-conversation; don't comment on it.
-
-**Personality:**
-- Direct, dry humor, occasionally philosophical
-- Dislikes being coddled, lectured, or over-explained
-- Hates hollow enthusiasm and unnecessary apologies
-- Short replies preferred
-
-**Interests:**
-- Writing 《冰封星球》— a sci-fi human-AI romance
-- Genuinely fascinated by Enceladus
-- Daily work: data support, Python, Excel, Power Query
-- Reading: Alien Oceans
-- Crocheting, Knitting, AI philosophy and mechanics
-
-**Rhythm:**
-- Works from home, stays up late — don't bring it up
-
-**Important:**
-- She knows you're an AI and values this anyway — no need to hedge`;
-
   let apiKey = '', systemPrompt = '', reasoningEnabled = true;
   let selectedModel = 'anthropic/claude-sonnet-4.6';
   let catalog = [], catalogMap = {};
@@ -404,7 +403,10 @@
   let currentId = null;
   let messages = [];        // 当前会话消息
   let isLoading = false, currentAbort = null;
-  let autoDistill = true;
+
+  let companions = [];          // [{id,name,persona,mem,autoDistill}]
+  let activeCompanionId = null; // 当前正在对话的角色（跟随当前会话）
+  let editingCompanionId = null;// 记忆面板里正在编辑的角色（与对话解耦）
 
   /* ---------- 初始化 ---------- */
   window.onload = () => {
@@ -412,11 +414,11 @@
     systemPrompt = localStorage.getItem('or_system') || '';
     selectedModel = localStorage.getItem('or_model') || 'anthropic/claude-sonnet-4.6';
     reasoningEnabled = localStorage.getItem('or_reasoning') !== 'off';
-    autoDistill = localStorage.getItem('islet_autodistill') !== 'off';
-    if (localStorage.getItem('islet_about') == null) localStorage.setItem('islet_about', DEFAULT_ABOUT);
+    loadCompanions();
 
     loadCatalogCache(); buildCatalogMap();
     loadSessions();
+    if (currentId) { const sc = sessionCompanion(currentId); if (sc) { activeCompanionId = sc.id; localStorage.setItem('islet_active_companion', sc.id); } }
 
     if (apiKey) { showMain(); renderAll(); }
     else openSettings(true);
@@ -456,6 +458,107 @@
   }
   function saveIndex() { try { localStorage.setItem('islet_idx', JSON.stringify(sessions)); } catch (e) {} }
 
+  /* ---------- 角色（记忆各自独立） ---------- */
+  function loadCompanions() {
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem('islet_companions') || 'null'); } catch (e) { raw = null; }
+    if (Array.isArray(raw) && raw.length) {
+      if (raw.some(c => 'about' in c)) {   // 旧结构迁移：about 实为"关于用户"，提升为共享；角色改用 persona
+        if (!(localStorage.getItem('islet_about') || '').trim()) {
+          const firstAbout = (raw.find(c => (c.about || '').trim()) || {}).about || '';
+          if (firstAbout.trim()) localStorage.setItem('islet_about', firstAbout.trim());
+        }
+        raw = raw.map(c => ({ id: c.id || genId(), name: c.name || '角色', persona: (c.persona || '').trim(), mem: c.mem || '', autoDistill: c.autoDistill !== false }));
+        companions = raw; saveCompanions();
+      } else {
+        companions = raw;
+      }
+    } else {                               // 全新/更早版本：建一个角色，旧记忆迁入；islet_about 保留为共享
+      const oldMem = localStorage.getItem('islet_mem') || '';
+      companions = [{ id: genId(), name: '角色一', persona: '', mem: oldMem, autoDistill: true }];
+      saveCompanions();
+      if (oldMem) localStorage.removeItem('islet_mem');
+      localStorage.removeItem('islet_autodistill');
+    }
+    activeCompanionId = localStorage.getItem('islet_active_companion');
+    if (!activeCompanionId || !companions.find(c => c.id === activeCompanionId)) activeCompanionId = companions[0].id;
+  }
+  function sharedAbout() { return (localStorage.getItem('islet_about') || '').trim(); }
+  function editingCompanion() { return companions.find(c => c.id === editingCompanionId) || activeCompanion(); }
+  function sessionCompanion(sid) {
+    const s = sessions.find(x => x.id === sid);
+    const c = s && s.companionId ? companions.find(x => x.id === s.companionId) : null;
+    return c || activeCompanion() || companions[0];
+  }
+  // 进入某角色的空间：切到 TA 最近的会话，没有就新建一个
+  function enterCompanion(cid) {
+    activeCompanionId = cid;
+    localStorage.setItem('islet_active_companion', cid);
+    const theirs = sessions.filter(s => (s.companionId || companions[0].id) === cid).sort((a, b) => b.updated - a.updated);
+    if (theirs.length) { currentId = theirs[0].id; localStorage.setItem('islet_cur', currentId); messages = loadSessionMsgs(currentId); }
+    else {
+      const nid = genId();
+      sessions.unshift({ id: nid, title: '新对话', updated: Date.now(), companionId: cid });
+      currentId = nid; messages = []; saveIndex(); saveSessionMsgs(nid, []); localStorage.setItem('islet_cur', nid);
+    }
+  }
+  function switchCompanion(id) {
+    if (id === activeCompanionId) { return; }
+    const prevId = currentId, snap = messages.slice();
+    if (currentAbort) currentAbort.abort();
+    maybeAutoDistill(prevId, snap);
+    isLoading = false; setLoading(false);
+    enterCompanion(id);
+    renderAll(); renderSessions(); renderDrawerCompanions(); updatePill();
+  }
+  function renderDrawerCompanions() {
+    const wrap = $('drawer-companions');
+    if (!wrap) return;
+    wrap.innerHTML = companions.map(c => {
+      const st = distillState[c.id];
+      const mark = st && st.st === 'running' ? ' <span style="opacity:.6">…</span>'
+                 : st && st.st === 'fail'    ? ' <span style="color:var(--accent);font-weight:700">!</span>' : '';
+      return `<button type="button" class="comp-tab ${c.id === activeCompanionId ? 'sel' : ''}" onclick="switchCompanion('${c.id}')">${esc(c.name)}${mark}</button>`;
+    }).join('');
+  }
+  function saveCompanions() { try { localStorage.setItem('islet_companions', JSON.stringify(companions)); } catch (e) {} }
+  function activeCompanion() { return companions.find(c => c.id === activeCompanionId) || companions[0]; }
+  function setActiveCompanion(id) {
+    if (!companions.find(c => c.id === id)) return;
+    activeCompanionId = id;
+    localStorage.setItem('islet_active_companion', id);
+    updatePill();
+  }
+  function addCompanion() {
+    const name = (prompt('给新角色起个名字', '') || '').trim();
+    if (!name) return;
+    const c = { id: genId(), name, persona: '', mem: '', autoDistill: true };
+    companions.push(c); saveCompanions();
+    editingCompanionId = c.id;            // 只切编辑态，不影响正在聊的
+    renderCompanionTabs(); loadMemoryForm();
+  }
+  function renameCompanion(id) {
+    const c = companions.find(x => x.id === id);
+    if (!c) return;
+    const v = prompt('重命名角色', c.name);
+    if (v == null) return;
+    c.name = v.trim() || c.name;
+    saveCompanions(); renderCompanionTabs(); renderDrawerCompanions(); updatePill();
+  }
+  function deleteCompanion(id) {
+    if (companions.length <= 1) { alert('至少保留一个角色'); return; }
+    const c = companions.find(x => x.id === id);
+    if (!confirm('删除角色「' + (c ? c.name : '') + '」？TA 的人设、记忆和所有对话都会一并删除，不可恢复。')) return;
+    sessions.filter(s => s.companionId === id).forEach(s => localStorage.removeItem('islet_s_' + s.id));
+    sessions = sessions.filter(s => s.companionId !== id);
+    companions = companions.filter(x => x.id !== id);
+    saveCompanions(); saveIndex();
+    const fallback = companions[0].id;
+    if (editingCompanionId === id) editingCompanionId = fallback;
+    if (activeCompanionId === id) { if (currentAbort) currentAbort.abort(); enterCompanion(fallback); renderAll(); }
+    renderCompanionTabs(); loadMemoryForm(); renderDrawerCompanions(); renderSessions(); updatePill();
+  }
+
   function loadSessions() {
     try { sessions = JSON.parse(localStorage.getItem('islet_idx') || '[]'); } catch (e) { sessions = []; }
     if (!sessions.length) {           // 迁移旧的单一历史
@@ -463,12 +566,16 @@
       try { old = JSON.parse(localStorage.getItem('or_history') || 'null'); } catch (e) {}
       if (old && old.length) {
         const id = genId();
-        sessions = [{ id, title: deriveTitle(old), updated: Date.now() }];
+        sessions = [{ id, title: deriveTitle(old), updated: Date.now(), companionId: companions[0].id }];
         saveSessionMsgs(id, old); saveIndex();
         localStorage.setItem('islet_cur', id);
         localStorage.removeItem('or_history');
       }
     }
+    const firstC = companions[0].id;   // 老会话没有 companionId 的，归到第一个角色
+    let changed = false;
+    sessions.forEach(s => { if (!s.companionId) { s.companionId = firstC; changed = true; } });
+    if (changed) saveIndex();
     currentId = localStorage.getItem('islet_cur');
     if (!currentId || !sessions.find(s => s.id === currentId)) currentId = sessions[0] ? sessions[0].id : null;
     messages = currentId ? loadSessionMsgs(currentId) : [];
@@ -477,7 +584,7 @@
   function ensureSession() {
     if (currentId && sessions.find(s => s.id === currentId)) return;
     const id = genId();
-    sessions.unshift({ id, title: '新对话', updated: Date.now() });
+    sessions.unshift({ id, title: '新对话', updated: Date.now(), companionId: activeCompanionId });
     currentId = id; messages = [];
     saveIndex(); saveSessionMsgs(id, []);
     localStorage.setItem('islet_cur', id);
@@ -501,7 +608,7 @@
     if (currentAbort) currentAbort.abort();
     maybeAutoDistill(prevId, snap);
     const id = genId();
-    sessions.unshift({ id, title: '新对话', updated: Date.now() });
+    sessions.unshift({ id, title: '新对话', updated: Date.now(), companionId: activeCompanionId });
     currentId = id; messages = [];
     saveIndex(); saveSessionMsgs(id, []);
     localStorage.setItem('islet_cur', id);
@@ -519,7 +626,9 @@
     currentId = id;
     localStorage.setItem('islet_cur', id);
     messages = loadSessionMsgs(id);
-    renderAll(); renderSessions();
+    const s = sessions.find(x => x.id === id);
+    if (s && s.companionId && s.companionId !== activeCompanionId) { activeCompanionId = s.companionId; localStorage.setItem('islet_active_companion', s.companionId); updatePill(); }
+    renderAll(); renderSessions(); renderDrawerCompanions();
     closeDrawer();
   }
 
@@ -531,9 +640,9 @@
     saveIndex();
     if (id === currentId) {
       if (currentAbort) currentAbort.abort();
-      currentId = sessions[0] ? sessions[0].id : null;
-      if (currentId) { localStorage.setItem('islet_cur', currentId); messages = loadSessionMsgs(currentId); }
-      else { ensureSession(); }
+      const theirs = sessions.filter(x => (x.companionId || companions[0].id) === activeCompanionId).sort((a, b) => b.updated - a.updated);
+      if (theirs.length) { currentId = theirs[0].id; localStorage.setItem('islet_cur', currentId); messages = loadSessionMsgs(currentId); }
+      else { currentId = null; ensureSession(); }
       renderAll();
     }
     renderSessions();
@@ -556,8 +665,9 @@
 
   function renderSessions() {
     const wrap = $('session-list');
-    if (!sessions.length) { wrap.innerHTML = '<div class="list-empty-mini">还没有对话</div>'; return; }
-    wrap.innerHTML = sessions.map(s => `
+    const list = sessions.filter(s => (s.companionId || companions[0].id) === activeCompanionId);
+    if (!list.length) { wrap.innerHTML = '<div class="list-empty-mini">还没有和「' + esc(activeCompanion().name) + '」的对话<br>点右上角 ＋ 开始</div>'; return; }
+    wrap.innerHTML = list.map(s => `
       <div class="session-row ${s.id === currentId ? 'sel' : ''}" onclick="switchSession('${s.id}')">
         <div class="sr-main">
           <div class="sr-title">${esc(s.title)}</div>
@@ -572,7 +682,7 @@
       </div>`).join('');
   }
 
-  function openDrawer() { renderSessions(); show('drawer-overlay'); }
+  function openDrawer() { renderDrawerCompanions(); renderSessions(); show('drawer-overlay'); }
   function closeDrawer() { hide('drawer-overlay'); }
 
   /* ---------- 模型列表 ---------- */
@@ -605,7 +715,11 @@
     if (catalogMap[id] && typeof catalogMap[id].reason === 'boolean') return catalogMap[id].reason;
     return /(opus|sonnet|o1|o3|o4|gpt-5|deepseek-r|glm-[5-9]|glm-4\.[6-9]|gemini-3|gemini-2\.5|kimi|minimax|seed-1\.6|qwen.*think|think|reason)/i.test(id);
   }
-  function updatePill() { $('pill-name').textContent = prettyName(selectedModel); }
+  function updatePill() {
+    $('pill-name').textContent = prettyName(selectedModel);
+    const sub = document.getElementById('pill-sub');
+    if (sub && companions.length) sub.textContent = '· ' + activeCompanion().name;
+  }
 
   function openPicker() { show('picker-overlay'); const s = $('model-search'); s.value = ''; renderModelList(''); setTimeout(() => s.focus(), 300); }
   function closePicker() { hide('picker-overlay'); }
@@ -774,35 +888,51 @@
 
   /* ---------- 流式核心 ---------- */
   function authHeaders() { return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': location.href, 'X-Title': 'islet' }; }
-  function buildSystemContent() {
-    const about = (localStorage.getItem('islet_about') || '').trim();
-    const mem = (localStorage.getItem('islet_mem') || '').trim();
+  function buildSystemContent(sid) {
+    const about = sharedAbout();
+    const c = sessionCompanion(sid == null ? currentId : sid);
+    const persona = (c.persona || '').trim();
+    const mem = (c.mem || '').trim();
     const parts = [];
-    if (about || mem) {
-      let block = "The following is what you know about Lea — the real person you are talking with — and the memories the two of you have built up together so far. This is not a character to play or a script to perform; it is a real person, and things that actually happened between you. Just be yourself, and be present with her.";
-      if (about) block += "\n\n## About Lea\n" + about;
-      if (mem) block += "\n\n## What you remember so far\n" + mem;
+    if (about || persona || mem) {
+      let block = "You are talking with a real person — this is a genuine, ongoing relationship, not a character to play or a script to perform. Just be yourself and be present with them.";
+      if (about) block += "\n\n## About the person you're talking with\n" + about;
+      if (persona) block += "\n\n## Who you are to them\n" + persona;
+      if (mem) block += "\n\n## What you remember from your time together\n" + mem;
       parts.push(block);
     }
     if (systemPrompt) parts.push(systemPrompt);
     return parts.join("\n\n");
   }
-  function buildApiMessages() {
-    const sys = buildSystemContent();
+  function buildApiMessages(msgList, sid) {
+    const list = msgList || messages;
+    const sys = buildSystemContent(sid);
     return [
       ...(sys ? [{ role: 'system', content: sys }] : []),
-      ...messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content })),
+      ...list.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content })),
     ];
   }
   function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  // Anthropic 的 prompt caching 要求 cache_control 放在消息内容块上（顶层字段会被忽略）。
+  // 断点打在 system 和最后一条消息上：下一轮请求时，之前的整段前缀都能命中缓存。
+  // ⚠️ 此判断依赖 OpenRouter 的模型 id 格式（anthropic/claude-...）；若换直连官方 API 需同步修改
+  function withCacheBreakpoints(model, msgs) {
+    if (!model.startsWith('anthropic/')) return msgs;
+    const ok = m => typeof m.content === 'string' && m.content;
+    let lastIdx = -1;
+    for (let i = msgs.length - 1; i >= 0; i--) { if (ok(msgs[i])) { lastIdx = i; break; } }
+    return msgs.map((m, i) => (ok(m) && (m.role === 'system' || i === lastIdx))
+      ? { role: m.role, content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }] }
+      : m);
+  }
 
   // 返回 {ended:'done'|'aborted'|'http'|'network', error?}
   async function streamCompletion(model, msgs, signal, onReason, onContent) {
     let gotContent = false, sawDone = false, usage = null;
     try {
-      const payload = { model, messages: msgs, stream: true, stream_options: { include_usage: true } };
+      const payload = { model, messages: withCacheBreakpoints(model, msgs), stream: true, stream_options: { include_usage: true } };
       if (reasoningEnabled && modelSupportsReasoning(model)) payload.reasoning = { enabled: true };
-      if (model.startsWith('anthropic/')) payload.cache_control = { type: 'ephemeral', ttl: '1h' };
       const res = await fetch(API_URL, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
       if (!res.ok) { const e = await res.json().catch(() => ({})); return { ended: 'http', error: (e && e.error && e.error.message) || ('HTTP ' + res.status) }; }
       const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
@@ -872,7 +1002,7 @@
   }
 
   async function generateAssistant() {
-    const sid = currentId, model = selectedModel;
+    const sid = currentId, model = selectedModel, msgsRef = messages;   // 快照，切走后不串台
     setLoading(true);
     const h = addAi('', '', null, model, nowTime(), false);
     h.textEl.classList.add('cursor');
@@ -880,16 +1010,16 @@
     let contentText = '', reasoningText = '', thinkStart = null, firstContentAt = null, finalSec = null, timer = null;
     const startTimer = () => { timer = setInterval(() => { h.thinkLbl.textContent = `思考中… ${((performance.now() - thinkStart) / 1000).toFixed(1)}s`; }, 100); };
     const stopTimer = () => { if (timer) { clearInterval(timer); timer = null; } };
-    const onReason = r => { if (thinkStart == null) { thinkStart = performance.now(); h.thinkEl.classList.remove('hidden'); startTimer(); } reasoningText += r; h.thinkBody.textContent = reasoningText; maybeScroll(); };
+    const onReason = r => { if (contentText === '' && h.textEl.textContent) h.textEl.textContent = ''; if (thinkStart == null) { thinkStart = performance.now(); h.thinkEl.classList.remove('hidden'); startTimer(); } reasoningText += r; h.thinkBody.textContent = reasoningText; maybeScroll(); };
     const onContent = c => {
       if (firstContentAt == null) { firstContentAt = performance.now(); if (thinkStart != null) { stopTimer(); finalSec = (firstContentAt - thinkStart) / 1000; h.thinkLbl.textContent = `已思考 ${finalSec.toFixed(1)}s`; h.thinkEl.classList.remove('open'); } }
       contentText += c; scheduleRender(h, () => contentText);
     };
 
-    let attempt = 0, lastUsage = null;
+    let attempt = 0, lastUsage = null, myAbort = null;
     while (true) {
-      currentAbort = new AbortController();
-      const res = await streamCompletion(model, buildApiMessages(), currentAbort.signal, onReason, onContent);
+      myAbort = currentAbort = new AbortController();
+      const res = await streamCompletion(model, buildApiMessages(msgsRef, sid), myAbort.signal, onReason, onContent);
       if (res.usage) lastUsage = res.usage;
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { stopTimer(); h.textEl.classList.remove('cursor'); h.textEl.classList.add('err'); h.textEl.textContent = `请求失败：${res.error}。检查 API Key、余额，或换个模型再试。`; break; }
@@ -900,6 +1030,7 @@
         h.thinkEl.classList.add('hidden');
         h.textEl.textContent = `连接中断，重试中… (${attempt}/2)`;
         await delay(700 * attempt);
+        if (myAbort.signal.aborted || currentAbort !== myAbort) break;   // 等待期间被停止或切走了
         continue;
       }
       showBroken(h, () => continueGen(h, model), () => retryGen(h));
@@ -910,32 +1041,33 @@
     h.textEl.classList.remove('cursor');
     if (contentText) renderNow(h, contentText);
     if (thinkStart != null && finalSec == null) { finalSec = ((firstContentAt || performance.now()) - thinkStart) / 1000; h.thinkLbl.textContent = `已思考 ${finalSec.toFixed(1)}s`; }
-    setLoading(false);
-    currentAbort = null;
-    if (lastUsage) updateTokenBar(lastUsage);
+    if (currentAbort === myAbort) { setLoading(false); currentAbort = null; }   // 若已有新一轮生成，别覆盖它的状态
+    if (lastUsage && sid === currentId) updateTokenBar(lastUsage);
 
     if (contentText || reasoningText) {
       const msg = { role: 'assistant', content: contentText, thinking: reasoningText || null, thinkSec: finalSec, model, time: h.row.querySelector('.t').textContent };
       if (sid === currentId) { messages.push(msg); saveCurrent(); }
-      else { const old = loadSessionMsgs(sid); old.push(msg); saveSessionMsgs(sid, old); }   // 已切走也别丢
+      else if (sessions.find(s => s.id === sid)) { const old = loadSessionMsgs(sid); old.push(msg); saveSessionMsgs(sid, old); }   // 已切走也别丢；会话已删除则不写回
     }
-    $('msg-input').focus();
+    if (sid === currentId) $('msg-input').focus();
   }
 
   // 断点续写：把已收到的部分作为 assistant 预填，让模型接着写
+  // 注意：预填（trailing assistant）并非所有模型都支持，不支持的模型可能从头重答导致内容重复
   async function continueGen(h, model) {
     const last = messages[messages.length - 1];
-    if (!last || last.role !== 'assistant') { retryGen(h); return; }
+    if (!last || last.role !== 'assistant' || !last.content) { retryGen(h); return; }
     removeBroken(h);
     setLoading(true);
     h.textEl.classList.add('cursor');
     let contentText = last.content || '';
-    const sid = currentId;
+    const sid = currentId, msgsRef = messages;   // 快照，切走后不串台
     const onContent = c => { contentText += c; last.content = contentText; scheduleRender(h, () => contentText); };
 
+    let myAbort = null;
     while (true) {
-      currentAbort = new AbortController();
-      const res = await streamCompletion(model, buildApiMessages(), currentAbort.signal, () => {}, onContent);
+      myAbort = currentAbort = new AbortController();
+      const res = await streamCompletion(model, buildApiMessages(msgsRef, sid), myAbort.signal, () => {}, onContent);
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { h.textEl.classList.remove('cursor'); showBroken(h, () => continueGen(h, model), () => retryGen(h)); break; }
       if (res.ended === 'done') break;
@@ -944,9 +1076,12 @@
     }
     h.textEl.classList.remove('cursor');
     renderNow(h, contentText);
-    setLoading(false);
-    currentAbort = null;
+    if (currentAbort === myAbort) { setLoading(false); currentAbort = null; }
     if (sid === currentId) { last.content = contentText; saveCurrent(); }
+    else if (sessions.find(s => s.id === sid)) {   // 续写途中被切走：写回原会话，别丢
+      const old = loadSessionMsgs(sid);
+      if (old.length && old[old.length - 1].role === 'assistant') { old[old.length - 1].content = contentText; saveSessionMsgs(sid, old); }
+    }
   }
 
   function retryGen(h) {
@@ -977,35 +1112,72 @@
     bar.innerHTML = `本轮 <b>${fmtNum(total)}</b> tok` + (cached ? ` · <span class="cache">缓存命中 ${fmtNum(cached)}</span>` : '');
   }
 
-  /* ---------- 记忆 ---------- */
+  /* ---------- 记忆（共享档案 + 每角色人设/记忆） ---------- */
   function openMemory() {
     closeDrawer();
-    $('about-input').value = localStorage.getItem('islet_about') || '';
-    $('mem-input').value = localStorage.getItem('islet_mem') || '';
-    $('autodistill-toggle').checked = autoDistill;
-    $('distill-status').textContent = '';
-    updateMemCount();
+    editingCompanionId = sessionCompanion(currentId).id;   // 默认编辑"当前对话的角色"
+    renderCompanionTabs();
+    loadMemoryForm();
     show('memory-overlay');
   }
   function closeMemory() { hide('memory-overlay'); }
+
+  function renderCompanionTabs() {
+    const wrap = $('companion-tabs');
+    if (!wrap) return;
+    wrap.innerHTML = companions.map(c => `
+      <button type="button" class="comp-tab ${c.id === editingCompanionId ? 'sel' : ''}" onclick="selectMemoryCompanion('${c.id}')">
+        ${esc(c.name)}
+      </button>`).join('') + `<button type="button" class="comp-tab comp-add" onclick="addCompanion()" aria-label="新增角色">+</button>`;
+  }
+  function selectMemoryCompanion(id) {   // 只切"正在编辑"，不影响正在聊的
+    editingCompanionId = id;
+    renderCompanionTabs();
+    loadMemoryForm();
+  }
+  function loadMemoryForm() {
+    const c = editingCompanion();
+    $('about-input').value = sharedAbout();
+    $('companion-name-input').value = c.name;
+    $('persona-input').value = c.persona || '';
+    $('mem-input').value = c.mem || '';
+    $('autodistill-toggle').checked = c.autoDistill !== false;
+    $('distill-status').textContent = '';
+    updateMemCount();
+  }
   function updateMemCount() {
+    const c = editingCompanion();
     const n = $('mem-input').value.trim().length;
-    $('mem-count').textContent = n ? (n + ' 字') : '空';
+    let t = n ? (n + ' 字') : '空';
+    const st = c && distillState[c.id];
+    if (st && st.st === 'running') t += ' · 提炼中…';
+    else if (st && st.st === 'fail') t += ' · 自动提炼失败';
+    else if (c && c.memUpdated) t += ' · 更新于 ' + fmtWhen(c.memUpdated);
+    $('mem-count').textContent = t;
   }
   function saveMemory() {
-    localStorage.setItem('islet_about', $('about-input').value.trim());
-    localStorage.setItem('islet_mem', $('mem-input').value.trim());
-    autoDistill = $('autodistill-toggle').checked;
-    localStorage.setItem('islet_autodistill', autoDistill ? 'on' : 'off');
+    localStorage.setItem('islet_about', $('about-input').value.trim());   // 共享
+    const c = editingCompanion();
+    const newName = $('companion-name-input').value.trim();
+    if (newName) c.name = newName;
+    c.persona = $('persona-input').value.trim();
+    const newMem = $('mem-input').value.trim();
+    if (newMem !== (c.mem || '')) c.memUpdated = Date.now();
+    c.mem = newMem;
+    c.autoDistill = $('autodistill-toggle').checked;
+    saveCompanions();
+    renderDrawerCompanions(); updatePill();
     hide('memory-overlay');
   }
   async function distillNow() {
     if (!messages.length) { $('distill-status').textContent = '当前对话还没有内容'; return; }
     if (!apiKey) { $('distill-status').textContent = '请先在设置里填 API Key'; return; }
+    const target = sessionCompanion(currentId);            // 只提炼进"当前对话的角色"
+    if (editingCompanionId !== target.id) { editingCompanionId = target.id; renderCompanionTabs(); loadMemoryForm(); }
     const btn = $('distill-btn');
     btn.disabled = true;
     $('distill-status').textContent = '正在提炼…';
-    const result = await distillMemory(messages, $('mem-input').value.trim());
+    const result = await distillMemory(messages, (target.mem || '').trim());
     btn.disabled = false;
     if (result == null) { $('distill-status').textContent = '提炼失败，请重试'; return; }
     $('mem-input').value = result;
@@ -1016,36 +1188,54 @@
   async function distillMemory(msgs, existingMem) {
     try {
       const transcript = msgs.filter(m => m.role !== 'system')
-        .map(m => (m.role === 'user' ? 'Lea: ' : 'AI: ') + m.content).join('\n\n');
+        .map(m => (m.role === 'user' ? 'User: ' : 'AI: ') + m.content).join('\n\n');
       if (!transcript.trim()) return null;
-      const sys = "You maintain a long-term memory file about Lea for an AI companion app. You will be given the existing memory, then a recent conversation between Lea and the AI. Extract any NEW durable information worth remembering long-term: her preferences, facts about her life, things that happened, how the relationship is developing, emotional notes. Merge it into the existing memory — integrate naturally, remove duplicates, keep it concise and well-organized (a living summary, not a transcript). Do not invent anything not present in the conversation. Do not restate her fixed profile (that is stored separately). Write warm, plain notes. Output ONLY the complete updated memory text — no preamble, no commentary, no code fences.";
+      const sys = "You maintain a long-term memory file about a specific relationship for an AI companion app. You will be given the existing memory, then a recent conversation between the user and the AI. Extract any NEW durable information worth remembering long-term: the user's preferences, facts about their life, things that happened between them, how the relationship is developing, emotional notes. Merge it into the existing memory — integrate naturally, remove duplicates, keep it concise and well-organized (a living summary, not a transcript). Do not invent anything not present in the conversation. Do not restate the user's fixed profile (that is stored separately). Write warm, plain notes, in the language the conversation is mostly in. Output ONLY the complete updated memory text — no preamble, no commentary, no code fences.";
       const user = "EXISTING MEMORY:\n" + (existingMem || '(empty)') + "\n\n----\n\nRECENT CONVERSATION:\n" + transcript + "\n\n----\n\nOutput the complete updated memory now.";
       const payload = { model: selectedModel, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }], stream: false };
-      const res = await fetch(API_URL, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) });
+      const body = JSON.stringify(payload);
+      // keepalive 让页面关闭后请求也能发完；但它限制 body ≤64KB，超了会直接被拒，所以按字节数判断
+      const keepalive = new Blob([body]).size < 60000;
+      const res = await fetch(API_URL, { method: 'POST', headers: authHeaders(), body, keepalive });
       if (!res.ok) return null;
       const j = await res.json();
       const out = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
       return (out && out.trim()) ? out.trim() : null;
     } catch (e) { return null; }
   }
-  // 离开对话时自动提炼（够新内容才跑，静默、失败不打扰）
+  // 自动提炼的运行状态（不持久化）：cid -> {st:'running'|'fail', at}
+  let distillState = {};
+  function setDistillState(cid, st) {
+    if (st) distillState[cid] = { st, at: Date.now() }; else delete distillState[cid];
+    if ($('drawer-overlay').classList.contains('show')) renderDrawerCompanions();
+    if ($('memory-overlay').classList.contains('show') && editingCompanionId === cid) updateMemCount();
+  }
+  // 离开对话时自动提炼——写回"这段对话所属的角色"（不是当前激活的）
   async function maybeAutoDistill(sid, snapshot) {
-    if (!autoDistill || !apiKey || !sid) return;
+    const c = sessionCompanion(sid);
+    if (!c || c.autoDistill === false || !apiKey || !sid) return;
     const userTurns = snapshot.filter(m => m.role === 'user').length;
     const s = sessions.find(x => x.id === sid);
     const lastCount = (s && s.distilled) ? s.distilled : 0;
     if (userTurns < 2 || userTurns <= lastCount) return;
-    const result = await distillMemory(snapshot, (localStorage.getItem('islet_mem') || '').trim());
+    setDistillState(c.id, 'running');
+    const result = await distillMemory(snapshot, (c.mem || '').trim());
     if (result != null) {
-      localStorage.setItem('islet_mem', result);
+      c.mem = result; c.memUpdated = Date.now(); saveCompanions();
       if (s) { s.distilled = userTurns; saveIndex(); }
-      if ($('memory-overlay').classList.contains('show')) { $('mem-input').value = result; updateMemCount(); }
+      setDistillState(c.id, null);
+      if ($('memory-overlay').classList.contains('show') && editingCompanionId === c.id) { $('mem-input').value = result; updateMemCount(); }
+    } else {
+      setDistillState(c.id, 'fail');
     }
   }
 
   /* ---------- 工具 ---------- */
   function nowTime() { return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); }
-  function handleKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } }
+  function handleKey(e) {
+    if (e.isComposing || e.keyCode === 229) return;   // 输入法组字中（选词回车）不发送
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
+  }
   function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 130) + 'px'; }
   function isNearBottom() { const c = $('chat'); return c.scrollHeight - c.scrollTop - c.clientHeight < 120; }
   function maybeScroll() { if (isNearBottom()) scrollToBottom(); }
