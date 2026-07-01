@@ -158,7 +158,8 @@
   .foot-row svg { width: 19px; height: 19px; }
 
   /* 设置表单 */
-  .form { overflow-y: auto; padding: 0 20px; display: flex; flex-direction: column; }
+  .form { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 20px; display: flex; flex-direction: column; }
+  .form > * { flex-shrink: 0; }   /* 别把 textarea 等压扁，超出就让 .form 滚动 */
   .field-label { font-size: 11.5px; color: var(--ink-3); letter-spacing: .04em; text-transform: uppercase; margin-top: 14px; margin-bottom: 4px; }
   .field { width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink); font-size: 14.5px; padding: 12px 14px; outline: none; font-family: inherit; transition: border-color .15s; }
   .field:focus { border-color: var(--accent-line); }
@@ -181,7 +182,7 @@
   .search-wrap { padding: 0 20px 8px; flex-shrink: 0; }
   .search-box { width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 10px 16px; outline: none; color: var(--ink); font-size: 14.5px; font-family: inherit; }
   .search-box:focus { border-color: var(--accent-line); }
-  .model-list { overflow-y: auto; padding: 0 12px 4px; }
+  .model-list { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 12px 4px; }
   .list-section { font-size: 11px; color: var(--ink-3); letter-spacing: .05em; text-transform: uppercase; padding: 12px 8px 6px; }
   .model-row { display: flex; align-items: center; gap: 10px; padding: 11px 8px; border-radius: 12px; cursor: pointer; }
   .model-row:active, .model-row.sel { background: var(--accent-weak); }
