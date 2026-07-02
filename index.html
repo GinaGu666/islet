@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" id="meta-theme" content="#F4F0E8">
 <title>islet</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -19,11 +20,102 @@
     --accent-line: rgba(192,104,63,0.30);
     --line:      rgba(58,51,43,0.09);
     --code-bg:   #EEE7DA;
+    --code-head: rgba(58,51,43,0.04);
+    --scrim:     rgba(36,31,25,0.32);
     --radius:    20px;
     --radius-sm: 12px;
     --safe-top:    env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
     --serif:     "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC", STSong, Georgia, "Times New Roman", serif;
+    color-scheme: light;
+  }
+
+  /* 夜晚的同一个房间：暖深棕，不是冷灰；赭石提亮一档保证对比度 */
+  :root[data-theme="dark"] {
+    --bg:        #221E1A;
+    --card:      #2C2722;
+    --user:      #342E27;
+    --ink:       #EAE3D7;
+    --ink-2:     #A99D8B;
+    --ink-3:     #7D7263;
+    --accent:    #DB8B5B;
+    --accent-weak: rgba(219,139,91,0.13);
+    --accent-line: rgba(219,139,91,0.38);
+    --line:      rgba(234,227,215,0.10);
+    --code-bg:   #2B2620;
+    --code-head: rgba(234,227,215,0.05);
+    --scrim:     rgba(0,0,0,0.5);
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:        #221E1A;
+      --card:      #2C2722;
+      --user:      #342E27;
+      --ink:       #EAE3D7;
+      --ink-2:     #A99D8B;
+      --ink-3:     #7D7263;
+      --accent:    #DB8B5B;
+      --accent-weak: rgba(219,139,91,0.13);
+      --accent-line: rgba(219,139,91,0.38);
+      --line:      rgba(234,227,215,0.10);
+      --code-bg:   #2B2620;
+      --code-head: rgba(234,227,215,0.05);
+      --scrim:     rgba(0,0,0,0.5);
+      color-scheme: dark;
+    }
+  }
+
+  /* 冰蓝色调：清冷的灰蓝纸面 / 深蓝炭的夜 */
+  :root[data-palette="cool"] {
+    --bg:        #EFF2F5;
+    --card:      #F9FBFC;
+    --user:      #FFFFFF;
+    --ink:       #2B3138;
+    --ink-2:     #5E6B77;
+    --ink-3:     #97A3AF;
+    --accent:    #2F6E99;
+    --accent-weak: rgba(47,110,153,0.10);
+    --accent-line: rgba(47,110,153,0.32);
+    --line:      rgba(43,49,56,0.09);
+    --code-bg:   #E3E9EE;
+    --code-head: rgba(43,49,56,0.04);
+    --scrim:     rgba(30,36,42,0.32);
+    color-scheme: light;
+  }
+  :root[data-palette="cool"][data-theme="dark"] {
+    --bg:        #171B20;
+    --card:      #1F252B;
+    --user:      #262D34;
+    --ink:       #DEE5EB;
+    --ink-2:     #8D99A5;
+    --ink-3:     #66717C;
+    --accent:    #7FB5D6;
+    --accent-weak: rgba(127,181,214,0.13);
+    --accent-line: rgba(127,181,214,0.38);
+    --line:      rgba(222,229,235,0.10);
+    --code-bg:   #20262C;
+    --code-head: rgba(222,229,235,0.05);
+    --scrim:     rgba(0,0,0,0.5);
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-palette="cool"]:not([data-theme="light"]) {
+      --bg:        #171B20;
+      --card:      #1F252B;
+      --user:      #262D34;
+      --ink:       #DEE5EB;
+      --ink-2:     #8D99A5;
+      --ink-3:     #66717C;
+      --accent:    #7FB5D6;
+      --accent-weak: rgba(127,181,214,0.13);
+      --accent-line: rgba(127,181,214,0.38);
+      --line:      rgba(222,229,235,0.10);
+      --code-bg:   #20262C;
+      --code-head: rgba(222,229,235,0.05);
+      --scrim:     rgba(0,0,0,0.5);
+      color-scheme: dark;
+    }
   }
 
   body {
@@ -87,7 +179,7 @@
   .ai-text code { background: var(--code-bg); border-radius: 5px; padding: 1px 5px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.9em; }
   .ai-text strong { font-weight: 700; }
   .code-wrap { margin: 10px 0; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; background: var(--code-bg); }
-  .code-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: rgba(58,51,43,0.04); border-bottom: 1px solid var(--line); }
+  .code-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; background: var(--code-head); border-bottom: 1px solid var(--line); }
   .code-lang { font-size: 11px; color: var(--ink-3); letter-spacing: .04em; text-transform: lowercase; }
   .code-copy { background: none; border: none; color: var(--ink-2); font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: 5px; }
   .code-copy:active { color: var(--accent); }
@@ -123,7 +215,7 @@
   .send-btn svg { width: 19px; height: 19px; }
 
   /* 覆盖层 / 底部抽屉 */
-  .overlay { position: fixed; inset: 0; z-index: 50; background: rgba(36,31,25,0.32); backdrop-filter: blur(2px); display: flex; align-items: flex-end; opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .overlay { position: fixed; inset: 0; z-index: 50; background: var(--scrim); backdrop-filter: blur(2px); display: flex; align-items: flex-end; opacity: 0; pointer-events: none; transition: opacity .2s; }
   .overlay.show { opacity: 1; pointer-events: auto; }
   .sheet { width: 100%; background: var(--bg); border-radius: 22px 22px 0 0; padding: 8px 0 calc(16px + var(--safe-bottom)); max-height: 88dvh; display: flex; flex-direction: column; transform: translateY(100%); transition: transform .26s cubic-bezier(.22,.61,.36,1); box-shadow: 0 -8px 40px rgba(36,31,25,0.16); }
   .overlay.show .sheet { transform: translateY(0); }
@@ -300,6 +392,17 @@
         </div>
         <label class="switch"><input type="checkbox" id="reason-toggle" checked><span class="slider"></span></label>
       </div>
+      <div class="field-label">外观</div>
+      <div class="comp-tabs" id="theme-tabs" style="padding:6px 0 0">
+        <button type="button" class="comp-tab" data-mode="auto" onclick="setTheme('auto')">跟随系统</button>
+        <button type="button" class="comp-tab" data-mode="light" onclick="setTheme('light')">浅色</button>
+        <button type="button" class="comp-tab" data-mode="dark" onclick="setTheme('dark')">深色</button>
+      </div>
+      <div class="field-label">色调</div>
+      <div class="comp-tabs" id="palette-tabs" style="padding:6px 0 0">
+        <button type="button" class="comp-tab" data-mode="warm" onclick="setPalette('warm')">暖砂</button>
+        <button type="button" class="comp-tab" data-mode="cool" onclick="setPalette('cool')">冰蓝</button>
+      </div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -399,6 +502,31 @@
   let apiKey = '', systemPrompt = '', reasoningEnabled = true;
   let selectedModel = 'anthropic/claude-sonnet-4.6';
   let catalog = [], catalogMap = {};
+
+  /* ---------- 主题 ---------- */
+  let themeMode = localStorage.getItem('islet_theme') || 'auto';       // auto | light | dark
+  let paletteMode = localStorage.getItem('islet_palette') || 'warm';   // warm | cool
+  function effectiveTheme() { return themeMode !== 'auto' ? themeMode : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); }
+  function applyTheme() {
+    const el = document.documentElement;
+    if (themeMode === 'auto') el.removeAttribute('data-theme');
+    else el.setAttribute('data-theme', themeMode);
+    if (paletteMode === 'warm') el.removeAttribute('data-palette');
+    else el.setAttribute('data-palette', paletteMode);
+    const meta = document.getElementById('meta-theme');
+    const barColor = { 'warm-light': '#F4F0E8', 'warm-dark': '#221E1A', 'cool-light': '#EFF2F5', 'cool-dark': '#171B20' };
+    if (meta) meta.content = barColor[paletteMode + '-' + effectiveTheme()];
+  }
+  function setTheme(m) { themeMode = m; localStorage.setItem('islet_theme', m); applyTheme(); renderThemeTabs(); }
+  function setPalette(m) { paletteMode = m; localStorage.setItem('islet_palette', m); applyTheme(); renderThemeTabs(); }
+  function renderThemeTabs() {
+    const t = document.getElementById('theme-tabs');
+    if (t) t.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === themeMode));
+    const p = document.getElementById('palette-tabs');
+    if (p) p.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === paletteMode));
+  }
+  applyTheme();
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (themeMode === 'auto') applyTheme(); });
 
   let sessions = [];        // [{id,title,updated}]
   let currentId = null;
@@ -754,6 +882,7 @@
     $('api-key-input').value = apiKey;
     $('system-input').value = systemPrompt;
     $('reason-toggle').checked = reasoningEnabled;
+    renderThemeTabs();
     $('setup-x').style.visibility = (firstRun && !apiKey) ? 'hidden' : 'visible';
     show('setup-overlay');
   }
