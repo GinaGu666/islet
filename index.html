@@ -146,6 +146,12 @@
   .msg.ai { align-self: flex-start; align-items: flex-start; width: 100%; max-width: 100%; }
   .bubble { background: var(--user); border: 1px solid var(--line); border-radius: var(--radius); border-bottom-right-radius: 7px; padding: 11px 15px; font-size: 15.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 4px rgba(58,51,43,0.05); }
   .time { font-size: 11px; color: var(--ink-3); padding: 4px 4px 0; }
+  .meta-row { display: flex; align-items: center; gap: 2px; }
+  .edit-btn { background: none; border: none; padding: 4px 5px 0; color: var(--ink-3); display: flex; align-items: center; opacity: .8; }
+  .edit-btn:active { color: var(--accent); }
+  .edit-bar { display: flex; align-items: center; gap: 8px; margin: 0 14px; padding: 8px 12px; font-size: 12.5px; color: var(--ink-2); background: var(--accent-weak); border: 1px solid var(--accent-line); border-bottom: none; border-radius: 12px 12px 0 0; }
+  .edit-bar.hidden { display: none; }
+  .edit-bar .x { margin-left: auto; background: none; border: none; color: var(--accent); font-size: 12.5px; font-weight: 600; padding: 2px 4px; }
 
   .ai-eyebrow { display: flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--ink-2); margin-bottom: 7px; }
   .ai-eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
@@ -339,6 +345,7 @@
 
 <div class="token-bar" id="token-bar" style="display:none"></div>
 
+<div class="edit-bar hidden" id="edit-bar"><span>✎ 编辑消息 · 发送后将从这里重新生成</span><button class="x" type="button" onclick="cancelEdit()">取消</button></div>
 <div class="input-bar" id="input-bar" style="display:none">
   <div class="input-wrap">
     <textarea id="msg-input" rows="1" placeholder="说点什么…" oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
@@ -403,6 +410,12 @@
         <button type="button" class="comp-tab" data-mode="warm" onclick="setPalette('warm')">暖砂</button>
         <button type="button" class="comp-tab" data-mode="cool" onclick="setPalette('cool')">冰蓝</button>
       </div>
+      <div class="field-label">数据</div>
+      <div class="comp-tabs" style="padding:6px 0 0">
+        <button type="button" class="comp-tab" onclick="exportBackup()">导出备份</button>
+        <button type="button" class="comp-tab" onclick="document.getElementById('import-file').click()">导入备份</button>
+      </div>
+      <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -528,6 +541,65 @@
   applyTheme();
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (themeMode === 'auto') applyTheme(); });
 
+  /* ---------- 备份 ---------- */
+  function exportBackup() {
+    const sessionMsgs = {};
+    sessions.forEach(s => { sessionMsgs[s.id] = loadSessionMsgs(s.id); });
+    const data = {
+      app: 'islet', version: 1, exportedAt: new Date().toISOString(),
+      companions, sessions, sessionMsgs,
+      about: localStorage.getItem('islet_about') || '',
+      activeCompanionId: localStorage.getItem('islet_active_companion') || '',
+      currentId: localStorage.getItem('islet_cur') || '',
+      settings: {
+        system: localStorage.getItem('or_system') || '',
+        model: localStorage.getItem('or_model') || '',
+        reasoning: localStorage.getItem('or_reasoning') || '',
+        theme: localStorage.getItem('islet_theme') || 'auto',
+        palette: localStorage.getItem('islet_palette') || 'warm',
+      },
+      // 刻意不包含 API Key：备份文件可能被分享或云同步，key 不应跟着走
+    };
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const a = document.createElement('a');
+    const d = new Date(), pad = n => String(n).padStart(2, '0');
+    a.href = URL.createObjectURL(blob);
+    a.download = `islet-backup-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  }
+  function importBackup(inp) {
+    const file = inp.files && inp.files[0];
+    inp.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let data;
+      try { data = JSON.parse(reader.result); } catch (e) { alert('文件无法解析，不是有效的备份'); return; }
+      if (!data || data.app !== 'islet' || !Array.isArray(data.companions) || !Array.isArray(data.sessions)) { alert('这不是 islet 的备份文件'); return; }
+      if (!confirm('导入将覆盖当前的全部角色、记忆与会话（API Key 不受影响）。确定继续？')) return;
+      try {
+        sessions.forEach(s => localStorage.removeItem('islet_s_' + s.id));   // 清掉现有会话存储
+        localStorage.setItem('islet_companions', JSON.stringify(data.companions));
+        localStorage.setItem('islet_idx', JSON.stringify(data.sessions));
+        const sm = data.sessionMsgs || {};
+        Object.keys(sm).forEach(id => { try { localStorage.setItem('islet_s_' + id, JSON.stringify(sm[id])); } catch (e) {} });
+        localStorage.setItem('islet_about', data.about || '');
+        if (data.activeCompanionId) localStorage.setItem('islet_active_companion', data.activeCompanionId);
+        if (data.currentId) localStorage.setItem('islet_cur', data.currentId);
+        const st = data.settings || {};
+        if (st.system != null) localStorage.setItem('or_system', st.system);
+        if (st.model) localStorage.setItem('or_model', st.model);
+        if (st.reasoning) localStorage.setItem('or_reasoning', st.reasoning);
+        if (st.theme) localStorage.setItem('islet_theme', st.theme);
+        if (st.palette) localStorage.setItem('islet_palette', st.palette);
+        alert('导入完成，即将刷新');
+        location.reload();
+      } catch (e) { alert('导入失败：' + e.message); }
+    };
+    reader.readAsText(file);
+  }
+
   let sessions = [];        // [{id,title,updated}]
   let currentId = null;
   let messages = [];        // 当前会话消息
@@ -583,7 +655,8 @@
     try { return JSON.parse(localStorage.getItem('islet_s_' + id) || '[]'); } catch (e) { return []; }
   }
   function saveSessionMsgs(id, msgs) {
-    try { localStorage.setItem('islet_s_' + id, JSON.stringify(msgs.slice(-120))); } catch (e) {}
+    // 历史记录完整保留（1000 条的安全上限只为防 localStorage 爆仓）；发给模型的截断在 buildApiMessages 里做
+    try { localStorage.setItem('islet_s_' + id, JSON.stringify(msgs.slice(-1000))); } catch (e) {}
   }
   function saveIndex() { try { localStorage.setItem('islet_idx', JSON.stringify(sessions)); } catch (e) {} }
 
@@ -906,23 +979,24 @@
     return '<div class="empty" id="empty"><div class="glyph serif">✦</div><div class="line1">这里很安静</div><div class="line2">说点什么，开始一段对话</div></div>';
   }
   function renderAll() {
+    cancelEdit();   // 切换会话等场景下退出编辑态（未在编辑时是空操作，不影响草稿）
     const chat = $('chat');
     chat.innerHTML = '';
     const tb = $('token-bar'); if (tb) tb.style.display = 'none';
     if (!messages.length) { chat.innerHTML = emptyHtml(); return; }
-    messages.forEach(m => {
-      if (m.role === 'user') addUser(m.content, m.time);
+    messages.forEach((m, i) => {
+      if (m.role === 'user') addUser(m.content, m.time, i);
       else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true);
     });
     scrollToBottom(true);
   }
   function dropEmpty() { const e = $('empty'); if (e) e.remove(); }
 
-  function addUser(text, time) {
+  function addUser(text, time, idx) {
     dropEmpty();
     const row = document.createElement('div');
     row.className = 'msg user';
-    row.innerHTML = `<div class="bubble"></div><div class="time">${esc(time || '')}</div>`;
+    row.innerHTML = `<div class="bubble"></div><div class="meta-row"><button class="edit-btn" type="button" aria-label="编辑" onclick="editMessage(${idx})"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button><div class="time">${esc(time || '')}</div></div>`;
     row.querySelector('.bubble').textContent = text;
     $('chat').appendChild(row);
     scrollToBottom();
@@ -1034,12 +1108,13 @@
     if (systemPrompt) parts.push(systemPrompt);
     return parts.join("\n\n");
   }
+  const CTX_MSGS = 120;   // 发给模型的最近消息条数（控制成本）；界面和存储始终保留完整记录
   function buildApiMessages(msgList, sid) {
     const list = msgList || messages;
     const sys = buildSystemContent(sid);
     return [
       ...(sys ? [{ role: 'system', content: sys }] : []),
-      ...list.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content })),
+      ...list.filter(m => m.role !== 'system').slice(-CTX_MSGS).map(m => ({ role: m.role, content: m.content })),
     ];
   }
   function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -1117,6 +1192,24 @@
   function removeBroken(h) { if (h._broke) { h._broke.remove(); h._broke = null; } }
 
   /* ---------- 发送 / 生成 ---------- */
+  /* ---------- 编辑消息 ---------- */
+  let editingIdx = null;
+  function editMessage(idx) {
+    if (isLoading && currentAbort) currentAbort.abort();
+    const m = messages[idx];
+    if (!m || m.role !== 'user') return;
+    editingIdx = idx;
+    const input = $('msg-input');
+    input.value = m.content; autoResize(input); input.focus();
+    $('edit-bar').classList.remove('hidden');
+  }
+  function cancelEdit() {
+    if (editingIdx == null) return;
+    editingIdx = null;
+    const input = $('msg-input'); input.value = ''; input.style.height = '';
+    $('edit-bar').classList.add('hidden');
+  }
+
   function onSend() { if (isLoading) { if (currentAbort) currentAbort.abort(); return; } sendMessage(); }
 
   function sendMessage() {
@@ -1125,9 +1218,20 @@
     if (!text) return;
     input.value = ''; input.style.height = '';
     ensureSession();
+    if (editingIdx != null) {
+      const idx = editingIdx;
+      editingIdx = null; $('edit-bar').classList.add('hidden');
+      if (messages[idx] && messages[idx].role === 'user') {
+        messages[idx].content = text;
+        messages.length = idx + 1;   // 之后的消息作废，从这里重新生成
+        saveCurrent(); renderAll();
+        generateAssistant();
+        return;
+      }
+    }
     const t = nowTime();
     messages.push({ role: 'user', content: text, time: t });
-    addUser(text, t);
+    addUser(text, t, messages.length - 1);
     saveCurrent();
     generateAssistant();
   }
