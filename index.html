@@ -420,7 +420,7 @@
         <button type="button" class="comp-tab" onclick="document.getElementById('import-file').click()">导入备份</button>
       </div>
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-05b</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-05c</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -1201,11 +1201,14 @@
   }
   function renderNow(h, text) { if (h._raf) { cancelAnimationFrame(h._raf); h._raf = null; } h.textEl.innerHTML = renderMarkdown(text); maybeScroll(); }
 
-  function showBroken(h, onContinue, onRetry) {
+  function showBroken(h, onContinue, onRetry, label) {
     removeBroken(h);
     const box = document.createElement('div');
     box.className = 'broke';
-    box.innerHTML = '<b>连接中断</b><span>已保留收到的部分</span>';
+    box.innerHTML = '';
+    const b = document.createElement('b'); b.textContent = label || '连接中断';
+    const s = document.createElement('span'); s.textContent = '已保留收到的部分';
+    box.appendChild(b); box.appendChild(s);
     const cont = document.createElement('button'); cont.textContent = '继续生成';
     const retry = document.createElement('button'); retry.textContent = '重新生成';
     cont.onclick = onContinue; retry.onclick = onRetry;
@@ -1283,7 +1286,8 @@
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { stopTimer(); h.textEl.classList.remove('cursor'); h.textEl.classList.add('err'); h.textEl.textContent = `请求失败：${res.error}。检查 API Key、余额，或换个模型再试。`; break; }
       if (res.ended === 'done') {
-        if (res.finish === 'length' && contentText) showBroken(h, () => continueGen(h, model), () => retryGen(h));   // 达到 max_tokens 被截断
+        if (res.finish === 'length' && contentText) showBroken(h, () => continueGen(h, model), () => retryGen(h), '达到长度上限');
+        else if (res.finish && res.finish !== 'stop' && contentText) showBroken(h, () => continueGen(h, model), () => retryGen(h), '被上游终止（' + res.finish + '）');
         break;
       }
       // network：无正文时自动重试，否则交给用户
@@ -1295,7 +1299,7 @@
         if (myAbort.signal.aborted || currentAbort !== myAbort) break;   // 等待期间被停止或切走了
         continue;
       }
-      showBroken(h, () => continueGen(h, model), () => retryGen(h));
+      showBroken(h, () => continueGen(h, model), () => retryGen(h), '网络断流');
       break;
     }
 
@@ -1331,12 +1335,13 @@
       myAbort = currentAbort = new AbortController();
       const res = await streamCompletion(model, buildApiMessages(msgsRef, sid), myAbort.signal, () => {}, onContent);
       if (res.ended === 'aborted') break;
-      if (res.ended === 'http') { h.textEl.classList.remove('cursor'); showBroken(h, () => continueGen(h, model), () => retryGen(h)); break; }
+      if (res.ended === 'http') { h.textEl.classList.remove('cursor'); showBroken(h, () => continueGen(h, model), () => retryGen(h), '请求失败'); break; }
       if (res.ended === 'done') {
-        if (res.finish === 'length') showBroken(h, () => continueGen(h, model), () => retryGen(h));   // 续写又到上限，可再续
+        if (res.finish === 'length') showBroken(h, () => continueGen(h, model), () => retryGen(h), '达到长度上限');
+        else if (res.finish && res.finish !== 'stop') showBroken(h, () => continueGen(h, model), () => retryGen(h), '被上游终止（' + res.finish + '）');
         break;
       }
-      showBroken(h, () => continueGen(h, model), () => retryGen(h));
+      showBroken(h, () => continueGen(h, model), () => retryGen(h), '网络断流');
       break;
     }
     h.textEl.classList.remove('cursor');
