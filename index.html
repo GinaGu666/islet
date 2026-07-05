@@ -1143,11 +1143,12 @@
 
   // 返回 {ended:'done'|'aborted'|'http'|'network', error?}
   async function streamCompletion(model, msgs, signal, onReason, onContent) {
-    let gotContent = false, sawDone = false, usage = null;
+    let gotContent = false, sawDone = false, usage = null, finish = null;
     try {
       // max_tokens：OpenRouter 会按此值预扣余额，不设则按模型最大输出预估，余额少时会被拒
       const payload = { model, messages: withCacheBreakpoints(model, msgs), max_tokens: 8192, stream: true, stream_options: { include_usage: true } };
-      if (reasoningEnabled && modelSupportsReasoning(model)) payload.reasoning = { enabled: true };
+      // 开关开：请求思考；开关关：显式禁用（不发的话 GLM 等混合推理模型会按默认思考，照样计费）
+      if (modelSupportsReasoning(model)) payload.reasoning = reasoningEnabled ? { enabled: true } : { enabled: false, exclude: true };
       const res = await fetch(API_URL, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
       if (!res.ok) { const e = await res.json().catch(() => ({})); return { ended: 'http', error: (e && e.error && e.error.message) || ('HTTP ' + res.status) }; }
       const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
@@ -1164,7 +1165,9 @@
           if (d === '[DONE]') { sawDone = true; break; }
           let json; try { json = JSON.parse(d); } catch (e) { continue; }
           if (json.usage) usage = json.usage;
-          const delta = (json.choices && json.choices[0] && json.choices[0].delta) || {};
+          const ch = json.choices && json.choices[0];
+          if (ch && ch.finish_reason) finish = ch.finish_reason;
+          const delta = (ch && ch.delta) || {};
           let r = delta.reasoning;
           if (r == null && delta.reasoning_content) r = delta.reasoning_content;
           if (r == null && Array.isArray(delta.reasoning_details)) r = delta.reasoning_details.map(x => x.text || x.summary || '').join('');
@@ -1173,7 +1176,7 @@
         }
         if (sawDone) break;
       }
-      return (sawDone || gotContent) ? { ended: 'done', usage } : { ended: 'network', usage };
+      return (sawDone || gotContent) ? { ended: 'done', usage, finish } : { ended: 'network', usage };
     } catch (e) {
       if (e.name === 'AbortError') return { ended: 'aborted', usage };
       return { ended: 'network', usage, error: e.message };
@@ -1267,7 +1270,10 @@
       if (res.usage) lastUsage = res.usage;
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { stopTimer(); h.textEl.classList.remove('cursor'); h.textEl.classList.add('err'); h.textEl.textContent = `请求失败：${res.error}。检查 API Key、余额，或换个模型再试。`; break; }
-      if (res.ended === 'done') break;
+      if (res.ended === 'done') {
+        if (res.finish === 'length' && contentText) showBroken(h, () => continueGen(h, model), () => retryGen(h));   // 达到 max_tokens 被截断
+        break;
+      }
       // network：无正文时自动重试，否则交给用户
       if (contentText === '' && attempt < 2) {
         attempt++; stopTimer(); thinkStart = null; reasoningText = '';
@@ -1314,7 +1320,10 @@
       const res = await streamCompletion(model, buildApiMessages(msgsRef, sid), myAbort.signal, () => {}, onContent);
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { h.textEl.classList.remove('cursor'); showBroken(h, () => continueGen(h, model), () => retryGen(h)); break; }
-      if (res.ended === 'done') break;
+      if (res.ended === 'done') {
+        if (res.finish === 'length') showBroken(h, () => continueGen(h, model), () => retryGen(h));   // 续写又到上限，可再续
+        break;
+      }
       showBroken(h, () => continueGen(h, model), () => retryGen(h));
       break;
     }
