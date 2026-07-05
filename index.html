@@ -146,6 +146,9 @@
   .msg.ai { align-self: flex-start; align-items: flex-start; width: 100%; max-width: 100%; }
   .bubble { background: var(--user); border: 1px solid var(--line); border-radius: var(--radius); border-bottom-right-radius: 7px; padding: 11px 15px; font-size: 15.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 4px rgba(58,51,43,0.05); }
   .time { font-size: 11px; color: var(--ink-3); padding: 4px 4px 0; }
+  .to-bottom { position: fixed; right: 16px; bottom: calc(86px + var(--safe-bottom)); z-index: 20; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 10px rgba(0,0,0,0.10); opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .18s, transform .18s; }
+  .to-bottom.show { opacity: 1; pointer-events: auto; transform: none; }
+  .to-bottom:active { color: var(--accent); }
   .meta-row { display: flex; align-items: center; gap: 2px; }
   .edit-btn { background: none; border: none; padding: 4px 5px 0; color: var(--ink-3); display: flex; align-items: center; opacity: .8; }
   .edit-btn:active { color: var(--accent); }
@@ -342,6 +345,7 @@
 </div>
 
 <div class="chat" id="chat" style="display:none"></div>
+<button class="to-bottom" id="to-bottom" type="button" aria-label="回到底部" onclick="scrollToBottom(true)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg></button>
 
 <div class="token-bar" id="token-bar" style="display:none"></div>
 
@@ -1106,6 +1110,8 @@
       parts.push(block);
     }
     if (systemPrompt) parts.push(systemPrompt);
+    const d = new Date(), wd = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
+    parts.push(`今天是 ${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日，星期${wd}。用户消息开头的 [时:分] 是那条消息的发送时刻，仅供你感知时间和间隔，回复时不要模仿这个格式。`);
     return parts.join("\n\n");
   }
   const CTX_MSGS = 120;   // 发给模型的最近消息条数（控制成本）；界面和存储始终保留完整记录
@@ -1114,7 +1120,10 @@
     const sys = buildSystemContent(sid);
     return [
       ...(sys ? [{ role: 'system', content: sys }] : []),
-      ...list.filter(m => m.role !== 'system').slice(-CTX_MSGS).map(m => ({ role: m.role, content: m.content })),
+      ...list.filter(m => m.role !== 'system').slice(-CTX_MSGS).map(m => ({
+        role: m.role,
+        content: (m.role === 'user' && m.time) ? `[${m.time}] ${m.content}` : m.content,
+      })),
     ];
   }
   function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -1476,6 +1485,11 @@
   function isNearBottom() { const c = $('chat'); return c.scrollHeight - c.scrollTop - c.clientHeight < 120; }
   function maybeScroll() { if (isNearBottom()) scrollToBottom(); }
   function scrollToBottom(force) { const c = $('chat'); if (force || isNearBottom()) c.scrollTop = c.scrollHeight; }
+  $('chat').addEventListener('scroll', () => {
+    const c = $('chat');
+    const away = c.scrollHeight - c.scrollTop - c.clientHeight > c.clientHeight / 3;
+    $('to-bottom').classList.toggle('show', away);
+  }, { passive: true });
   function show(id) { $(id).classList.add('show'); }
   function hide(id) { $(id).classList.remove('show'); }
 
