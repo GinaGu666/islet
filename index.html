@@ -420,6 +420,7 @@
         <button type="button" class="comp-tab" onclick="document.getElementById('import-file').click()">导入备份</button>
       </div>
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-05b</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -1153,9 +1154,9 @@
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
         const msg = (e && e.error && e.error.message) || ('HTTP ' + res.status);
-        // 个别模型（如 Fable）强制思考、拒绝禁用——降级为"思考但不显示"重发
+        // 个别模型（如 Fable）强制思考、拒绝任何禁用尝试——降级为完全不提 reasoning，按端点默认重发
         if (/reasoning/i.test(msg) && payload.reasoning && payload.reasoning.enabled === false) {
-          payload.reasoning = { exclude: true };
+          delete payload.reasoning;
           res = await fetch(API_URL, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
           if (!res.ok) { const e2 = await res.json().catch(() => ({})); return { ended: 'http', error: (e2 && e2.error && e2.error.message) || ('HTTP ' + res.status) }; }
         } else {
