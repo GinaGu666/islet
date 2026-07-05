@@ -1149,8 +1149,19 @@
       const payload = { model, messages: withCacheBreakpoints(model, msgs), max_tokens: 8192, stream: true, stream_options: { include_usage: true } };
       // 开关开：请求思考；开关关：显式禁用（不发的话 GLM 等混合推理模型会按默认思考，照样计费）
       if (modelSupportsReasoning(model)) payload.reasoning = reasoningEnabled ? { enabled: true } : { enabled: false, exclude: true };
-      const res = await fetch(API_URL, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
-      if (!res.ok) { const e = await res.json().catch(() => ({})); return { ended: 'http', error: (e && e.error && e.error.message) || ('HTTP ' + res.status) }; }
+      let res = await fetch(API_URL, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        const msg = (e && e.error && e.error.message) || ('HTTP ' + res.status);
+        // 个别模型（如 Fable）强制思考、拒绝禁用——降级为"思考但不显示"重发
+        if (/reasoning/i.test(msg) && payload.reasoning && payload.reasoning.enabled === false) {
+          payload.reasoning = { exclude: true };
+          res = await fetch(API_URL, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
+          if (!res.ok) { const e2 = await res.json().catch(() => ({})); return { ended: 'http', error: (e2 && e2.error && e2.error.message) || ('HTTP ' + res.status) }; }
+        } else {
+          return { ended: 'http', error: msg };
+        }
+      }
       const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
       while (true) {
         const { done, value } = await reader.read();
