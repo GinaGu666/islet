@@ -172,6 +172,17 @@
   .img-viewer { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; }
   .img-viewer.show { display: flex; }
   .img-viewer img { max-width: 94vw; max-height: 88vh; border-radius: 8px; }
+  /* 打卡 */
+  .habit-row { display: flex; align-items: center; gap: 12px; padding: 13px 4px; border-bottom: 1px solid var(--line); }
+  .habit-info { flex: 1; min-width: 0; }
+  .habit-name { font-size: 15px; font-weight: 600; color: var(--ink); }
+  .habit-sub { font-size: 12px; color: var(--ink-3); margin-top: 3px; }
+  .habit-check { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--accent-line); background: none; color: var(--accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background .15s, transform .1s; }
+  .habit-check:active { transform: scale(.92); }
+  .habit-check.done { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .habit-del { background: none; border: none; color: var(--ink-3); padding: 6px 2px; flex-shrink: 0; }
+  .habit-empty { text-align: center; color: var(--ink-3); padding: 30px 0 22px; font-size: 13.5px; }
+  .habit-add { margin: 14px 0 6px; align-self: flex-start; }
   .ai-eyebrow .name { font-weight: 600; color: var(--ink); }
   .ai-eyebrow .t { color: var(--ink-3); font-size: 11.5px; }
 
@@ -395,6 +406,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 5.6a5 5 0 00-7-.1L12 7l-1.8-1.5a5 5 0 00-7 7.1L12 21l8.8-8.4a5 5 0 000-7z"/></svg>
         记忆
       </button>
+      <button class="foot-row" onclick="openHabits()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>
+        打卡
+      </button>
       <button class="foot-row" onclick="openSettings()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         设置
@@ -440,7 +455,7 @@
         <button type="button" class="comp-tab" onclick="document.getElementById('import-file').click()">导入备份</button>
       </div>
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-06</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-06b</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -463,6 +478,19 @@
 </div>
 
 <!-- 记忆（按角色分开） -->
+<div class="overlay" id="habit-overlay">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">打卡</div>
+    </div>
+    <div class="form">
+      <div id="habit-list"></div>
+      <button class="comp-tab habit-add" type="button" onclick="addHabit()">＋ 新建打卡项</button>
+      <div class="form-note">打卡只存在本机；你的坚持，角色们看得见 🪴</div>
+    </div>
+  </div>
+</div>
 <div class="overlay" id="memory-overlay">
   <div class="sheet">
     <div class="grabber"></div>
@@ -643,6 +671,68 @@
     e.preventDefault();
     pickImgs({ files: items.map(it => it.getAsFile()).filter(Boolean) });
   });
+
+  /* ---------- 打卡：纯本地，零 API 成本；摘要注入 system prompt 让角色"看见" ---------- */
+  let habits = [];
+  try { habits = JSON.parse(localStorage.getItem('islet_habits') || '[]'); } catch (e) { habits = []; }
+  function saveHabits() { try { localStorage.setItem('islet_habits', JSON.stringify(habits)); } catch (e) {} }
+  function dayKey(d) { const x = d || new Date(); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); }
+  function habitStreak(h) {
+    let n = 0; const d = new Date();
+    if (!h.log[dayKey(d)]) d.setDate(d.getDate() - 1);   // 今天还没打不算断
+    while (h.log[dayKey(d)]) { n++; d.setDate(d.getDate() - 1); }
+    return n;
+  }
+  function openHabits() { renderHabits(); show('habit-overlay'); closeDrawer(); }
+  function closeHabits() { hide('habit-overlay'); }
+  function addHabit() {
+    const name = (prompt('打卡项名称（如：背单词）', '') || '').trim();
+    if (!name) return;
+    habits.push({ id: genId(), name, created: Date.now(), log: {} });
+    saveHabits(); renderHabits();
+  }
+  function toggleHabit(id) {
+    const h = habits.find(x => x.id === id);
+    if (!h) return;
+    const k = dayKey();
+    if (h.log[k]) delete h.log[k]; else h.log[k] = true;   // 点错可撤销
+    saveHabits(); renderHabits();
+  }
+  function deleteHabit(id) {
+    const h = habits.find(x => x.id === id);
+    if (!h) return;
+    if (!confirm('删除「' + h.name + '」及其全部记录？')) return;
+    habits = habits.filter(x => x.id !== id);
+    saveHabits(); renderHabits();
+  }
+  function renderHabits() {
+    const list = $('habit-list');
+    if (!habits.length) { list.innerHTML = '<div class="habit-empty">还没有打卡项<br>建一个，让坚持有人看见</div>'; return; }
+    const k = dayKey();
+    list.innerHTML = '';
+    habits.forEach(h => {
+      const done = !!h.log[k], streak = habitStreak(h), total = Object.keys(h.log).length;
+      const row = document.createElement('div');
+      row.className = 'habit-row';
+      row.innerHTML = `
+        <div class="habit-info">
+          <div class="habit-name"></div>
+          <div class="habit-sub">${streak > 0 ? '连续 ' + streak + ' 天' : '今天开始'} · 共 ${total} 次</div>
+        </div>
+        <button class="habit-del" type="button" aria-label="删除"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
+        <button class="habit-check ${done ? 'done' : ''}" type="button" aria-label="打卡"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>`;
+      row.querySelector('.habit-name').textContent = h.name;
+      row.querySelector('.habit-check').onclick = () => toggleHabit(h.id);
+      row.querySelector('.habit-del').onclick = () => deleteHabit(h.id);
+      list.appendChild(row);
+    });
+  }
+  function habitBrief() {
+    if (!habits.length) return '';
+    const k = dayKey();
+    const parts = habits.map(h => `${h.name}：连续 ${habitStreak(h)} 天，今天${h.log[k] ? '已' : '未'}打卡`);
+    return `用户的打卡（自我坚持的小项目）：${parts.join('；')}。可以自然地关心进展或在合适时刻鼓励，但不要每次都提。`;
+  }
 
   /* ---------- 头像：颜色由角色 id 稳定生成，无需迁移数据 ---------- */
   const AVA_COLORS = ['#C0683F', '#7A8B5E', '#5E7A8B', '#8B5E7A', '#B08A4F', '#5E8B7A', '#7A6A9E', '#996655'];
@@ -1227,6 +1317,8 @@
       parts.push(block);
     }
     if (systemPrompt) parts.push(systemPrompt);
+    const hb = habitBrief();
+    if (hb) parts.push(hb);
     const d = new Date(), wd = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
     parts.push(`今天是 ${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日，星期${wd}${tz ? '，用户设备时区 ' + tz : ''}。用户消息开头的 [时:分] 是那条消息按此时区的发送时刻，仅供你感知时间和间隔，回复时不要模仿这个格式。`);
@@ -1671,6 +1763,7 @@
   $('setup-overlay').addEventListener('click', e => { if (e.target.id === 'setup-overlay') closeSettings(); });
   $('picker-overlay').addEventListener('click', e => { if (e.target.id === 'picker-overlay') closePicker(); });
   $('memory-overlay').addEventListener('click', e => { if (e.target.id === 'memory-overlay') closeMemory(); });
+  $('habit-overlay').addEventListener('click', e => { if (e.target.id === 'habit-overlay') closeHabits(); });
 </script>
 </body>
 </html>
