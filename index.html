@@ -158,6 +158,20 @@
 
   .ai-eyebrow { display: flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--ink-2); margin-bottom: 7px; }
   .ai-eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .ava { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0; font-family: var(--serif); }
+  .tab-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .attach-btn { background: none; border: none; padding: 9px 2px; color: var(--ink-3); display: flex; align-items: center; flex-shrink: 0; }
+  .attach-btn:active { color: var(--accent); }
+  .img-strip { display: none; gap: 10px; margin: 0 14px; padding: 10px 12px 8px; background: var(--card); border: 1px solid var(--line); border-bottom: none; border-radius: 12px 12px 0 0; overflow-x: auto; }
+  .img-strip.show { display: flex; }
+  .img-strip .thumb { position: relative; flex-shrink: 0; }
+  .img-strip img { width: 56px; height: 56px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); display: block; }
+  .img-strip .rm { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; border: none; background: var(--ink); color: var(--bg); font-size: 12px; line-height: 18px; padding: 0; }
+  .msg-imgs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-bottom: 6px; }
+  .msg-imgs img { max-width: 170px; max-height: 220px; border-radius: 12px; border: 1px solid var(--line); display: block; }
+  .img-viewer { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; }
+  .img-viewer.show { display: flex; }
+  .img-viewer img { max-width: 94vw; max-height: 88vh; border-radius: 8px; }
   .ai-eyebrow .name { font-weight: 600; color: var(--ink); }
   .ai-eyebrow .t { color: var(--ink-3); font-size: 11.5px; }
 
@@ -350,7 +364,12 @@
 <div class="token-bar" id="token-bar" style="display:none"></div>
 
 <div class="edit-bar hidden" id="edit-bar"><span>✎ 编辑消息 · 发送后将从这里重新生成</span><button class="x" type="button" onclick="cancelEdit()">取消</button></div>
+<div class="img-strip" id="img-strip"></div>
 <div class="input-bar" id="input-bar" style="display:none">
+  <button class="attach-btn" type="button" aria-label="发图片" onclick="document.getElementById('img-file').click()">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+  </button>
+  <input type="file" id="img-file" accept="image/*" multiple style="display:none" onchange="pickImgs(this)">
   <div class="input-wrap">
     <textarea id="msg-input" rows="1" placeholder="说点什么…" oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
   </div>
@@ -358,6 +377,7 @@
     <svg id="send-ic" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
   </button>
 </div>
+<div class="img-viewer" id="img-viewer" onclick="this.classList.remove('show')"><img id="img-viewer-img" alt=""></div>
 
 <!-- 会话抽屉 -->
 <div class="overlay drawer-overlay" id="drawer-overlay">
@@ -420,7 +440,7 @@
         <button type="button" class="comp-tab" onclick="document.getElementById('import-file').click()">导入备份</button>
       </div>
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-05c</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-06</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -545,6 +565,89 @@
   }
   applyTheme();
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (themeMode === 'auto') applyTheme(); });
+
+  /* ---------- 图片：IndexedDB 存 Blob，消息只存引用 id ---------- */
+  let _dbP = null;
+  function idb() {
+    if (!_dbP) _dbP = new Promise((res, rej) => {
+      const req = indexedDB.open('islet', 1);
+      req.onupgradeneeded = () => { req.result.createObjectStore('imgs', { keyPath: 'id' }); };
+      req.onsuccess = () => res(req.result);
+      req.onerror = () => rej(req.error);
+    });
+    return _dbP;
+  }
+  function imgPut(rec) { return idb().then(db => new Promise((res, rej) => { const tx = db.transaction('imgs', 'readwrite'); tx.objectStore('imgs').put(rec); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
+  function imgGet(id) { return idb().then(db => new Promise((res, rej) => { const r = db.transaction('imgs').objectStore('imgs').get(id); r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error); })); }
+
+  async function compressImage(file, maxDim, quality) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('无法解码')); i.src = url; });
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', quality));
+      if (!blob) throw new Error('压缩失败');
+      return { blob, w, h };
+    } finally { URL.revokeObjectURL(url); }
+  }
+
+  let pendingImgs = [];   // 待发送：{id, blob, url}
+  async function pickImgs(inp) {
+    const files = Array.from(inp.files || []);
+    try { inp.value = ''; } catch (e) {}
+    for (const f of files) {
+      if (pendingImgs.length >= 3) { alert('一条消息最多 3 张图'); break; }
+      try {
+        const { blob } = await compressImage(f, 1024, 0.8);
+        pendingImgs.push({ id: genId(), blob, url: URL.createObjectURL(blob) });
+      } catch (e) { alert('这张图读不了：' + (e.message || e)); }
+    }
+    renderImgStrip();
+  }
+  function removePending(id) {
+    const i = pendingImgs.findIndex(p => p.id === id);
+    if (i >= 0) { URL.revokeObjectURL(pendingImgs[i].url); pendingImgs.splice(i, 1); }
+    renderImgStrip();
+  }
+  function renderImgStrip() {
+    const s = $('img-strip');
+    s.classList.toggle('show', pendingImgs.length > 0);
+    s.innerHTML = '';
+    pendingImgs.forEach(p => {
+      const d = document.createElement('div'); d.className = 'thumb';
+      const img = document.createElement('img'); img.src = p.url; img.alt = '';
+      const rm = document.createElement('button'); rm.className = 'rm'; rm.type = 'button'; rm.textContent = '×'; rm.onclick = () => removePending(p.id);
+      d.appendChild(img); d.appendChild(rm); s.appendChild(d);
+    });
+  }
+
+  const imgUrlCache = new Map();
+  async function imgUrl(id) {
+    if (imgUrlCache.has(id)) return imgUrlCache.get(id);
+    const rec = await imgGet(id).catch(() => null);
+    if (!rec) return null;
+    const u = URL.createObjectURL(rec.blob);
+    imgUrlCache.set(id, u);
+    return u;
+  }
+  function viewImg(src) { $('img-viewer-img').src = src; $('img-viewer').classList.add('show'); }
+  function blobToDataURL(blob) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); }); }
+
+  /* 粘贴图片直接进待发条 */
+  document.addEventListener('paste', e => {
+    const items = Array.from((e.clipboardData && e.clipboardData.items) || []).filter(it => it.type && it.type.startsWith('image/'));
+    if (!items.length) return;
+    e.preventDefault();
+    pickImgs({ files: items.map(it => it.getAsFile()).filter(Boolean) });
+  });
+
+  /* ---------- 头像：颜色由角色 id 稳定生成，无需迁移数据 ---------- */
+  const AVA_COLORS = ['#C0683F', '#7A8B5E', '#5E7A8B', '#8B5E7A', '#B08A4F', '#5E8B7A', '#7A6A9E', '#996655'];
+  function avaColor(id) { let n = 0; for (const ch of String(id)) n = (n * 31 + ch.charCodeAt(0)) >>> 0; return AVA_COLORS[n % AVA_COLORS.length]; }
+  function avaChar(name) { const t = (name || '').trim(); return t ? t.charAt(0) : '✦'; };
 
   /* ---------- 备份 ---------- */
   function exportBackup() {
@@ -725,7 +828,7 @@
       const st = distillState[c.id];
       const mark = st && st.st === 'running' ? ' <span style="opacity:.6">…</span>'
                  : st && st.st === 'fail'    ? ' <span style="color:var(--accent);font-weight:700">!</span>' : '';
-      return `<button type="button" class="comp-tab ${c.id === activeCompanionId ? 'sel' : ''}" onclick="switchCompanion('${c.id}')">${esc(c.name)}${mark}</button>`;
+      return `<button type="button" class="comp-tab ${c.id === activeCompanionId ? 'sel' : ''}" onclick="switchCompanion('${c.id}')"><span class="tab-dot" style="background:${avaColor(c.id)}"></span>${esc(c.name)}${mark}</button>`;
     }).join('');
   }
   function saveCompanions() { try { localStorage.setItem('islet_companions', JSON.stringify(companions)); } catch (e) {} }
@@ -990,19 +1093,30 @@
     const tb = $('token-bar'); if (tb) tb.style.display = 'none';
     if (!messages.length) { chat.innerHTML = emptyHtml(); return; }
     messages.forEach((m, i) => {
-      if (m.role === 'user') addUser(m.content, m.time, i);
+      if (m.role === 'user') addUser(m.content, m.time, i, m.imgs);
       else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true);
     });
     scrollToBottom(true);
   }
   function dropEmpty() { const e = $('empty'); if (e) e.remove(); }
 
-  function addUser(text, time, idx) {
+  function addUser(text, time, idx, imgs) {
     dropEmpty();
     const row = document.createElement('div');
     row.className = 'msg user';
     row.innerHTML = `<div class="bubble"></div><div class="meta-row"><button class="edit-btn" type="button" aria-label="编辑" onclick="editMessage(${idx})"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button><div class="time">${esc(time || '')}</div></div>`;
-    row.querySelector('.bubble').textContent = text;
+    const bub = row.querySelector('.bubble');
+    bub.textContent = text;
+    if (!text) bub.style.display = 'none';
+    if (imgs && imgs.length) {
+      const wrap = document.createElement('div'); wrap.className = 'msg-imgs';
+      imgs.forEach(id => {
+        const im = document.createElement('img'); im.alt = '';
+        imgUrl(id).then(u => { if (u) { im.src = u; im.onclick = () => viewImg(u); } else { im.remove(); } });
+        wrap.appendChild(im);
+      });
+      row.insertBefore(wrap, row.firstChild);
+    }
     $('chat').appendChild(row);
     scrollToBottom();
   }
@@ -1012,8 +1126,10 @@
     const row = document.createElement('div');
     row.className = 'msg ai';
     const label = model ? prettyName(model) : prettyName(selectedModel);
+    const _c = sessionCompanion(currentId);
+    const _ava = _c ? `<span class="ava" style="background:${avaColor(_c.id)}">${esc(avaChar(_c.name))}</span>` : '<span class="dot"></span>';
     row.innerHTML = `
-      <div class="ai-eyebrow"><span class="dot"></span><span class="name">${esc(label)}</span><span class="t">${esc(time || '')}</span></div>
+      <div class="ai-eyebrow">${_ava}<span class="name">${esc(label)}</span><span class="t">${esc(time || '')}</span></div>
       <div class="think hidden open">
         <button class="think-head" type="button">
           <span class="spark"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.6L18 9l-4.4 1.4L12 15l-1.6-4.6L6 9l4.4-1.4z"/></svg></span>
@@ -1112,19 +1228,42 @@
     }
     if (systemPrompt) parts.push(systemPrompt);
     const d = new Date(), wd = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
-    parts.push(`今天是 ${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日，星期${wd}。用户消息开头的 [时:分] 是那条消息的发送时刻，仅供你感知时间和间隔，回复时不要模仿这个格式。`);
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    parts.push(`今天是 ${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日，星期${wd}${tz ? '，用户设备时区 ' + tz : ''}。用户消息开头的 [时:分] 是那条消息按此时区的发送时刻，仅供你感知时间和间隔，回复时不要模仿这个格式。`);
     return parts.join("\n\n");
   }
   const CTX_MSGS = 120;   // 发给模型的最近消息条数（控制成本）；界面和存储始终保留完整记录
-  function buildApiMessages(msgList, sid) {
+  const IMG_CTX = 3;      // 最多把最近几张图发给模型（图片按 token 计费很贵，旧图自动退出上下文）
+  async function buildApiMessages(msgList, sid) {
     const list = msgList || messages;
     const sys = buildSystemContent(sid);
+    const win = list.filter(m => m.role !== 'system').slice(-CTX_MSGS);
+    let budget = IMG_CTX;
+    const out = [];
+    for (let i = win.length - 1; i >= 0; i--) {
+      const m = win[i];
+      let content = (m.role === 'user' && m.time) ? `[${m.time}] ${m.content}` : m.content;
+      if (m.role === 'user' && m.imgs && m.imgs.length) {
+        const parts = [];
+        if (budget > 0) {
+          for (const id of m.imgs.slice(0, budget)) {
+            const rec = await imgGet(id).catch(() => null);
+            if (rec) parts.push({ type: 'image_url', image_url: { url: await blobToDataURL(rec.blob) } });
+          }
+          budget -= parts.length;
+        }
+        if (parts.length) {
+          parts.push({ type: 'text', text: content || '（见图）' });
+          out.unshift({ role: 'user', content: parts });
+          continue;
+        }
+        content = (content ? content + ' ' : '') + '[此前发过图片，已不在当前上下文中]';
+      }
+      out.unshift({ role: m.role, content });
+    }
     return [
       ...(sys ? [{ role: 'system', content: sys }] : []),
-      ...list.filter(m => m.role !== 'system').slice(-CTX_MSGS).map(m => ({
-        role: m.role,
-        content: (m.role === 'user' && m.time) ? `[${m.time}] ${m.content}` : m.content,
-      })),
+      ...out,
     ];
   }
   function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -1242,14 +1381,21 @@
   function sendMessage() {
     const input = $('msg-input');
     const text = input.value.trim();
-    if (!text) return;
+    if (!text && !pendingImgs.length) return;
     input.value = ''; input.style.height = '';
     ensureSession();
+    let imgs = null;
+    if (pendingImgs.length) {
+      const toStore = pendingImgs.slice(); pendingImgs = []; renderImgStrip();
+      imgs = toStore.map(p => p.id);
+      toStore.forEach(p => { imgUrlCache.set(p.id, p.url); imgPut({ id: p.id, blob: p.blob, created: Date.now() }).catch(() => {}); });
+    }
     if (editingIdx != null) {
       const idx = editingIdx;
       editingIdx = null; $('edit-bar').classList.add('hidden');
       if (messages[idx] && messages[idx].role === 'user') {
         messages[idx].content = text;
+        if (imgs) messages[idx].imgs = (messages[idx].imgs || []).concat(imgs);
         messages.length = idx + 1;   // 之后的消息作废，从这里重新生成
         saveCurrent(); renderAll();
         generateAssistant();
@@ -1257,8 +1403,10 @@
       }
     }
     const t = nowTime();
-    messages.push({ role: 'user', content: text, time: t });
-    addUser(text, t, messages.length - 1);
+    const msg = { role: 'user', content: text, time: t };
+    if (imgs) msg.imgs = imgs;
+    messages.push(msg);
+    addUser(text, t, messages.length - 1, msg.imgs);
     saveCurrent();
     generateAssistant();
   }
@@ -1281,7 +1429,7 @@
     let attempt = 0, lastUsage = null, myAbort = null;
     while (true) {
       myAbort = currentAbort = new AbortController();
-      const res = await streamCompletion(model, buildApiMessages(msgsRef, sid), myAbort.signal, onReason, onContent);
+      const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid), myAbort.signal, onReason, onContent);
       if (res.usage) lastUsage = res.usage;
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { stopTimer(); h.textEl.classList.remove('cursor'); h.textEl.classList.add('err'); h.textEl.textContent = `请求失败：${res.error}。检查 API Key、余额，或换个模型再试。`; break; }
@@ -1333,7 +1481,7 @@
     let myAbort = null;
     while (true) {
       myAbort = currentAbort = new AbortController();
-      const res = await streamCompletion(model, buildApiMessages(msgsRef, sid), myAbort.signal, () => {}, onContent);
+      const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid), myAbort.signal, () => {}, onContent);
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { h.textEl.classList.remove('cursor'); showBroken(h, () => continueGen(h, model), () => retryGen(h), '请求失败'); break; }
       if (res.ended === 'done') {
@@ -1397,7 +1545,7 @@
     if (!wrap) return;
     wrap.innerHTML = companions.map(c => `
       <button type="button" class="comp-tab ${c.id === editingCompanionId ? 'sel' : ''}" onclick="selectMemoryCompanion('${c.id}')">
-        ${esc(c.name)}
+        <span class="tab-dot" style="background:${avaColor(c.id)}"></span>${esc(c.name)}
       </button>`).join('') + `<button type="button" class="comp-tab comp-add" onclick="addCompanion()" aria-label="新增角色">+</button>`;
   }
   function selectMemoryCompanion(id) {   // 只切"正在编辑"，不影响正在聊的
@@ -1459,7 +1607,7 @@
   async function distillMemory(msgs, existingMem) {
     try {
       const transcript = msgs.filter(m => m.role !== 'system')
-        .map(m => (m.role === 'user' ? 'User: ' : 'AI: ') + m.content).join('\n\n');
+        .map(m => (m.role === 'user' ? 'User: ' : 'AI: ') + (m.imgs && m.imgs.length ? '[发了图片] ' : '') + m.content).join('\n\n');
       if (!transcript.trim()) return null;
       const sys = "You maintain a long-term memory file about a specific relationship for an AI companion app. You will be given the existing memory, then a recent conversation between the user and the AI.\n\nExtract only DURABLE information: facts about the user's life, their preferences, meaningful events between them, how the relationship is developing, emotional notes that will still matter later.\n\nNEVER record any of the following — it would confuse future conversations:\n- Meta or technical talk: questions about which AI model this is, anything about the app itself, prompts, settings, API, or the user testing the AI\n- Small talk and one-off details that won't matter in a week\n- Blow-by-blow accounts of events — keep only the outcome and how it felt\n\nMerge new information into the existing memory: integrate, deduplicate, and actively REWRITE old entries for brevity — compressing or dropping stale content is encouraged. Compress facts into short phrases; feelings and relationship texture may keep slightly more room than plain facts.\n\nHARD LIMIT: the complete memory must stay under " + MEM_BUDGET + " characters. If merging would exceed this, cut the least important content first.\n\nStyle: terse notes, like index cards, not a diary. Example of the register: \"喜欢手冲咖啡，最近工作压力大\" — not full narrative sentences.\n\nDo not invent anything not present in the conversation. Do not restate the user's fixed profile (stored separately). Write in the language the conversation is mostly in. Output ONLY the complete updated memory text — no preamble, no commentary, no code fences.";
       const user = "EXISTING MEMORY:\n" + (existingMem || '(empty)') + "\n\n----\n\nRECENT CONVERSATION:\n" + transcript + "\n\n----\n\nOutput the complete updated memory now.";
