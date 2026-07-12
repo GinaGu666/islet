@@ -126,6 +126,9 @@
   }
   .serif { font-family: var(--serif); }
 
+  /* 纸张颗粒：极淡的噪点让平色有"纸的肌理"；在弹层之下，不影响看图 */
+  body::after { content: ''; position: fixed; inset: 0; z-index: 40; pointer-events: none; opacity: .05; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E"); }
+
   /* 顶栏 */
   .header { display: flex; align-items: center; gap: 8px; padding: calc(10px + var(--safe-top)) 12px 10px; flex-shrink: 0; background: var(--bg); }
   .icon-btn { background: none; border: none; cursor: pointer; color: var(--ink-2); width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background .15s, color .15s; }
@@ -141,10 +144,11 @@
   /* 对话区 */
   .chat { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px 16px 20px; display: flex; flex-direction: column; gap: 20px; scroll-behavior: smooth; }
   .chat::-webkit-scrollbar { width: 0; }
-  .msg { display: flex; flex-direction: column; max-width: 86%; }
+  .msg { display: flex; flex-direction: column; max-width: 86%; animation: msg-in .3s ease both; }
+  @keyframes msg-in { from { opacity: 0; transform: translateY(4px); } }
   .msg.user { align-self: flex-end; align-items: flex-end; }
   .msg.ai { align-self: flex-start; align-items: flex-start; width: 100%; max-width: 100%; }
-  .bubble { background: var(--user); border: 1px solid var(--line); border-radius: var(--radius); border-bottom-right-radius: 7px; padding: 11px 15px; font-size: 15.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 4px rgba(58,51,43,0.05); }
+  .bubble { background: var(--user); border: 1px solid var(--line); border-radius: var(--radius); border-bottom-right-radius: 7px; padding: 11px 15px; font-size: 15.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 2px rgba(58,51,43,0.04), 0 3px 12px rgba(58,51,43,0.05); }
   .time { font-size: 11px; color: var(--ink-3); padding: 4px 4px 0; }
   .to-bottom { position: fixed; right: 16px; bottom: calc(86px + var(--safe-bottom)); z-index: 20; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 10px rgba(0,0,0,0.10); opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .18s, transform .18s; }
   .to-bottom.show { opacity: 1; pointer-events: auto; transform: none; }
@@ -173,10 +177,30 @@
   .img-viewer.show { display: flex; }
   .img-viewer img { max-width: 94vw; max-height: 88vh; border-radius: 8px; }
   /* 打卡 */
-  .habit-row { display: flex; align-items: center; gap: 12px; padding: 13px 4px; border-bottom: 1px solid var(--line); }
-  .habit-info { flex: 1; min-width: 0; }
+  .habit-item { border-bottom: 1px solid var(--line); }
+  .habit-row { display: flex; align-items: center; gap: 12px; padding: 13px 4px; }
+  .habit-info { flex: 1; min-width: 0; background: none; border: none; padding: 0; text-align: left; font-family: inherit; cursor: pointer; }
   .habit-name { font-size: 15px; font-weight: 600; color: var(--ink); }
-  .habit-sub { font-size: 12px; color: var(--ink-3); margin-top: 3px; }
+  .habit-sub { font-size: 12px; color: var(--ink-3); margin-top: 3px; display: flex; align-items: center; gap: 3px; }
+  .habit-chev { flex-shrink: 0; transition: transform .2s; }
+  .habit-chev.open { transform: rotate(90deg); }
+  /* 打卡日历：已打卡的日子像盖上去的小印章 */
+  .habit-cal { padding: 0 2px 16px; animation: cal-in .22s ease both; }
+  @keyframes cal-in { from { opacity: 0; transform: translateY(-4px); } }
+  .cal-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 10px; }
+  .cal-title { font-family: var(--serif); font-size: 15px; font-weight: 600; color: var(--ink); letter-spacing: .02em; }
+  .cal-nav { width: 32px; height: 32px; border-radius: 50%; border: none; background: none; color: var(--ink-2); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .cal-nav:active { background: var(--accent-weak); color: var(--accent); }
+  .cal-nav:disabled { opacity: .3; pointer-events: none; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 6px; justify-items: center; }
+  .cal-wd { font-size: 11px; color: var(--ink-3); padding-bottom: 2px; }
+  .cal-day { width: 34px; height: 34px; border-radius: 50%; border: none; background: none; font-size: 13px; color: var(--ink-2); display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; cursor: pointer; transition: background .12s; }
+  .cal-day:not(.future):active { background: var(--accent-weak); }
+  .cal-day.today { box-shadow: inset 0 0 0 1.5px var(--accent-line); color: var(--accent); font-weight: 600; }
+  .cal-day.logged { background: var(--accent); color: #fff; font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,.14); }
+  .cal-day.logged.today { box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.55), 0 1px 4px rgba(0,0,0,.14); }
+  .cal-day.future { opacity: .3; pointer-events: none; }
+  .cal-foot { text-align: center; font-size: 11.5px; color: var(--ink-3); padding-top: 10px; }
   .habit-check { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--accent-line); background: none; color: var(--accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background .15s, transform .1s; }
   .habit-check:active { transform: scale(.92); }
   .habit-check.done { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -243,7 +267,7 @@
   .input-wrap:focus-within { border-color: var(--accent-line); }
   #msg-input { flex: 1; background: none; border: none; outline: none; color: var(--ink); font-size: 15.5px; font-family: inherit; resize: none; line-height: 1.5; max-height: 130px; min-height: 22px; }
   #msg-input::placeholder { color: var(--ink-3); }
-  .send-btn { width: 40px; height: 40px; background: var(--accent); border: none; border-radius: 50%; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: opacity .15s, transform .1s; }
+  .send-btn { width: 40px; height: 40px; background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, #fff) 0%, var(--accent) 100%); border: none; border-radius: 50%; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: opacity .15s, transform .1s; box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent); }
   .send-btn:active { transform: scale(.92); }
   .send-btn:disabled { opacity: .35; }
   .send-btn svg { width: 19px; height: 19px; }
@@ -455,7 +479,7 @@
         <button type="button" class="comp-tab" onclick="document.getElementById('import-file').click()">导入备份</button>
       </div>
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-06b</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-12</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -483,6 +507,7 @@
     <div class="grabber"></div>
     <div class="sheet-head">
       <div class="sheet-title">打卡</div>
+      <button class="sheet-x" onclick="closeHabits()">×</button>
     </div>
     <div class="form">
       <div id="habit-list"></div>
@@ -705,6 +730,52 @@
     habits = habits.filter(x => x.id !== id);
     saveHabits(); renderHabits();
   }
+  /* 日历视图：openCalId 记住展开的打卡项，calY/calM 记住正在看的月份 */
+  let openCalId = null, calY = 0, calM = 0;
+  function toggleCal(id) {
+    if (openCalId === id) { openCalId = null; }
+    else { openCalId = id; const n = new Date(); calY = n.getFullYear(); calM = n.getMonth(); }
+    renderHabits();
+  }
+  function calShift(step) {
+    const d = new Date(calY, calM + step, 1);
+    if (d > new Date()) return;   // 未来的月份没有可看的
+    calY = d.getFullYear(); calM = d.getMonth();
+    renderHabits();
+  }
+  function toggleHabitDay(id, key) {
+    const h = habits.find(x => x.id === id);
+    if (!h) return;
+    if (h.log[key]) delete h.log[key]; else h.log[key] = true;   // 补记 / 撤销
+    saveHabits(); renderHabits();
+  }
+  function calHTML(h) {
+    const todayK = dayKey();
+    const first = (new Date(calY, calM, 1).getDay() + 6) % 7;   // 周一起
+    const days = new Date(calY, calM + 1, 0).getDate();
+    const mm = String(calM + 1).padStart(2, '0');
+    const n = new Date();
+    const atNow = calY === n.getFullYear() && calM === n.getMonth();
+    let cells = ['一','二','三','四','五','六','日'].map(w => `<span class="cal-wd">${w}</span>`).join('');
+    for (let i = 0; i < first; i++) cells += '<span></span>';
+    let count = 0;
+    for (let d = 1; d <= days; d++) {
+      const key = calY + '-' + mm + '-' + String(d).padStart(2, '0');
+      const logged = !!h.log[key];
+      if (logged) count++;
+      const cls = ['cal-day', logged && 'logged', key === todayK && 'today', key > todayK && 'future'].filter(Boolean).join(' ');
+      const rot = logged ? ` style="transform:rotate(${(d * 7) % 9 - 4}deg)"` : '';   // 手盖的章总有点歪
+      cells += `<button type="button" class="${cls}" data-k="${key}"${rot}>${d}</button>`;
+    }
+    return `
+      <div class="cal-head">
+        <button type="button" class="cal-nav" data-nav="-1" aria-label="上个月"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <div class="cal-title">${calY}年${calM + 1}月</div>
+        <button type="button" class="cal-nav" data-nav="1" aria-label="下个月"${atNow ? ' disabled' : ''}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
+      </div>
+      <div class="cal-grid">${cells}</div>
+      <div class="cal-foot">本月打卡 ${count} 天 · 点日期可补记或撤销</div>`;
+  }
   function renderHabits() {
     const list = $('habit-list');
     if (!habits.length) { list.innerHTML = '<div class="habit-empty">还没有打卡项<br>建一个，让坚持有人看见</div>'; return; }
@@ -712,19 +783,30 @@
     list.innerHTML = '';
     habits.forEach(h => {
       const done = !!h.log[k], streak = habitStreak(h), total = Object.keys(h.log).length;
-      const row = document.createElement('div');
-      row.className = 'habit-row';
-      row.innerHTML = `
-        <div class="habit-info">
-          <div class="habit-name"></div>
-          <div class="habit-sub">${streak > 0 ? '连续 ' + streak + ' 天' : '今天开始'} · 共 ${total} 次</div>
+      const open = openCalId === h.id;
+      const item = document.createElement('div');
+      item.className = 'habit-item';
+      item.innerHTML = `
+        <div class="habit-row">
+          <button class="habit-info" type="button" aria-expanded="${open}">
+            <div class="habit-name"></div>
+            <div class="habit-sub">${streak > 0 ? '连续 ' + streak + ' 天' : '今天开始'} · 共 ${total} 次
+              <svg class="habit-chev${open ? ' open' : ''}" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+            </div>
+          </button>
+          <button class="habit-del" type="button" aria-label="删除"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
+          <button class="habit-check ${done ? 'done' : ''}" type="button" aria-label="打卡"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
         </div>
-        <button class="habit-del" type="button" aria-label="删除"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
-        <button class="habit-check ${done ? 'done' : ''}" type="button" aria-label="打卡"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>`;
-      row.querySelector('.habit-name').textContent = h.name;
-      row.querySelector('.habit-check').onclick = () => toggleHabit(h.id);
-      row.querySelector('.habit-del').onclick = () => deleteHabit(h.id);
-      list.appendChild(row);
+        ${open ? `<div class="habit-cal">${calHTML(h)}</div>` : ''}`;
+      item.querySelector('.habit-name').textContent = h.name;
+      item.querySelector('.habit-info').onclick = () => toggleCal(h.id);
+      item.querySelector('.habit-check').onclick = () => toggleHabit(h.id);
+      item.querySelector('.habit-del').onclick = () => deleteHabit(h.id);
+      if (open) {
+        item.querySelectorAll('.cal-nav').forEach(b => { b.onclick = () => calShift(+b.dataset.nav); });
+        item.querySelectorAll('.cal-day:not(.future)').forEach(b => { b.onclick = () => toggleHabitDay(h.id, b.dataset.k); });
+      }
+      list.appendChild(item);
     });
   }
   function habitBrief() {
@@ -1744,8 +1826,8 @@
   /* ---------- 工具 ---------- */
   function nowTime() { return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); }
   function handleKey(e) {
-    if (e.isComposing || e.keyCode === 229) return;   // 输入法组字中（选词回车）不发送
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
+    if (e.isComposing || e.keyCode === 229) return;   // 输入法组字中（选词回车）不处理
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); onSend(); }   // Ctrl/⌘+Enter 发送；普通回车 = 换行
   }
   function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 130) + 'px'; }
   function isNearBottom() { const c = $('chat'); return c.scrollHeight - c.scrollTop - c.clientHeight < 120; }
