@@ -26,9 +26,22 @@
     --radius-sm: 12px;
     --safe-top:    env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
-    --serif:     "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC", STSong, Georgia, "Times New Roman", serif;
+    --serif:     "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Source Han Serif CN", "Noto Serif SC", STSong, SimSun, Georgia, "Times New Roman", serif;
+    --sans:      -apple-system, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+    /* 阅读字号：默认「标准」，可在设置里调大 */
+    --fs-bubble: 16px;
+    --fs-ai:     17px;
+    --fs-think:  14px;
+    --fs-input:  16px;
     color-scheme: light;
   }
+
+  /* 字号档位：大 / 特大 */
+  :root[data-fontsize="lg"] { --fs-bubble: 17.5px; --fs-ai: 18.5px; --fs-think: 15px; --fs-input: 17.5px; }
+  :root[data-fontsize="xl"] { --fs-bubble: 19px;   --fs-ai: 20px;   --fs-think: 16px; --fs-input: 19px; }
+  /* 正文字体切到黑体（宋体在部分设备上回退效果不佳时用） */
+  :root[data-aifont="sans"] .ai-text,
+  :root[data-aifont="sans"] .think-body-inner { font-family: var(--sans) !important; }
 
   /* 夜晚的同一个房间：暖深棕，不是冷灰；赭石提亮一档保证对比度 */
   :root[data-theme="dark"] {
@@ -119,7 +132,7 @@
   }
 
   body {
-    font-family: -apple-system, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+    font-family: var(--sans);
     background: var(--bg); color: var(--ink);
     height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
     -webkit-font-smoothing: antialiased;
@@ -148,7 +161,7 @@
   @keyframes msg-in { from { opacity: 0; transform: translateY(4px); } }
   .msg.user { align-self: flex-end; align-items: flex-end; }
   .msg.ai { align-self: flex-start; align-items: flex-start; width: 100%; max-width: 100%; }
-  .bubble { background: var(--user); border: 1px solid var(--line); border-radius: var(--radius); border-bottom-right-radius: 7px; padding: 11px 15px; font-size: 15.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 2px rgba(58,51,43,0.04), 0 3px 12px rgba(58,51,43,0.05); }
+  .bubble { background: var(--user); border: 1px solid var(--line); border-radius: var(--radius); border-bottom-right-radius: 7px; padding: 11px 15px; font-size: var(--fs-bubble); line-height: 1.6; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 2px rgba(58,51,43,0.04), 0 3px 12px rgba(58,51,43,0.05); }
   .time { font-size: 11px; color: var(--ink-3); padding: 4px 4px 0; }
   .to-bottom { position: fixed; right: 16px; bottom: calc(86px + var(--safe-bottom)); z-index: 20; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 10px rgba(0,0,0,0.10); opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .18s, transform .18s; }
   .to-bottom.show { opacity: 1; pointer-events: auto; transform: none; }
@@ -220,15 +233,15 @@
   .think-body { max-height: 0; overflow: hidden; transition: max-height .25s ease; }
   .think.open .think-body { max-height: 280px; overflow-y: auto; }
   .think-body::-webkit-scrollbar { width: 0; }
-  .think-body-inner { font-family: var(--serif) !important; margin-top: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); font-size: 13.5px; line-height: 1.7; color: var(--ink-2); font-style: italic; white-space: pre-wrap; word-break: break-word; }
+  .think-body-inner { font-family: var(--serif) !important; margin-top: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); font-size: var(--fs-think); line-height: 1.7; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
 
   /* AI 正文 + Markdown */
-  .ai-text { font-family: var(--serif) !important; font-size: 16px; line-height: 1.75; color: var(--ink); word-break: break-word; }
+  .ai-text { font-family: var(--serif) !important; font-size: var(--fs-ai); line-height: 1.75; color: var(--ink); word-break: break-word; }
   .ai-text.err { color: var(--accent); white-space: pre-wrap; }
   .ai-text p { margin: 0 0 10px; }
   .ai-text p:last-child { margin-bottom: 0; }
   .ai-text h1, .ai-text h2, .ai-text h3, .ai-text h4 { line-height: 1.35; margin: 14px 0 8px; font-weight: 700; }
-  .ai-text h1 { font-size: 20px; } .ai-text h2 { font-size: 18px; } .ai-text h3 { font-size: 16.5px; } .ai-text h4 { font-size: 15.5px; }
+  .ai-text h1 { font-size: 1.22em; } .ai-text h2 { font-size: 1.1em; } .ai-text h3 { font-size: 1.02em; } .ai-text h4 { font-size: 0.96em; }
   .ai-text ul, .ai-text ol { margin: 6px 0 10px; padding-left: 22px; }
   .ai-text li { margin: 3px 0; }
   .ai-text blockquote { margin: 8px 0; padding: 2px 0 2px 12px; border-left: 3px solid var(--accent-line); color: var(--ink-2); }
@@ -265,7 +278,7 @@
   .input-bar { display: flex; align-items: flex-end; gap: 9px; padding: 8px 14px calc(12px + var(--safe-bottom)); background: var(--bg); flex-shrink: 0; border-top: 1px solid var(--line); }
   .input-wrap { flex: 1; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 9px 16px; display: flex; align-items: flex-end; transition: border-color .15s; }
   .input-wrap:focus-within { border-color: var(--accent-line); }
-  #msg-input { flex: 1; background: none; border: none; outline: none; color: var(--ink); font-size: 15.5px; font-family: inherit; resize: none; line-height: 1.5; max-height: 130px; min-height: 22px; }
+  #msg-input { flex: 1; background: none; border: none; outline: none; color: var(--ink); font-size: var(--fs-input); font-family: inherit; resize: none; line-height: 1.5; max-height: 130px; min-height: 22px; }
   #msg-input::placeholder { color: var(--ink-3); }
   .send-btn { width: 40px; height: 40px; background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, #fff) 0%, var(--accent) 100%); border: none; border-radius: 50%; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: opacity .15s, transform .1s; box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent); }
   .send-btn:active { transform: scale(.92); }
@@ -473,13 +486,24 @@
         <button type="button" class="comp-tab" data-mode="warm" onclick="setPalette('warm')">暖砂</button>
         <button type="button" class="comp-tab" data-mode="cool" onclick="setPalette('cool')">冰蓝</button>
       </div>
+      <div class="field-label">字号</div>
+      <div class="comp-tabs" id="fontsize-tabs" style="padding:6px 0 0">
+        <button type="button" class="comp-tab" data-mode="std" onclick="setFontSize('std')">标准</button>
+        <button type="button" class="comp-tab" data-mode="lg" onclick="setFontSize('lg')">大</button>
+        <button type="button" class="comp-tab" data-mode="xl" onclick="setFontSize('xl')">特大</button>
+      </div>
+      <div class="field-label">正文字体</div>
+      <div class="comp-tabs" id="aifont-tabs" style="padding:6px 0 0">
+        <button type="button" class="comp-tab" data-mode="serif" onclick="setAiFont('serif')">宋体</button>
+        <button type="button" class="comp-tab" data-mode="sans" onclick="setAiFont('sans')">黑体</button>
+      </div>
       <div class="field-label">数据</div>
       <div class="comp-tabs" style="padding:6px 0 0">
         <button type="button" class="comp-tab" onclick="exportBackup()">导出备份</button>
         <button type="button" class="comp-tab" onclick="document.getElementById('import-file').click()">导入备份</button>
       </div>
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-12</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-12b</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -597,6 +621,8 @@
   /* ---------- 主题 ---------- */
   let themeMode = localStorage.getItem('islet_theme') || 'auto';       // auto | light | dark
   let paletteMode = localStorage.getItem('islet_palette') || 'warm';   // warm | cool
+  let fontSize = localStorage.getItem('islet_fontsize') || 'std';      // std | lg | xl
+  let aiFont = localStorage.getItem('islet_aifont') || 'serif';        // serif | sans
   function effectiveTheme() { return themeMode !== 'auto' ? themeMode : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); }
   function applyTheme() {
     const el = document.documentElement;
@@ -604,17 +630,27 @@
     else el.setAttribute('data-theme', themeMode);
     if (paletteMode === 'warm') el.removeAttribute('data-palette');
     else el.setAttribute('data-palette', paletteMode);
+    if (fontSize === 'std') el.removeAttribute('data-fontsize');
+    else el.setAttribute('data-fontsize', fontSize);
+    if (aiFont === 'serif') el.removeAttribute('data-aifont');
+    else el.setAttribute('data-aifont', aiFont);
     const meta = document.getElementById('meta-theme');
     const barColor = { 'warm-light': '#F4F0E8', 'warm-dark': '#221E1A', 'cool-light': '#EFF2F5', 'cool-dark': '#171B20' };
     if (meta) meta.content = barColor[paletteMode + '-' + effectiveTheme()];
   }
   function setTheme(m) { themeMode = m; localStorage.setItem('islet_theme', m); applyTheme(); renderThemeTabs(); }
   function setPalette(m) { paletteMode = m; localStorage.setItem('islet_palette', m); applyTheme(); renderThemeTabs(); }
+  function setFontSize(m) { fontSize = m; localStorage.setItem('islet_fontsize', m); applyTheme(); renderThemeTabs(); }
+  function setAiFont(m) { aiFont = m; localStorage.setItem('islet_aifont', m); applyTheme(); renderThemeTabs(); }
   function renderThemeTabs() {
     const t = document.getElementById('theme-tabs');
     if (t) t.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === themeMode));
     const p = document.getElementById('palette-tabs');
     if (p) p.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === paletteMode));
+    const f = document.getElementById('fontsize-tabs');
+    if (f) f.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === fontSize));
+    const a = document.getElementById('aifont-tabs');
+    if (a) a.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === aiFont));
   }
   applyTheme();
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (themeMode === 'auto') applyTheme(); });
@@ -837,6 +873,8 @@
         reasoning: localStorage.getItem('or_reasoning') || '',
         theme: localStorage.getItem('islet_theme') || 'auto',
         palette: localStorage.getItem('islet_palette') || 'warm',
+        fontsize: localStorage.getItem('islet_fontsize') || 'std',
+        aifont: localStorage.getItem('islet_aifont') || 'serif',
       },
       // 刻意不包含 API Key：备份文件可能被分享或云同步，key 不应跟着走
     };
@@ -873,6 +911,8 @@
         if (st.reasoning) localStorage.setItem('or_reasoning', st.reasoning);
         if (st.theme) localStorage.setItem('islet_theme', st.theme);
         if (st.palette) localStorage.setItem('islet_palette', st.palette);
+        if (st.fontsize) localStorage.setItem('islet_fontsize', st.fontsize);
+        if (st.aifont) localStorage.setItem('islet_aifont', st.aifont);
         alert('导入完成，即将刷新');
         location.reload();
       } catch (e) { alert('导入失败：' + e.message); }
