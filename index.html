@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" id="meta-theme" content="#F4F0E8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="islet">
+<link rel="apple-touch-icon" href="islet-icon.png">
 <title>islet</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -386,6 +390,39 @@
   .distill-status { font-size: 12px; color: var(--accent); text-align: center; margin-top: 8px; min-height: 15px; }
   .hidden { display: none !important; }
 
+  /* 日期分隔线 */
+  .day-sep { align-self: center; display: flex; align-items: center; gap: 10px; color: var(--ink-3); font-size: 11.5px; flex-shrink: 0; }
+  .day-sep::before, .day-sep::after { content: ''; width: 34px; height: 1px; background: var(--line); }
+
+  /* 长按消息菜单（移动端禁掉系统文本选择，改用自己的菜单） */
+  .msg { -webkit-touch-callout: none; }
+  @media (hover: none) { .msg .bubble, .msg .ai-text, .msg .think-body-inner { -webkit-user-select: none; user-select: none; } }
+  .msg.flash { animation: hitflash 1.7s ease; border-radius: var(--radius-sm); }
+  @keyframes hitflash { 0% { background: var(--accent-weak); } 100% { background: transparent; } }
+  .mm-preview { font-size: 12.5px; color: var(--ink-3); padding: 2px 4px 10px; line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .mm-btn { width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 13px; font-size: 15px; color: var(--ink); cursor: pointer; margin-top: 8px; font-family: inherit; }
+  .mm-btn:active { background: var(--accent-weak); }
+  .mm-btn.danger { color: var(--accent); }
+
+  /* 消息搜索 */
+  .hit-row { padding: 10px 8px; border-radius: 12px; cursor: pointer; }
+  .hit-row:active { background: var(--accent-weak); }
+  .hit-meta { font-size: 11px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hit-snip { font-size: 13.5px; color: var(--ink); margin-top: 3px; word-break: break-all; line-height: 1.5; }
+  .hit-snip b { color: var(--accent); font-weight: 600; }
+
+  /* 备份提醒 */
+  .backup-hint { display: block; width: calc(100% - 24px); margin: 0 12px 8px; padding: 10px 12px; background: var(--accent-weak); border: none; border-radius: 12px; font-size: 12px; color: var(--ink-2); text-align: center; cursor: pointer; line-height: 1.5; font-family: inherit; }
+  .backup-hint b { color: var(--accent); font-weight: 600; }
+
+  /* 存储占用 */
+  .store-meter { font-size: 11.5px; color: var(--ink-3); margin-top: 10px; line-height: 1.5; }
+  .store-bar { height: 6px; background: var(--line); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+  .store-fill { height: 100%; background: var(--accent); border-radius: 3px; }
+
+  /* 打卡里程碑：金圈 */
+  .cal-day.ms { outline: 2px solid #D2A04A; outline-offset: 2px; }
+
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 </style>
 </head>
@@ -432,12 +469,18 @@
   <div class="drawer">
     <div class="drawer-head">
       <span class="drawer-title serif">对话</span>
-      <button class="icon-btn" onclick="newSession()" aria-label="新对话">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-      </button>
+      <span style="display:flex">
+        <button class="icon-btn" onclick="openSearch()" aria-label="搜索消息">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        </button>
+        <button class="icon-btn" onclick="newSession()" aria-label="新对话">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </span>
     </div>
     <div class="comp-tabs" id="drawer-companions" style="padding:0 12px 10px"></div>
     <div class="session-list" id="session-list"></div>
+    <button class="backup-hint" id="backup-hint" style="display:none" type="button" onclick="exportBackup()"></button>
     <div class="drawer-foot">
       <button class="foot-row" onclick="openMemory()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 5.6a5 5 0 00-7-.1L12 7l-1.8-1.5a5 5 0 00-7 7.1L12 21l8.8-8.4a5 5 0 000-7z"/></svg>
@@ -503,7 +546,8 @@
         <button type="button" class="comp-tab" onclick="document.getElementById('import-file').click()">导入备份</button>
       </div>
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-12b</div>
+      <div class="store-meter" id="store-meter"></div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-13b</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -537,6 +581,31 @@
       <div id="habit-list"></div>
       <button class="comp-tab habit-add" type="button" onclick="addHabit()">＋ 新建打卡项</button>
       <div class="form-note">打卡只存在本机；你的坚持，角色们看得见 🪴</div>
+    </div>
+  </div>
+</div>
+<div class="overlay" id="search-overlay">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">搜索消息</div>
+      <button class="sheet-x" onclick="closeSearch()">×</button>
+    </div>
+    <div class="search-wrap">
+      <input class="search-box" id="msg-search" placeholder="搜遍所有角色的所有对话…" oninput="runSearch(this.value)" spellcheck="false">
+    </div>
+    <div class="model-list" id="search-results"></div>
+  </div>
+</div>
+<div class="overlay" id="msgmenu-overlay">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="form" style="padding-bottom:6px">
+      <div class="mm-preview" id="mm-preview"></div>
+      <button class="mm-btn" id="mm-copy" type="button">复制全文</button>
+      <button class="mm-btn" id="mm-edit" type="button">编辑并从这里重发</button>
+      <button class="mm-btn danger" id="mm-del" type="button">删除这条消息</button>
+      <button class="mm-btn" type="button" onclick="hide('msgmenu-overlay')">取消</button>
     </div>
   </div>
 </div>
@@ -654,6 +723,8 @@
   }
   applyTheme();
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (themeMode === 'auto') applyTheme(); });
+  // 请求持久存储：降低 iOS 长时间不用时自动清空本地数据的风险（主屏幕启动时最有效）
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
   /* ---------- 图片：IndexedDB 存 Blob，消息只存引用 id ---------- */
   let _dbP = null;
@@ -733,10 +804,23 @@
     pickImgs({ files: items.map(it => it.getAsFile()).filter(Boolean) });
   });
 
+  /* ---------- 存储写入：满了要大声说，不能悄悄丢 ---------- */
+  let storageAlerted = false;
+  function lsSet(k, v) {
+    try { localStorage.setItem(k, v); return true; }
+    catch (e) {
+      if (!storageAlerted) {
+        storageAlerted = true;
+        alert('本机存储空间已满，最新内容可能没有保存成功！\n请立刻在设置里「导出备份」，然后删除一些旧对话腾出空间。');
+      }
+      return false;
+    }
+  }
+
   /* ---------- 打卡：纯本地，零 API 成本；摘要注入 system prompt 让角色"看见" ---------- */
   let habits = [];
   try { habits = JSON.parse(localStorage.getItem('islet_habits') || '[]'); } catch (e) { habits = []; }
-  function saveHabits() { try { localStorage.setItem('islet_habits', JSON.stringify(habits)); } catch (e) {} }
+  function saveHabits() { lsSet('islet_habits', JSON.stringify(habits)); }
   function dayKey(d) { const x = d || new Date(); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); }
   function habitStreak(h) {
     let n = 0; const d = new Date();
@@ -794,14 +878,20 @@
     const atNow = calY === n.getFullYear() && calM === n.getMonth();
     let cells = ['一','二','三','四','五','六','日'].map(w => `<span class="cal-wd">${w}</span>`).join('');
     for (let i = 0; i < first; i++) cells += '<span></span>';
-    let count = 0;
+    let count = 0, hasMs = false;
     for (let d = 1; d <= days; d++) {
       const key = calY + '-' + mm + '-' + String(d).padStart(2, '0');
       const logged = !!h.log[key];
       if (logged) count++;
-      const cls = ['cal-day', logged && 'logged', key === todayK && 'today', key > todayK && 'future'].filter(Boolean).join(' ');
+      let ms = 0;
+      if (logged) {   // 以这天为终点往回数连续天数，撞上里程碑就描金圈
+        let n = 0; const dt = new Date(calY, calM, d);
+        while (h.log[dayKey(dt)] && n < 400) { n++; dt.setDate(dt.getDate() - 1); }
+        if (n === 7 || n === 30 || n === 100 || n === 365) { ms = n; hasMs = true; }
+      }
+      const cls = ['cal-day', logged && 'logged', ms && 'ms', key === todayK && 'today', key > todayK && 'future'].filter(Boolean).join(' ');
       const rot = logged ? ` style="transform:rotate(${(d * 7) % 9 - 4}deg)"` : '';   // 手盖的章总有点歪
-      cells += `<button type="button" class="${cls}" data-k="${key}"${rot}>${d}</button>`;
+      cells += `<button type="button" class="${cls}" data-k="${key}"${rot}${ms ? ` title="连续第 ${ms} 天"` : ''}>${d}</button>`;
     }
     return `
       <div class="cal-head">
@@ -810,7 +900,7 @@
         <button type="button" class="cal-nav" data-nav="1" aria-label="下个月"${atNow ? ' disabled' : ''}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
       </div>
       <div class="cal-grid">${cells}</div>
-      <div class="cal-foot">本月打卡 ${count} 天 · 点日期可补记或撤销</div>`;
+      <div class="cal-foot">本月打卡 ${count} 天 · 点日期可补记或撤销${hasMs ? ' · 金圈是连续里程碑' : ''}</div>`;
   }
   function renderHabits() {
     const list = $('habit-list');
@@ -884,6 +974,8 @@
     a.href = URL.createObjectURL(blob);
     a.download = `islet-backup-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.json`;
     document.body.appendChild(a); a.click(); a.remove();
+    localStorage.setItem('islet_last_backup', String(Date.now()));
+    updateBackupHint();
     setTimeout(() => URL.revokeObjectURL(a.href), 3000);
   }
   function importBackup(inp) {
@@ -976,9 +1068,9 @@
   }
   function saveSessionMsgs(id, msgs) {
     // 历史记录完整保留（1000 条的安全上限只为防 localStorage 爆仓）；发给模型的截断在 buildApiMessages 里做
-    try { localStorage.setItem('islet_s_' + id, JSON.stringify(msgs.slice(-1000))); } catch (e) {}
+    lsSet('islet_s_' + id, JSON.stringify(msgs.slice(-1000)));
   }
-  function saveIndex() { try { localStorage.setItem('islet_idx', JSON.stringify(sessions)); } catch (e) {} }
+  function saveIndex() { lsSet('islet_idx', JSON.stringify(sessions)); }
 
   /* ---------- 角色（记忆各自独立） ---------- */
   function loadCompanions() {
@@ -1043,7 +1135,7 @@
       return `<button type="button" class="comp-tab ${c.id === activeCompanionId ? 'sel' : ''}" onclick="switchCompanion('${c.id}')"><span class="tab-dot" style="background:${avaColor(c.id)}"></span>${esc(c.name)}${mark}</button>`;
     }).join('');
   }
-  function saveCompanions() { try { localStorage.setItem('islet_companions', JSON.stringify(companions)); } catch (e) {} }
+  function saveCompanions() { lsSet('islet_companions', JSON.stringify(companions)); }
   function activeCompanion() { return companions.find(c => c.id === activeCompanionId) || companions[0]; }
   function setActiveCompanion(id) {
     if (!companions.find(c => c.id === id)) return;
@@ -1204,7 +1296,7 @@
       </div>`).join('');
   }
 
-  function openDrawer() { renderDrawerCompanions(); renderSessions(); show('drawer-overlay'); }
+  function openDrawer() { renderDrawerCompanions(); renderSessions(); updateBackupHint(); show('drawer-overlay'); }
   function closeDrawer() { hide('drawer-overlay'); }
 
   /* ---------- 模型列表 ---------- */
@@ -1276,6 +1368,7 @@
     $('system-input').value = systemPrompt;
     $('reason-toggle').checked = reasoningEnabled;
     renderThemeTabs();
+    updateStoreMeter();
     $('setup-x').style.visibility = (firstRun && !apiKey) ? 'hidden' : 'visible';
     show('setup-overlay');
   }
@@ -1304,9 +1397,12 @@
     chat.innerHTML = '';
     const tb = $('token-bar'); if (tb) tb.style.display = 'none';
     if (!messages.length) { chat.innerHTML = emptyHtml(); return; }
+    let prevDay = null;
     messages.forEach((m, i) => {
+      if (m.ts) { const dk = dayKey(new Date(m.ts)); if (dk !== prevDay) { appendDaySep(m.ts); prevDay = dk; } }
       if (m.role === 'user') addUser(m.content, m.time, i, m.imgs);
       else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true);
+      const last = chat.lastElementChild; if (last) last.dataset.midx = i;
     });
     scrollToBottom(true);
   }
@@ -1441,6 +1537,13 @@
     if (systemPrompt) parts.push(systemPrompt);
     const hb = habitBrief();
     if (hb) parts.push(hb);
+    // 时间感：距上次和这个角色对话隔了多久（≥6 小时才提；每次构建都刷新 lastSeen，故间隔=距上一次真实交流）
+    const tc = sessionCompanion(sid);
+    if (tc) {
+      const _now = Date.now(), _gapH = tc.lastSeen ? (_now - tc.lastSeen) / 3600e3 : 0;
+      if (_gapH >= 6) parts.push('距离你们上次对话已过去' + (_gapH < 48 ? '约 ' + Math.round(_gapH) + ' 小时' : '约 ' + Math.round(_gapH / 24) + ' 天') + '。如果自然的话可以提一句，不必刻意。');
+      tc.lastSeen = _now; saveCompanions();
+    }
     const d = new Date(), wd = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
     parts.push(`今天是 ${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日，星期${wd}${tz ? '，用户设备时区 ' + tz : ''}。用户消息开头的 [时:分] 是那条消息按此时区的发送时刻，仅供你感知时间和间隔，回复时不要模仿这个格式。`);
@@ -1616,11 +1719,14 @@
         return;
       }
     }
-    const t = nowTime();
-    const msg = { role: 'user', content: text, time: t };
+    const t = nowTime(), ts = Date.now();
+    const prev = messages[messages.length - 1];
+    if (!prev || !prev.ts || dayKey(new Date(prev.ts)) !== dayKey(new Date(ts))) appendDaySep(ts);
+    const msg = { role: 'user', content: text, time: t, ts };
     if (imgs) msg.imgs = imgs;
     messages.push(msg);
     addUser(text, t, messages.length - 1, msg.imgs);
+    const _lr = $('chat').lastElementChild; if (_lr) _lr.dataset.midx = messages.length - 1;
     saveCurrent();
     generateAssistant();
   }
@@ -1629,6 +1735,7 @@
     const sid = currentId, model = selectedModel, msgsRef = messages;   // 快照，切走后不串台
     setLoading(true);
     const h = addAi('', '', null, model, nowTime(), false);
+    h.row.dataset.midx = msgsRef.length;
     h.textEl.classList.add('cursor');
 
     let contentText = '', reasoningText = '', thinkStart = null, firstContentAt = null, finalSec = null, timer = null;
@@ -1673,7 +1780,7 @@
     if (lastUsage && sid === currentId) updateTokenBar(lastUsage);
 
     if (contentText || reasoningText) {
-      const msg = { role: 'assistant', content: contentText, thinking: reasoningText || null, thinkSec: finalSec, model, time: h.row.querySelector('.t').textContent };
+      const msg = { role: 'assistant', content: contentText, thinking: reasoningText || null, thinkSec: finalSec, model, time: h.row.querySelector('.t').textContent, ts: Date.now() };
       if (sid === currentId) { messages.push(msg); saveCurrent(); }
       else if (sessions.find(s => s.id === sid)) { const old = loadSessionMsgs(sid); old.push(msg); saveSessionMsgs(sid, old); }   // 已切走也别丢；会话已删除则不写回
     }
@@ -1863,6 +1970,119 @@
     }
   }
 
+  /* ---------- 日期分隔线 ---------- */
+  function dayLabel(ts) {
+    const d = new Date(ts), n = new Date();
+    if (dayKey(d) === dayKey(n)) return '今天';
+    const y = new Date(n); y.setDate(n.getDate() - 1);
+    if (dayKey(d) === dayKey(y)) return '昨天';
+    return (d.getFullYear() !== n.getFullYear() ? d.getFullYear() + '年' : '') + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  }
+  function appendDaySep(ts) {
+    dropEmpty();
+    const el = document.createElement('div');
+    el.className = 'day-sep';
+    el.textContent = dayLabel(ts);
+    $('chat').appendChild(el);
+  }
+
+  /* ---------- 消息搜索：搜遍所有角色的所有会话 ---------- */
+  function openSearch() {
+    closeDrawer();
+    const inp = $('msg-search'); inp.value = '';
+    $('search-results').innerHTML = '<div class="list-empty-mini">输入关键词，搜遍所有角色的所有对话</div>';
+    show('search-overlay');
+    setTimeout(() => inp.focus(), 300);
+  }
+  function closeSearch() { hide('search-overlay'); }
+  function runSearch(q) {
+    q = (q || '').trim();
+    const box = $('search-results');
+    if (!q) { box.innerHTML = '<div class="list-empty-mini">输入关键词，搜遍所有角色的所有对话</div>'; return; }
+    const ql = q.toLowerCase(), hits = [];
+    for (const sess of sessions) {
+      const msgs = sess.id === currentId ? messages : loadSessionMsgs(sess.id);
+      for (let i = 0; i < msgs.length; i++) {
+        const c = msgs[i].content || '';
+        const pos = c.toLowerCase().indexOf(ql);
+        if (pos < 0) continue;
+        const from = Math.max(0, pos - 14);
+        hits.push({
+          sid: sess.id, idx: i, title: sess.title,
+          cname: (companions.find(x => x.id === sess.companionId) || {}).name || '',
+          pre: (from > 0 ? '…' : '') + c.slice(from, pos),
+          hit: c.slice(pos, pos + q.length),
+          post: c.slice(pos + q.length, pos + q.length + 40),
+          role: msgs[i].role,
+        });
+        if (hits.length >= 60) break;
+      }
+      if (hits.length >= 60) break;
+    }
+    box.innerHTML = hits.length
+      ? hits.map(h => `
+        <div class="hit-row" onclick="jumpToHit('${h.sid}',${h.idx})">
+          <div class="hit-meta">${esc(h.cname)} · ${esc(h.title)}${h.role === 'user' ? ' · 你说的' : ''}</div>
+          <div class="hit-snip">${esc(h.pre)}<b>${esc(h.hit)}</b>${esc(h.post)}…</div>
+        </div>`).join('')
+      : '<div class="list-empty">没有找到「' + esc(q) + '」</div>';
+  }
+  function jumpToHit(sid, idx) {
+    hide('search-overlay');
+    if (sid !== currentId) switchSession(sid);
+    setTimeout(() => {
+      const el = document.querySelector('.msg[data-midx="' + idx + '"]');
+      if (el) {
+        el.scrollIntoView({ block: 'center' });
+        el.classList.add('flash');
+        setTimeout(() => el.classList.remove('flash'), 1700);
+      }
+    }, 120);
+  }
+
+  /* ---------- 长按消息菜单 ---------- */
+  let menuIdx = null;
+  function showMsgMenu(idx) {
+    const m = messages[idx];
+    if (!m) return;
+    menuIdx = idx;
+    $('mm-preview').textContent = (m.content || '（图片消息）').slice(0, 100);
+    $('mm-edit').style.display = m.role === 'user' ? '' : 'none';
+    show('msgmenu-overlay');
+  }
+
+  /* ---------- 备份提醒 ---------- */
+  function updateBackupHint() {
+    const el = $('backup-hint');
+    if (!el) return;
+    const last = +(localStorage.getItem('islet_last_backup') || 0);
+    let txt = '';
+    if (!last) { if (sessions.length >= 2) txt = '数据只存在本机 · 还没导出过备份，<b>点此导出一份</b>'; }
+    else {
+      const days = Math.floor((Date.now() - last) / 864e5);
+      if (days >= 14) txt = '上次备份是 <b>' + days + ' 天前</b> · 点此再导出一份';
+    }
+    el.innerHTML = txt;
+    el.style.display = txt ? '' : 'none';
+  }
+
+  /* ---------- 存储占用表 ---------- */
+  function storageBytes() {
+    let n = 0;
+    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); n += (k.length + (localStorage.getItem(k) || '').length) * 2; } } catch (e) {}
+    return n;
+  }
+  function updateStoreMeter() {
+    const el = $('store-meter');
+    if (!el) return;
+    const used = storageBytes(), cap = 5 * 1024 * 1024;
+    const pct = Math.min(100, used / cap * 100);
+    const fmt = used < 1048576 ? Math.round(used / 1024) + ' KB' : (used / 1048576).toFixed(1) + ' MB';
+    el.innerHTML = '本地存储约已用 ' + fmt + ' / 5 MB（上限因浏览器而异）'
+      + (pct > 75 ? ' · <span style="color:var(--accent)">空间偏紧，建议备份后清理旧对话</span>' : '')
+      + '<div class="store-bar"><div class="store-fill" style="width:' + pct.toFixed(1) + '%"></div></div>';
+  }
+
   /* ---------- 工具 ---------- */
   function nowTime() { return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); }
   function handleKey(e) {
@@ -1886,6 +2106,54 @@
   $('picker-overlay').addEventListener('click', e => { if (e.target.id === 'picker-overlay') closePicker(); });
   $('memory-overlay').addEventListener('click', e => { if (e.target.id === 'memory-overlay') closeMemory(); });
   $('habit-overlay').addEventListener('click', e => { if (e.target.id === 'habit-overlay') closeHabits(); });
+  $('search-overlay').addEventListener('click', e => { if (e.target.id === 'search-overlay') closeSearch(); });
+  $('msgmenu-overlay').addEventListener('click', e => { if (e.target.id === 'msgmenu-overlay') hide('msgmenu-overlay'); });
+
+  $('mm-copy').onclick = () => {
+    const m = messages[menuIdx];
+    if (m && m.content) navigator.clipboard.writeText(m.content).catch(() => {});
+    hide('msgmenu-overlay');
+  };
+  $('mm-edit').onclick = () => { hide('msgmenu-overlay'); editMessage(menuIdx); };
+  $('mm-del').onclick = () => {
+    const m = messages[menuIdx];
+    if (!m) { hide('msgmenu-overlay'); return; }
+    if (!confirm('删除这条消息？不可恢复。')) return;
+    if (isLoading && currentAbort) currentAbort.abort();
+    messages.splice(menuIdx, 1);
+    saveCurrent(); renderAll();
+    hide('msgmenu-overlay');
+  };
+
+  // 长按消息弹菜单：iOS 长按不触发 contextmenu，自己用触摸计时实现
+  (() => {
+    const chat = $('chat');
+    let t = null, sx = 0, sy = 0, fired = false;
+    const cancel = () => { if (t) { clearTimeout(t); t = null; } };
+    chat.addEventListener('touchstart', e => {
+      fired = false;
+      const row = e.target.closest('.msg');
+      if (!row || row.dataset.midx == null || e.target.closest('button, a, img')) return;
+      const idx = +row.dataset.midx;
+      const p = e.touches[0]; sx = p.clientX; sy = p.clientY;
+      t = setTimeout(() => { t = null; fired = true; showMsgMenu(idx); }, 480);
+    }, { passive: true });
+    chat.addEventListener('touchmove', e => {
+      if (!t) return;
+      const p = e.touches[0];
+      if (Math.abs(p.clientX - sx) > 10 || Math.abs(p.clientY - sy) > 10) cancel();
+    }, { passive: true });
+    chat.addEventListener('touchend', cancel, { passive: true });
+    chat.addEventListener('touchcancel', cancel, { passive: true });
+    chat.addEventListener('click', e => { if (fired) { fired = false; e.preventDefault(); e.stopPropagation(); } }, true);
+    chat.addEventListener('contextmenu', e => {   // 桌面右键也能用；有选区时让位给系统菜单
+      const row = e.target.closest('.msg');
+      if (!row || row.dataset.midx == null) return;
+      if (String(getSelection())) return;
+      e.preventDefault();
+      showMsgMenu(+row.dataset.midx);
+    });
+  })();
 </script>
 </body>
 </html>
