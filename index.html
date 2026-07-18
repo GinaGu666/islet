@@ -137,10 +137,11 @@
     }
   }
 
-  /* 冰蓝浅色专属：对话区顶部斜照一层微暖的玫瑰白日光——照片里向阳侧冰缘就是这个色温（实测 #EAE0DD 一带），
-     往下自然沉回冷冰底色，冷暖相遇正是那张照片好看的原因；深色与其他配色不受影响 */
+  /* 冰蓝浅色专属：对话区顶部一层同色系的冰面亮光（只提亮度、不带色温），往下自然沉回底色；
+     此前试过照片里向阳冰缘的暖玫瑰白，但固定在左上角不随内容滚动，实机上像一块暖色污渍，已回退；
+     深色与其他配色不受影响 */
   :root[data-palette="cool"]:not([data-theme="dark"]) .chat {
-    background: radial-gradient(115% 52% at 22% 3%, #FBF5F2 0%, var(--bg) 62%);
+    background: radial-gradient(115% 52% at 22% 3%, #F7FAFA 0%, var(--bg) 62%);
   }
   :root[data-palette="cool"][data-theme="dark"] .chat { background: none; }
   @media (prefers-color-scheme: dark) {
