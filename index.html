@@ -83,21 +83,23 @@
     }
   }
 
-  /* 冰蓝色调：清冷的灰蓝纸面 / 深蓝炭的夜 */
+  /* 冰蓝色调 · 按土卫二照片实采重调：冰壳本体是几乎无色的冰白（照片实测饱和度仅 3%），
+     蓝绿只留给"裂隙"——强调色取自虎纹裂缝里新鲜冰的灰青（色相同旧版，饱和度 90→68）；
+     文字换成冰层阴影的冷石墨，不再是偏蓝的墨色 */
   :root[data-palette="cool"] {
-    --bg:        #EFF2F5;
-    --card:      #F9FBFC;
-    --user:      #E4E8EC;
-    --ink:       #2B3138;
-    --ink-2:     #5E6B77;
-    --ink-3:     #97A3AF;
-    --accent:    #2F6E99;
-    --accent-weak: rgba(47,110,153,0.10);
-    --accent-line: rgba(47,110,153,0.32);
-    --line:      rgba(43,49,56,0.09);
-    --code-bg:   #E3E9EE;
-    --code-head: rgba(43,49,56,0.04);
-    --scrim:     rgba(30,36,42,0.32);
+    --bg:        #EBF1F2;
+    --card:      #FBFDFD;
+    --user:      #DFE8EA;
+    --ink:       #242C30;
+    --ink-2:     #5A6C74;
+    --ink-3:     #8FA0A6;
+    --accent:    #2B7085;
+    --accent-weak: rgba(43,112,133,0.10);
+    --accent-line: rgba(43,112,133,0.32);
+    --line:      rgba(36,44,48,0.10);
+    --code-bg:   #E2E9EA;
+    --code-head: rgba(36,44,48,0.045);
+    --scrim:     rgba(13,22,26,0.38);
     color-scheme: light;
   }
   :root[data-palette="cool"][data-theme="dark"] {
@@ -134,6 +136,20 @@
       color-scheme: dark;
     }
   }
+
+  /* 冰蓝浅色专属：对话区顶部斜照一层微暖的玫瑰白日光——照片里向阳侧冰缘就是这个色温（实测 #EAE0DD 一带），
+     往下自然沉回冷冰底色，冷暖相遇正是那张照片好看的原因；深色与其他配色不受影响 */
+  :root[data-palette="cool"]:not([data-theme="dark"]) .chat {
+    background: radial-gradient(115% 52% at 22% 3%, #FBF5F2 0%, var(--bg) 62%);
+  }
+  :root[data-palette="cool"][data-theme="dark"] .chat { background: none; }
+  @media (prefers-color-scheme: dark) {
+    :root[data-palette="cool"]:not([data-theme="light"]) .chat { background: none; }
+  }
+
+  /* 冰蓝专属：卡片投影从默认的暖棕换成冰层阴影的冷灰蓝，避免暖色渗进冷色主题 */
+  :root[data-palette="cool"] .model-pill { box-shadow: 0 1px 3px rgba(32,46,53,0.05); }
+  :root[data-palette="cool"] .bubble { box-shadow: 0 1px 2px rgba(32,46,53,0.05), 0 3px 12px rgba(32,46,53,0.06); }
 
   body {
     font-family: var(--sans);
@@ -704,7 +720,7 @@
     if (aiFont === 'serif') el.removeAttribute('data-aifont');
     else el.setAttribute('data-aifont', aiFont);
     const meta = document.getElementById('meta-theme');
-    const barColor = { 'warm-light': '#F4F0E8', 'warm-dark': '#221E1A', 'cool-light': '#EFF2F5', 'cool-dark': '#171B20' };
+    const barColor = { 'warm-light': '#F4F0E8', 'warm-dark': '#221E1A', 'cool-light': '#EBF1F2', 'cool-dark': '#171B20' };
     if (meta) meta.content = barColor[paletteMode + '-' + effectiveTheme()];
   }
   function setTheme(m) { themeMode = m; localStorage.setItem('islet_theme', m); applyTheme(); renderThemeTabs(); }
