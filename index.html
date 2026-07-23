@@ -860,6 +860,14 @@
     if (h.log[k]) delete h.log[k]; else h.log[k] = true;   // 点错可撤销
     saveHabits(); renderHabits();
   }
+  function editHabit(id) {
+    const h = habits.find(x => x.id === id);
+    if (!h) return;
+    const name = (prompt('修改打卡项名称', h.name) || '').trim();
+    if (!name || name === h.name) return;
+    h.name = name;
+    saveHabits(); renderHabits();
+  }
   function deleteHabit(id) {
     const h = habits.find(x => x.id === id);
     if (!h) return;
@@ -937,6 +945,7 @@
               <svg class="habit-chev${open ? ' open' : ''}" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
             </div>
           </button>
+          <button class="habit-del habit-edit-btn" type="button" aria-label="编辑"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5z"/></svg></button>
           <button class="habit-del" type="button" aria-label="删除"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg></button>
           <button class="habit-check ${done ? 'done' : ''}" type="button" aria-label="打卡"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
         </div>
@@ -944,7 +953,8 @@
       item.querySelector('.habit-name').textContent = h.name;
       item.querySelector('.habit-info').onclick = () => toggleCal(h.id);
       item.querySelector('.habit-check').onclick = () => toggleHabit(h.id);
-      item.querySelector('.habit-del').onclick = () => deleteHabit(h.id);
+      item.querySelector('.habit-edit-btn').onclick = () => editHabit(h.id);
+      item.querySelector('.habit-del:not(.habit-edit-btn)').onclick = () => deleteHabit(h.id);
       if (open) {
         item.querySelectorAll('.cal-nav').forEach(b => { b.onclick = () => calShift(+b.dataset.nav); });
         item.querySelectorAll('.cal-day:not(.future)').forEach(b => { b.onclick = () => toggleHabitDay(h.id, b.dataset.k); });
