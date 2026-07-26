@@ -440,6 +440,12 @@
   /* 打卡里程碑：金圈 */
   .cal-day.ms { outline: 2px solid #D2A04A; outline-offset: 2px; }
 
+  /* 模型路由提醒：请求的模型和实际响应的模型不一致时弹出 */
+  .route-toast { position: fixed; top: calc(64px + var(--safe-top)); left: 50%; transform: translateX(-50%) translateY(-8px); max-width: min(88vw, 420px); background: var(--card); border: 1px solid rgba(210,160,74,.55); border-left: 3px solid #D2A04A; color: var(--ink); font-size: 13px; line-height: 1.55; padding: 10px 14px; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.14); z-index: 100; opacity: 0; pointer-events: none; transition: opacity .22s, transform .22s; cursor: pointer; }
+  .route-toast.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+  .route-toast b { font-weight: 600; }
+  .ai-eyebrow .routed { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; background: rgba(210,160,74,.16); border: 1px solid rgba(210,160,74,.45); color: #A87B2F; flex-shrink: 0; }
+
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 </style>
 </head>
@@ -1428,7 +1434,7 @@
     messages.forEach((m, i) => {
       if (m.ts) { const dk = dayKey(new Date(m.ts)); if (dk !== prevDay) { appendDaySep(m.ts); prevDay = dk; } }
       if (m.role === 'user') addUser(m.content, m.time, i, m.imgs);
-      else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true);
+      else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true, m.reqModel);
       const last = chat.lastElementChild; if (last) last.dataset.midx = i;
     });
     scrollToBottom(true);
@@ -1456,15 +1462,16 @@
     scrollToBottom();
   }
 
-  function addAi(content, thinking, thinkSec, model, time, done) {
+  function addAi(content, thinking, thinkSec, model, time, done, reqModel) {
     dropEmpty();
     const row = document.createElement('div');
     row.className = 'msg ai';
     const label = model ? prettyName(model) : prettyName(selectedModel);
     const _c = sessionCompanion(currentId);
     const _ava = _c ? `<span class="ava" style="background:${avaColor(_c.id)}">${esc(avaChar(_c.name))}</span>` : '<span class="dot"></span>';
+    const _routed = reqModel ? `<span class="routed" title="${esc('请求 ' + reqModel + ' → 实际 ' + model)}">已路由</span>` : '';
     row.innerHTML = `
-      <div class="ai-eyebrow">${_ava}<span class="name">${esc(label)}</span><span class="t">${esc(time || '')}</span></div>
+      <div class="ai-eyebrow">${_ava}<span class="name">${esc(label)}</span>${_routed}<span class="t">${esc(time || '')}</span></div>
       <div class="think hidden open">
         <button class="think-head" type="button">
           <span class="spark"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.6L18 9l-4.4 1.4L12 15l-1.6-4.6L6 9l4.4-1.4z"/></svg></span>
@@ -1626,8 +1633,9 @@
   }
 
   // 返回 {ended:'done'|'aborted'|'http'|'network', error?}
-  async function streamCompletion(model, msgs, signal, onReason, onContent) {
-    let gotContent = false, sawDone = false, usage = null, finish = null;
+  // onServed（可选）：第一次拿到响应里的 model 字段时回调一次，用于「请求 A 实际是 B」的路由检测
+  async function streamCompletion(model, msgs, signal, onReason, onContent, onServed) {
+    let gotContent = false, sawDone = false, usage = null, finish = null, served = null;
     try {
       // max_tokens：OpenRouter 会按此值预扣余额，不设则按模型最大输出预估，余额少时会被拒
       const payload = { model, messages: withCacheBreakpoints(model, msgs), max_tokens: 8192, stream: true, stream_options: { include_usage: true } };
@@ -1659,6 +1667,8 @@
           const d = s.slice(5).trim();
           if (d === '[DONE]') { sawDone = true; break; }
           let json; try { json = JSON.parse(d); } catch (e) { continue; }
+          // OpenRouter 每个分片都带 model = 实际服务的模型；与请求的不一致说明被路由/回退了
+          if (!served && json.model) { served = json.model; if (onServed) onServed(served); }
           if (json.usage) usage = json.usage;
           const ch = json.choices && json.choices[0];
           if (ch && ch.finish_reason) finish = ch.finish_reason;
@@ -1671,11 +1681,50 @@
         }
         if (sawDone) break;
       }
-      return (sawDone || gotContent) ? { ended: 'done', usage, finish } : { ended: 'network', usage };
+      return (sawDone || gotContent) ? { ended: 'done', usage, finish, served } : { ended: 'network', usage, served };
     } catch (e) {
-      if (e.name === 'AbortError') return { ended: 'aborted', usage };
-      return { ended: 'network', usage, error: e.message };
+      if (e.name === 'AbortError') return { ended: 'aborted', usage, served };
+      return { ended: 'network', usage, served, error: e.message };
     }
+  }
+
+  /* ---------- 模型路由提醒 ---------- */
+  // 比较前先去掉 :free / :nitro / :floor 等变体后缀，并统一 . 与 - 的写法，避免同一模型的写法差异误报
+  function baseModelId(id) { return String(id || '').split(':')[0].trim().toLowerCase().replace(/\./g, '-'); }
+  let _routeToastTimer = null;
+  function showRouteToast(requested, served) {
+    let el = document.getElementById('route-toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'route-toast'; el.className = 'route-toast';
+      el.onclick = () => { el.classList.remove('show'); clearTimeout(_routeToastTimer); };
+      document.body.appendChild(el);
+    }
+    el.innerHTML = `⚠️ 模型被路由：请求 <b>${esc(prettyName(requested))}</b>，实际由 <b>${esc(prettyName(served))}</b> 响应`;
+    requestAnimationFrame(() => el.classList.add('show'));
+    clearTimeout(_routeToastTimer);
+    _routeToastTimer = setTimeout(() => el.classList.remove('show'), 8000);
+  }
+  // 气泡角标：模型名改成实际模型，并加「已路由」标记（长按/悬停可看原始 id）
+  function markRouted(h, requested, served) {
+    if (!h || !h.row) return;
+    const eyebrow = h.row.querySelector('.ai-eyebrow'); if (!eyebrow) return;
+    const nameEl = eyebrow.querySelector('.name'); if (nameEl) nameEl.textContent = prettyName(served);
+    if (!eyebrow.querySelector('.routed')) {
+      const tag = document.createElement('span');
+      tag.className = 'routed'; tag.textContent = '已路由';
+      tag.title = `请求 ${requested} → 实际 ${served}`;
+      eyebrow.insertBefore(tag, eyebrow.querySelector('.t'));
+    }
+  }
+  // 首个分片一到就检测，不用等整条流结束；openrouter/auto 本来就会自己挑模型，只打角标不弹提示
+  function makeServedHandler(h, requestedModel, onDetect) {
+    return served => {
+      if (onDetect) onDetect(served);
+      if (baseModelId(served) === baseModelId(requestedModel)) return;
+      markRouted(h, requestedModel, served);
+      if (baseModelId(requestedModel) !== 'openrouter/auto') showRouteToast(requestedModel, served);
+    };
   }
 
   function scheduleRender(h, get) {
@@ -1774,10 +1823,11 @@
       contentText += c; scheduleRender(h, () => contentText);
     };
 
-    let attempt = 0, lastUsage = null, myAbort = null;
+    let attempt = 0, lastUsage = null, myAbort = null, servedModel = null;
+    const onServed = makeServedHandler(h, model, sm => { servedModel = sm; });
     while (true) {
       myAbort = currentAbort = new AbortController();
-      const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid), myAbort.signal, onReason, onContent);
+      const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid), myAbort.signal, onReason, onContent, onServed);
       if (res.usage) lastUsage = res.usage;
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { stopTimer(); h.textEl.classList.remove('cursor'); h.textEl.classList.add('err'); h.textEl.textContent = `请求失败：${res.error}。检查 API Key、余额，或换个模型再试。`; break; }
@@ -1807,7 +1857,10 @@
     if (lastUsage && sid === currentId) updateTokenBar(lastUsage);
 
     if (contentText || reasoningText) {
-      const msg = { role: 'assistant', content: contentText, thinking: reasoningText || null, thinkSec: finalSec, model, time: h.row.querySelector('.t').textContent, ts: Date.now() };
+      // 被路由时把实际模型存进消息，reqModel 留档原始请求；历史里看到的就是真正回答的模型
+      const routedTo = (servedModel && baseModelId(servedModel) !== baseModelId(model)) ? servedModel : null;
+      const msg = { role: 'assistant', content: contentText, thinking: reasoningText || null, thinkSec: finalSec, model: routedTo || model, time: h.row.querySelector('.t').textContent, ts: Date.now() };
+      if (routedTo) msg.reqModel = model;
       if (sid === currentId) { messages.push(msg); saveCurrent(); }
       else if (sessions.find(s => s.id === sid)) { const old = loadSessionMsgs(sid); old.push(msg); saveSessionMsgs(sid, old); }   // 已切走也别丢；会话已删除则不写回
     }
@@ -1827,9 +1880,10 @@
     const onContent = c => { contentText += c; last.content = contentText; scheduleRender(h, () => contentText); };
 
     let myAbort = null;
+    const onServed = makeServedHandler(h, model, null);
     while (true) {
       myAbort = currentAbort = new AbortController();
-      const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid), myAbort.signal, () => {}, onContent);
+      const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid), myAbort.signal, () => {}, onContent, onServed);
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { h.textEl.classList.remove('cursor'); showBroken(h, () => continueGen(h, model), () => retryGen(h), '请求失败'); break; }
       if (res.ended === 'done') {
