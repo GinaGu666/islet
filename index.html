@@ -570,7 +570,7 @@
       </div>
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-26</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-26c</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -582,7 +582,7 @@
   <div class="sheet">
     <div class="grabber"></div>
     <div class="sheet-head">
-      <div class="sheet-title">选择模型</div>
+      <div class="sheet-title">选择模型<span id="picker-for" style="font-weight:400;opacity:.55;font-size:13px"></span></div>
       <button class="sheet-x" onclick="closePicker()">×</button>
     </div>
     <div class="search-wrap">
@@ -1050,7 +1050,7 @@
   let messages = [];        // 当前会话消息
   let isLoading = false, currentAbort = null;
 
-  let companions = [];          // [{id,name,persona,mem,autoDistill}]
+  let companions = [];          // [{id,name,persona,mem,autoDistill,model?}]  model: 该角色固定的模型 id，缺省跟随全局
   let activeCompanionId = null; // 当前正在对话的角色（跟随当前会话）
   let editingCompanionId = null;// 记忆面板里正在编辑的角色（与对话解耦）
 
@@ -1065,6 +1065,7 @@
     loadCatalogCache(); buildCatalogMap();
     loadSessions();
     if (currentId) { const sc = sessionCompanion(currentId); if (sc) { activeCompanionId = sc.id; localStorage.setItem('islet_active_companion', sc.id); } }
+    if (activeCompanionId) applyCompanionModel(activeCompanionId);
 
     if (apiKey) { showMain(); renderAll(); }
     else openSettings(true);
@@ -1141,6 +1142,7 @@
   function enterCompanion(cid) {
     activeCompanionId = cid;
     localStorage.setItem('islet_active_companion', cid);
+    applyCompanionModel(cid);
     const theirs = sessions.filter(s => (s.companionId || companions[0].id) === cid).sort((a, b) => b.updated - a.updated);
     if (theirs.length) { currentId = theirs[0].id; localStorage.setItem('islet_cur', currentId); messages = loadSessionMsgs(currentId); }
     else {
@@ -1274,7 +1276,7 @@
     localStorage.setItem('islet_cur', id);
     messages = loadSessionMsgs(id);
     const s = sessions.find(x => x.id === id);
-    if (s && s.companionId && s.companionId !== activeCompanionId) { activeCompanionId = s.companionId; localStorage.setItem('islet_active_companion', s.companionId); updatePill(); }
+    if (s && s.companionId && s.companionId !== activeCompanionId) { activeCompanionId = s.companionId; localStorage.setItem('islet_active_companion', s.companionId); applyCompanionModel(s.companionId); updatePill(); }
     renderAll(); renderSessions(); renderDrawerCompanions();
     closeDrawer();
   }
@@ -1368,7 +1370,7 @@
     if (sub && companions.length) sub.textContent = '· ' + activeCompanion().name;
   }
 
-  function openPicker() { show('picker-overlay'); const s = $('model-search'); s.value = ''; renderModelList(''); setTimeout(() => s.focus(), 300); }
+  function openPicker() { show('picker-overlay'); const pf = $('picker-for'); if (pf) pf.textContent = companions.length ? ' · 固定给「' + activeCompanion().name + '」' : ''; const s = $('model-search'); s.value = ''; renderModelList(''); setTimeout(() => s.focus(), 300); }
   function closePicker() { hide('picker-overlay'); }
 
   function renderModelList(q) {
@@ -1392,7 +1394,18 @@
     if (!catalog.length) html += '<div class="list-loading">正在获取完整模型列表…</div>';
     $('model-list').innerHTML = html;
   }
-  function selectModel(id) { selectedModel = id; localStorage.setItem('or_model', id); updatePill(); closePicker(); }
+  // 选模型 = 固定给当前角色；同时写入全局默认，作为新角色/未绑定角色的回退值
+  function selectModel(id) {
+    selectedModel = id; localStorage.setItem('or_model', id);
+    const c = activeCompanion();
+    if (c) { c.model = id; saveCompanions(); }
+    updatePill(); closePicker();
+  }
+  // 进入某角色时恢复 TA 固定的模型；没固定过就沿用全局当前值
+  function applyCompanionModel(cid) {
+    const c = companions.find(x => x.id === cid);
+    if (c && c.model) { selectedModel = c.model; localStorage.setItem('or_model', c.model); }
+  }
 
   /* ---------- 设置 ---------- */
   function openSettings(firstRun) {
@@ -1640,13 +1653,19 @@
       // max_tokens：OpenRouter 会按此值预扣余额，不设则按模型最大输出预估，余额少时会被拒
       const payload = { model, messages: withCacheBreakpoints(model, msgs), max_tokens: 8192, stream: true, stream_options: { include_usage: true } };
       // 开关开：请求思考；开关关：显式禁用（不发的话 GLM 等混合推理模型会按默认思考，照样计费）
-      if (modelSupportsReasoning(model)) payload.reasoning = reasoningEnabled ? { enabled: true } : { enabled: false, exclude: true };
+      // 例外：Fable/Mythos 这类强制思考的模型没法真正关思考——传 enabled:false 有的 provider 会报错，
+      // 有的会"接受"但模型把思考裸写进正文。对它们只传 exclude：照常思考、不传回来，正文保持干净
+      if (modelSupportsReasoning(model)) {
+        if (reasoningEnabled) payload.reasoning = { enabled: true };
+        else if (/fable|mythos/i.test(model)) payload.reasoning = { exclude: true };
+        else payload.reasoning = { enabled: false, exclude: true };
+      }
       let res = await fetch(API_URL, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
         const msg = (e && e.error && e.error.message) || ('HTTP ' + res.status);
         // 个别模型（如 Fable）强制思考、拒绝任何禁用尝试——降级为完全不提 reasoning，按端点默认重发
-        if (/reasoning/i.test(msg) && payload.reasoning && payload.reasoning.enabled === false) {
+        if (/reasoning/i.test(msg) && payload.reasoning && payload.reasoning.enabled !== true) {
           delete payload.reasoning;
           res = await fetch(API_URL, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
           if (!res.ok) { const e2 = await res.json().catch(() => ({})); return { ended: 'http', error: (e2 && e2.error && e2.error.message) || ('HTTP ' + res.status) }; }
@@ -1997,7 +2016,7 @@
     const btn = $('distill-btn');
     btn.disabled = true;
     $('distill-status').textContent = '正在提炼…';
-    const result = await distillMemory(messages, (target.mem || '').trim());
+    const result = await distillMemory(messages, (target.mem || '').trim(), target.model);
     btn.disabled = false;
     if (result == null) { $('distill-status').textContent = '提炼失败，请重试'; return; }
     $('mem-input').value = result;
@@ -2006,14 +2025,14 @@
   }
   // 把对话提炼成长期记忆（合并去重、压缩）。返回新记忆文本或 null
   const MEM_BUDGET = 800;   // 记忆总长上限（字），可按喜好调整
-  async function distillMemory(msgs, existingMem) {
+  async function distillMemory(msgs, existingMem, modelOverride) {
     try {
       const transcript = msgs.filter(m => m.role !== 'system')
         .map(m => (m.role === 'user' ? 'User: ' : 'AI: ') + (m.imgs && m.imgs.length ? '[发了图片] ' : '') + m.content).join('\n\n');
       if (!transcript.trim()) return null;
       const sys = "You maintain a long-term memory file about a specific relationship for an AI companion app. You will be given the existing memory, then a recent conversation between the user and the AI.\n\nExtract only DURABLE information: facts about the user's life, their preferences, meaningful events between them, how the relationship is developing, emotional notes that will still matter later.\n\nNEVER record any of the following — it would confuse future conversations:\n- Meta or technical talk: questions about which AI model this is, anything about the app itself, prompts, settings, API, or the user testing the AI\n- Small talk and one-off details that won't matter in a week\n- Blow-by-blow accounts of events — keep only the outcome and how it felt\n\nMerge new information into the existing memory: integrate, deduplicate, and actively REWRITE old entries for brevity — compressing or dropping stale content is encouraged. Compress facts into short phrases; feelings and relationship texture may keep slightly more room than plain facts.\n\nHARD LIMIT: the complete memory must stay under " + MEM_BUDGET + " characters. If merging would exceed this, cut the least important content first.\n\nStyle: terse notes, like index cards, not a diary. Example of the register: \"喜欢手冲咖啡，最近工作压力大\" — not full narrative sentences.\n\nDo not invent anything not present in the conversation. Do not restate the user's fixed profile (stored separately). Write in the language the conversation is mostly in. Output ONLY the complete updated memory text — no preamble, no commentary, no code fences.";
       const user = "EXISTING MEMORY:\n" + (existingMem || '(empty)') + "\n\n----\n\nRECENT CONVERSATION:\n" + transcript + "\n\n----\n\nOutput the complete updated memory now.";
-      const payload = { model: selectedModel, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }], max_tokens: 4096, stream: false };
+      const payload = { model: modelOverride || selectedModel, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }], max_tokens: 4096, stream: false };
       const body = JSON.stringify(payload);
       // keepalive 让页面关闭后请求也能发完；但它限制 body ≤64KB，超了会直接被拒，所以按字节数判断
       const keepalive = new Blob([body]).size < 60000;
@@ -2040,7 +2059,7 @@
     const lastCount = (s && s.distilled) ? s.distilled : 0;
     if (userTurns < 2 || userTurns <= lastCount) return;
     setDistillState(c.id, 'running');
-    const result = await distillMemory(snapshot, (c.mem || '').trim());
+    const result = await distillMemory(snapshot, (c.mem || '').trim(), c.model);
     if (result != null) {
       c.mem = result; c.memUpdated = Date.now(); saveCompanions();
       if (s) { s.distilled = userTurns; saveIndex(); }
