@@ -446,6 +446,22 @@
   .route-toast b { font-weight: 600; }
   .ai-eyebrow .routed { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; background: rgba(210,160,74,.16); border: 1px solid rgba(210,160,74,.45); color: #A87B2F; flex-shrink: 0; }
 
+  /* 活动：多角色同题竞技 */
+  .ar-btn { display: inline-block; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 8px 16px; font-size: 13.5px; cursor: pointer; }
+  .ar-mini { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 3px 11px; font-size: 12px; cursor: pointer; }
+  .ar-mini:disabled { opacity: .5; }
+  .ar-primary { background: var(--accent-weak); border-color: var(--accent-line); font-weight: 600; width: 100%; margin-top: 10px; }
+  .ar-model { font-size: 10.5px; opacity: .55; margin-left: 4px; }
+  .ar-theme { font-weight: 600; font-size: 15px; margin: 6px 0 10px; }
+  #arena-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ar-card { border: 1px solid var(--line); background: var(--card); border-radius: 14px; padding: 10px 12px; margin: 10px 0; }
+  .ar-card .ai-text { margin-top: 6px; font-size: 14px; }
+  .ar-verdict { border-color: rgba(210,160,74,.5); }
+  .ar-st { margin-left: auto; }
+  .ar-log-row { display: flex; align-items: center; gap: 8px; padding: 9px 2px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .ar-log-title { font-size: 13.5px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ar-log-sub { font-size: 11px; opacity: .55; flex-shrink: 0; }
+
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 </style>
 </head>
@@ -513,6 +529,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>
         打卡
       </button>
+      <button class="foot-row" onclick="openArena()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 01-10 0V4z"/><path d="M7 6H4a3 3 0 003 3M17 6h3a3 3 0 01-3 3"/></svg>
+        活动
+      </button>
       <button class="foot-row" onclick="openSettings()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         设置
@@ -570,7 +590,7 @@
       </div>
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-26c</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-26f</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -578,6 +598,38 @@
 </div>
 
 <!-- 模型选择 -->
+<!-- 活动 -->
+<div class="overlay" id="arena-overlay">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">活动</div>
+      <button class="sheet-x" onclick="closeArena()">×</button>
+    </div>
+    <div class="form">
+      <div id="arena-setup">
+        <div class="field-head" style="margin-top:8px">
+          <div class="field-label">活动主题</div>
+          <button class="ar-mini" id="arena-gen-btn" onclick="genArenaTheme()">🎲 一键出题</button>
+        </div>
+        <textarea class="field" id="arena-theme-input" placeholder="例：以「夏夜」为题写一首短诗 / 岛上卡丁车 500 米竞速，实况解说你自己的表现…" spellcheck="false"></textarea>
+        <div class="field-label">参赛角色（各用各的模型）</div>
+        <div class="comp-tabs" id="arena-chips" style="padding:6px 0 4px"></div>
+        <button class="ar-btn ar-primary" onclick="startArena()">开始活动</button>
+        <hr class="mem-divider">
+        <div class="field-label">往期活动</div>
+        <div id="arena-log"></div>
+      </div>
+      <div id="arena-run" style="display:none">
+        <div class="ar-theme" id="arena-theme"></div>
+        <div id="arena-cards"></div>
+        <div id="arena-judge-wrap"></div>
+        <div id="arena-actions" style="margin:12px 0"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="picker-overlay">
   <div class="sheet">
     <div class="grabber"></div>
@@ -1370,8 +1422,10 @@
     if (sub && companions.length) sub.textContent = '· ' + activeCompanion().name;
   }
 
-  function openPicker() { show('picker-overlay'); const pf = $('picker-for'); if (pf) pf.textContent = companions.length ? ' · 固定给「' + activeCompanion().name + '」' : ''; const s = $('model-search'); s.value = ''; renderModelList(''); setTimeout(() => s.focus(), 300); }
-  function closePicker() { hide('picker-overlay'); }
+  let pickerCb = null;   // 临时回调模式：选完只执行回调（外部评审等场景），不绑定角色、不改全局
+  function openPickerFor(cb, hint) { pickerCb = cb; show('picker-overlay'); const pf = $('picker-for'); if (pf) pf.textContent = hint || ''; const s = $('model-search'); s.value = ''; renderModelList(''); setTimeout(() => s.focus(), 300); }
+  function openPicker() { pickerCb = null; show('picker-overlay'); const pf = $('picker-for'); if (pf) pf.textContent = companions.length ? ' · 固定给「' + activeCompanion().name + '」' : ''; const s = $('model-search'); s.value = ''; renderModelList(''); setTimeout(() => s.focus(), 300); }
+  function closePicker() { pickerCb = null; hide('picker-overlay'); }
 
   function renderModelList(q) {
     q = (q || '').trim().toLowerCase();
@@ -1396,6 +1450,7 @@
   }
   // 选模型 = 固定给当前角色；同时写入全局默认，作为新角色/未绑定角色的回退值
   function selectModel(id) {
+    if (pickerCb) { const cb = pickerCb; pickerCb = null; closePicker(); cb(id); return; }
     selectedModel = id; localStorage.setItem('or_model', id);
     const c = activeCompanion();
     if (c) { c.model = id; saveCompanions(); }
@@ -2070,6 +2125,223 @@
     }
   }
 
+  /* ---------- 活动：多角色同题竞技 ---------- */
+  // 每个角色用自己绑定的模型出战；活动独立于会话，不写入聊天记录，也不进记忆提炼
+  const ARENA_KEY = 'islet_arena';
+  let arenaSel = [];                          // 设置页选中的参赛角色 id
+  let arena = null;                           // 进行中 / 查看中的活动
+  let arenaAbort = null, arenaBusy = false;
+  const AR_ST = { wait: '等待中', run: '创作中…', done: '完成', stop: '已停止', fail: '失败' };
+  const AR_CN = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+
+  function loadArenaLog() { try { return JSON.parse(localStorage.getItem(ARENA_KEY)) || []; } catch (e) { return []; } }
+  function saveArenaLog(list) { lsSet(ARENA_KEY, JSON.stringify(list.slice(0, 30))); }
+  function arenaPersist() {
+    if (!arena || !arena.ts) return;
+    const list = loadArenaLog().filter(a => a.ts !== arena.ts);
+    list.unshift(arena); saveArenaLog(list);
+  }
+
+  function openArena() { closeDrawer(); show('arena-overlay'); if (!arenaBusy) arenaSetupView(); }
+  function closeArena() {
+    if (arenaBusy && !confirm('活动还在进行，关闭会停止生成。确定？')) return;
+    arenaBusy = false;
+    if (arenaAbort) arenaAbort.abort();
+    hide('arena-overlay');
+  }
+  function arenaSetupView() {
+    arena = null;
+    $('arena-setup').style.display = '';
+    $('arena-run').style.display = 'none';
+    renderArenaChips(); renderArenaLog();
+  }
+  function renderArenaChips() {
+    $('arena-chips').innerHTML = companions.map(c =>
+      `<button type="button" class="comp-tab ${arenaSel.includes(c.id) ? 'sel' : ''}" onclick="toggleArenaSel('${c.id}')"><span class="tab-dot" style="background:${avaColor(c.id)}"></span>${esc(c.name)}<span class="ar-model">${esc(prettyName(c.model || selectedModel))}</span></button>`
+    ).join('');
+  }
+  function toggleArenaSel(id) {
+    arenaSel = arenaSel.includes(id) ? arenaSel.filter(x => x !== id) : [...arenaSel, id];
+    renderArenaChips();
+  }
+  function renderArenaLog() {
+    const list = loadArenaLog();
+    $('arena-log').innerHTML = list.length
+      ? list.map(a => `<div class="ar-log-row" onclick="viewArena(${a.ts})"><span class="ar-log-title">${esc(a.theme)}</span><span class="ar-log-sub">${new Date(a.ts).toLocaleDateString()} · ${a.parts.length} 人${a.judge ? ' · 已评审' : ''}</span><button class="comp-del" onclick="event.stopPropagation();delArena(${a.ts})">删除</button></div>`).join('')
+      : '<div class="mem-hint">还没有往期活动</div>';
+  }
+  function delArena(ts) { saveArenaLog(loadArenaLog().filter(a => a.ts !== ts)); renderArenaLog(); }
+
+  // 一键出题：用当前全局模型出一个题，参赛者名单和近期玩过的题目作为上下文
+  async function genArenaTheme() {
+    if (!apiKey) { alert('请先在设置里填 API Key'); return; }
+    const btn = $('arena-gen-btn'); btn.disabled = true; btn.textContent = '出题中…';
+    try {
+      const picks = companions.filter(c => arenaSel.includes(c.id)).map(c => c.name);
+      const recent = loadArenaLog().slice(0, 5).map(a => a.theme);
+      const sys = '你为一个多角色同题竞技的小活动出题。题目要具体、有画面感、能让不同性格的选手拉开差距；类型不限：写诗、微小说、即兴演讲、竞速或体育赛事实况解说、辩论、脱口秀、freestyle……只输出题目本身（一到两句话），不要解释，不要加引号。';
+      const user = (picks.length ? '参赛者：' + picks.join('、') + '\n' : '') + (recent.length ? '最近玩过（避免雷同）：' + recent.join('；') + '\n' : '') + '出一个新题目。';
+      const payload = { model: selectedModel, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }], max_tokens: 2000, stream: false };
+      const res = await fetch(API_URL, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) });
+      const j = await res.json();
+      const out = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+      if (out && out.trim()) $('arena-theme-input').value = out.trim();
+      else alert('出题失败，再试一次');
+    } catch (e) { alert('出题失败：' + (e.message || e)); }
+    btn.disabled = false; btn.textContent = '🎲 一键出题';
+  }
+
+  // 构建骨架并回填已有内容；进行中与回看共用
+  function arenaRunView(readonly) {
+    $('arena-setup').style.display = 'none';
+    $('arena-run').style.display = '';
+    $('arena-theme').textContent = arena.theme;
+    $('arena-cards').innerHTML = arena.parts.map((p, i) => `
+      <div class="ar-card">
+        <div class="ai-eyebrow"><span class="ava" style="background:${avaColor(p.cid)}">${esc(avaChar(p.name))}</span><span class="name">${esc(p.name)}</span><span class="ar-model">${esc(prettyName(p.model))}</span><span class="t ar-st" id="ar-st-${i}">${AR_ST[p.status] || ''}</span></div>
+        <div class="ai-text" id="ar-text-${i}"></div>
+      </div>`).join('');
+    arena.parts.forEach((p, i) => { if (p.text) $('ar-text-' + i).innerHTML = renderMarkdown(p.text); });
+    $('arena-judge-wrap').innerHTML = '';
+    $('arena-actions').innerHTML = readonly ? `<button class="ar-btn" onclick="arenaSetupView()">← 返回</button><button class="ar-btn" onclick="shareArena()">分享给朋友</button>` : `<button class="ar-btn" onclick="arenaStop()">停止</button>`;
+  }
+  function arenaStop() { arenaBusy = false; if (arenaAbort) arenaAbort.abort(); }
+
+  function arenaSystem(c) {
+    const about = sharedAbout();
+    const parts = [`你是「${c.name}」，正在参加岛上的一场小活动，观众就是你最熟悉的那个人。放开演，拿出你自己的风格。`];
+    if (about) parts.push('## 关于观众\n' + about);
+    if ((c.persona || '').trim()) parts.push('## 你是谁\n' + c.persona.trim());
+    if ((c.mem || '').trim()) parts.push('## 你们的过往\n' + c.mem.trim());
+    return parts.join('\n\n');
+  }
+
+  async function startArena() {
+    const theme = $('arena-theme-input').value.trim();
+    if (!theme) { alert('先写活动主题'); return; }
+    const picks = companions.filter(c => arenaSel.includes(c.id));
+    if (picks.length < 2) { alert('至少选两位参赛角色'); return; }
+    if (!apiKey) { alert('请先在设置里填 API Key'); return; }
+    arena = { ts: Date.now(), theme, parts: picks.map(c => ({ cid: c.id, name: c.name, model: c.model || selectedModel, text: '', status: 'wait' })), judge: null };
+    arenaBusy = true;
+    arenaRunView(false);
+    const names = picks.map(c => '「' + c.name + '」').join('、');
+    for (let i = 0; i < arena.parts.length; i++) {
+      if (!arenaBusy) { arena.parts[i].status = 'stop'; setArSt(i); continue; }
+      const p = arena.parts[i], c = companions.find(x => x.id === p.cid);
+      p.status = 'run'; setArSt(i);
+      arenaAbort = new AbortController();
+      const user = `【活动】${theme}\n\n参赛者：${names}。现在轮到你提交作品。直接给出参赛作品本身；可以带一两句简短的参赛感言，但不要解释创作思路、不要跑题。`;
+      const el = $('ar-text-' + i);
+      let raf = null;
+      const paint = () => { raf = null; el.innerHTML = renderMarkdown(p.text); };
+      const res = await streamCompletion(p.model,
+        [{ role: 'system', content: arenaSystem(c) }, { role: 'user', content: user }],
+        arenaAbort.signal, () => {},
+        d => { p.text += d; if (!raf) raf = requestAnimationFrame(paint); },
+        sm => { if (baseModelId(sm) !== baseModelId(p.model)) showRouteToast(p.model, sm); });
+      if (raf) cancelAnimationFrame(raf);
+      el.innerHTML = renderMarkdown(p.text);
+      p.status = (res.ended === 'done' && p.text) ? 'done' : (res.ended === 'aborted' ? 'stop' : 'fail');
+      setArSt(i);
+    }
+    arenaBusy = false; arenaAbort = null;
+    arenaPersist(); renderArenaLog();
+    if (arena.parts.some(p => p.status === 'done')) arenaJudgeUI();
+    $('arena-actions').innerHTML = `<button class="ar-btn" onclick="arenaSetupView()">← 再来一场</button><button class="ar-btn" onclick="shareArena()">分享给朋友</button>`;
+  }
+  function setArSt(i) { const el = $('ar-st-' + i); if (el) el.textContent = AR_ST[arena.parts[i].status] || ''; }
+
+  function arenaJudgeUI() {
+    $('arena-judge-wrap').innerHTML = `
+      <div class="field-label" style="margin-top:14px">请一位评委（盲评，看不到作者名）</div>
+      <div class="comp-tabs" id="arena-judge-chips" style="padding:6px 0 4px">${companions.map(c => `<button type="button" class="comp-tab" onclick="runJudge('${c.id}')"><span class="tab-dot" style="background:${avaColor(c.id)}"></span>${esc(c.name)}</button>`).join('')}<button type="button" class="comp-tab" onclick="pickExtJudge()"><span class="tab-dot" style="background:#8A8F98"></span>外部评审…</button></div>
+      <div id="arena-verdict"></div>`;
+  }
+  function verdictCardHtml(j) {
+    const color = j.ext ? '#8A8F98' : avaColor(j.cid);
+    const label = (j.ext ? '外部评委 · ' : '评委 · ') + j.name;
+    return `<div class="ar-card ar-verdict"><div class="ai-eyebrow"><span class="ava" style="background:${color}">${esc(avaChar(j.name))}</span><span class="name">${esc(label)}</span><span class="t ar-st" id="ar-jst"></span></div><div class="ai-text" id="ar-jtext"></div><div class="mem-hint" id="ar-jmap" style="display:none"></div></div>`;
+  }
+  function runJudge(cid) {
+    const c = companions.find(x => x.id === cid); if (!c) return;
+    execJudge({ cid, name: c.name, model: c.model || selectedModel, sys: arenaSystem(c) + '\n\n你现在的身份是本场活动的特邀评委。' });
+  }
+  // 外部评审：从完整模型目录里请一位岛外嘉宾，无人设无记忆，只看作品
+  function pickExtJudge() {
+    openPickerFor(id => execJudge({ ext: true, cid: null, name: prettyName(id), model: id, sys: '你是受邀来担任本场活动评委的外部嘉宾，与参赛者和观众都素不相识，只看作品说话。专业、直接、有自己的审美立场，不需要讨好任何人。' }), ' · 请外部评审');
+  }
+  async function execJudge(spec) {
+    if (arenaBusy || !arena) return;
+    const ok = arena.parts.filter(p => p.status === 'done' && p.text);
+    if (!ok.length) return;
+    const j = arena.judge = { cid: spec.cid || null, ext: !!spec.ext, name: spec.name, model: spec.model, text: '', status: 'run', map: ok.map((p, i) => '作品' + AR_CN[i] + ' = ' + p.name) };
+    $('arena-verdict').innerHTML = verdictCardHtml(j);
+    $('ar-jst').textContent = '评审中…';
+    arenaBusy = true; arenaAbort = new AbortController();
+    const body = ok.map((p, i) => `——作品${AR_CN[i]}——\n${p.text}`).join('\n\n');
+    const user = `【活动】${arena.theme}\n\n以下是 ${ok.length} 份匿名参赛作品：\n\n${body}\n\n请逐份点评（简短、具体、有你自己的口味），然后给出排名并宣布冠军。全程用「作品一/二…」称呼，不要猜测作者是谁。`;
+    const el = $('ar-jtext');
+    let raf = null;
+    const paint = () => { raf = null; el.innerHTML = renderMarkdown(j.text); };
+    const res = await streamCompletion(j.model,
+      [{ role: 'system', content: spec.sys }, { role: 'user', content: user }],
+      arenaAbort.signal, () => {},
+      d => { j.text += d; if (!raf) raf = requestAnimationFrame(paint); },
+      sm => { if (baseModelId(sm) !== baseModelId(j.model)) showRouteToast(j.model, sm); });
+    if (raf) cancelAnimationFrame(raf);
+    el.innerHTML = renderMarkdown(j.text);
+    j.status = (res.ended === 'done' && j.text) ? 'done' : 'fail';
+    $('ar-jst').textContent = j.status === 'done' ? '评审完毕' : '评审失败';
+    revealJudgeMap();
+    arenaBusy = false; arenaAbort = null;
+    arenaPersist(); renderArenaLog();
+  }
+  function revealJudgeMap() {
+    const m = $('ar-jmap'); if (!m || !arena.judge) return;
+    m.style.display = ''; m.textContent = '盲评对照：' + arena.judge.map.join('，');
+  }
+  // 分享比赛内容给朋友：盲评版隐去作者名（朋友当评委），完整版含作者、模型与评审
+  function buildArenaShareText(blind) {
+    const done = arena.parts.filter(p => p.status === 'done' && p.text);
+    const L = ['🏝 islet 活动 · ' + new Date(arena.ts).toLocaleDateString(), '【题目】' + arena.theme, ''];
+    done.forEach((p, i) => {
+      L.push(blind ? `──作品${AR_CN[i]}──` : `──${p.name}（${prettyName(p.model)}）──`);
+      L.push(p.text.trim(), '');
+    });
+    if (blind) L.push('（作者已匿名——你来当评委，回复你心中的冠军！）');
+    else if (arena.judge && arena.judge.text) {
+      L.push(`【${arena.judge.ext ? '外部评委' : '评委'} · ${arena.judge.name}】`, arena.judge.text.trim(), '盲评对照：' + arena.judge.map.join('，'));
+    }
+    return L.join('\n');
+  }
+  async function shareArena() {
+    if (!arena) return;
+    if (!arena.parts.some(p => p.status === 'done' && p.text)) { alert('还没有可分享的作品'); return; }
+    const blind = confirm('以盲评版分享？（隐去作者名，让朋友来当评委）\n\n点「取消」则分享完整版（含作者与评审）');
+    const text = buildArenaShareText(blind);
+    if (navigator.share) {
+      try { await navigator.share({ text }); return; }
+      catch (e) { if (e.name === 'AbortError') return; }   // 用户取消分享面板就到此为止；其他失败落到剪贴板
+    }
+    try { await navigator.clipboard.writeText(text); alert('已复制到剪贴板，去粘贴给朋友吧'); }
+    catch (e) { prompt('手动复制下面的内容：', text); }
+  }
+
+  function viewArena(ts) {
+    const a = loadArenaLog().find(x => x.ts === ts);
+    if (!a) return;
+    arena = a; arenaRunView(true);
+    if (a.judge && a.judge.text) {
+      $('arena-judge-wrap').innerHTML = `<div id="arena-verdict">${verdictCardHtml(a.judge)}</div>`;
+      $('ar-jtext').innerHTML = renderMarkdown(a.judge.text);
+      $('ar-jst').textContent = AR_ST[a.judge.status] === '完成' ? '评审完毕' : '';
+      revealJudgeMap();
+    } else if (a.parts.some(p => p.status === 'done')) {
+      arenaJudgeUI();   // 往期活动也可以补一场评审
+    }
+  }
+
   /* ---------- 日期分隔线 ---------- */
   function dayLabel(ts) {
     const d = new Date(ts), n = new Date();
@@ -2205,6 +2477,7 @@
   $('setup-overlay').addEventListener('click', e => { if (e.target.id === 'setup-overlay') closeSettings(); });
   $('picker-overlay').addEventListener('click', e => { if (e.target.id === 'picker-overlay') closePicker(); });
   $('memory-overlay').addEventListener('click', e => { if (e.target.id === 'memory-overlay') closeMemory(); });
+  $('arena-overlay').addEventListener('click', e => { if (e.target.id === 'arena-overlay') closeArena(); });
   $('habit-overlay').addEventListener('click', e => { if (e.target.id === 'habit-overlay') closeHabits(); });
   $('search-overlay').addEventListener('click', e => { if (e.target.id === 'search-overlay') closeSearch(); });
   $('msgmenu-overlay').addEventListener('click', e => { if (e.target.id === 'msgmenu-overlay') hide('msgmenu-overlay'); });
