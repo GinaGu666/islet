@@ -590,7 +590,7 @@
       </div>
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-26f</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-07-26h</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -2201,9 +2201,12 @@
         <div class="ai-eyebrow"><span class="ava" style="background:${avaColor(p.cid)}">${esc(avaChar(p.name))}</span><span class="name">${esc(p.name)}</span><span class="ar-model">${esc(prettyName(p.model))}</span><span class="t ar-st" id="ar-st-${i}">${AR_ST[p.status] || ''}</span></div>
         <div class="ai-text" id="ar-text-${i}"></div>
       </div>`).join('');
-    arena.parts.forEach((p, i) => { if (p.text) $('ar-text-' + i).innerHTML = renderMarkdown(p.text); });
+    arena.parts.forEach((p, i) => {
+      if (p.text) $('ar-text-' + i).innerHTML = renderMarkdown(p.text);
+      else if (p.status === 'fail' && p.err) $('ar-text-' + i).innerHTML = '<div class="mem-hint">生成失败：' + esc(p.err) + '</div>';
+    });
     $('arena-judge-wrap').innerHTML = '';
-    $('arena-actions').innerHTML = readonly ? `<button class="ar-btn" onclick="arenaSetupView()">← 返回</button><button class="ar-btn" onclick="shareArena()">分享给朋友</button>` : `<button class="ar-btn" onclick="arenaStop()">停止</button>`;
+    $('arena-actions').innerHTML = readonly ? `<button class="ar-btn" onclick="arenaSetupView()">← 返回</button><button class="ar-btn" onclick="shareArena()">分享给朋友</button><button class="ar-btn" onclick="exportArenaMd()">导出 .md</button>` : `<button class="ar-btn" onclick="arenaStop()">停止</button>`;
   }
   function arenaStop() { arenaBusy = false; if (arenaAbort) arenaAbort.abort(); }
 
@@ -2243,12 +2246,16 @@
       if (raf) cancelAnimationFrame(raf);
       el.innerHTML = renderMarkdown(p.text);
       p.status = (res.ended === 'done' && p.text) ? 'done' : (res.ended === 'aborted' ? 'stop' : 'fail');
+      if (p.status === 'fail') {
+        p.err = res.error || '未知错误（可能是内容被该模型拒绝，或返回了空回复）';
+        if (!p.text) el.innerHTML = '<div class="mem-hint">生成失败：' + esc(p.err) + '</div>';
+      }
       setArSt(i);
     }
     arenaBusy = false; arenaAbort = null;
     arenaPersist(); renderArenaLog();
     if (arena.parts.some(p => p.status === 'done')) arenaJudgeUI();
-    $('arena-actions').innerHTML = `<button class="ar-btn" onclick="arenaSetupView()">← 再来一场</button><button class="ar-btn" onclick="shareArena()">分享给朋友</button>`;
+    $('arena-actions').innerHTML = `<button class="ar-btn" onclick="arenaSetupView()">← 再来一场</button><button class="ar-btn" onclick="shareArena()">分享给朋友</button><button class="ar-btn" onclick="exportArenaMd()">导出 .md</button>`;
   }
   function setArSt(i) { const el = $('ar-st-' + i); if (el) el.textContent = AR_ST[arena.parts[i].status] || ''; }
 
@@ -2293,6 +2300,7 @@
     el.innerHTML = renderMarkdown(j.text);
     j.status = (res.ended === 'done' && j.text) ? 'done' : 'fail';
     $('ar-jst').textContent = j.status === 'done' ? '评审完毕' : '评审失败';
+    if (j.status === 'fail' && !j.text) $('ar-jtext').innerHTML = '<div class="mem-hint">评审失败：' + esc(res.error || '未知错误（可能是内容被该模型拒绝）') + '</div>';
     revealJudgeMap();
     arenaBusy = false; arenaAbort = null;
     arenaPersist(); renderArenaLog();
@@ -2326,6 +2334,36 @@
     }
     try { await navigator.clipboard.writeText(text); alert('已复制到剪贴板，去粘贴给朋友吧'); }
     catch (e) { prompt('手动复制下面的内容：', text); }
+  }
+
+  // 导出 markdown 文件：盲评版给外部评审用，完整版留档
+  function buildArenaShareMd(blind) {
+    const done = arena.parts.filter(p => p.status === 'done' && p.text);
+    const L = ['# islet 活动 · ' + new Date(arena.ts).toLocaleDateString(), '', '**题目**：' + arena.theme, ''];
+    done.forEach((p, i) => {
+      L.push('## ' + (blind ? '作品' + AR_CN[i] : p.name + '（' + prettyName(p.model) + '）'), '', p.text.trim(), '');
+    });
+    if (blind) {
+      L.push('---', '', '作者已匿名。请逐份点评，然后给出排名并宣布冠军，全程用「作品一/二…」称呼。');
+    } else {
+      const out = arena.parts.filter(p => !(p.status === 'done' && p.text));
+      if (out.length) L.push('> 未完赛：' + out.map(p => p.name + '（' + (AR_ST[p.status] || p.status) + (p.err ? '：' + p.err : '') + '）').join('；'), '');
+      if (arena.judge && arena.judge.text) {
+        L.push('## ' + (arena.judge.ext ? '外部评委' : '评委') + ' · ' + arena.judge.name, '', arena.judge.text.trim(), '', '> 盲评对照：' + arena.judge.map.join('，'));
+      }
+    }
+    return L.join('\n');
+  }
+  function exportArenaMd() {
+    if (!arena) return;
+    if (!arena.parts.some(p => p.status === 'done' && p.text)) { alert('还没有可导出的作品'); return; }
+    const blind = confirm('导出盲评版？（隐去作者名，交给外部评审）\n\n点「取消」导出完整版（含作者、模型与评审）');
+    const blob = new Blob([buildArenaShareMd(blind)], { type: 'text/markdown;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'islet-活动-' + new Date(arena.ts).toISOString().slice(0, 10) + (blind ? '-盲评版' : '') + '.md';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   }
 
   function viewArena(ts) {
