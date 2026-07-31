@@ -152,73 +152,74 @@
   :root[data-palette="cool"] .model-pill { box-shadow: 0 1px 3px rgba(32,46,53,0.05); }
   :root[data-palette="cool"] .bubble { box-shadow: 0 1px 2px rgba(32,46,53,0.05), 0 3px 12px rgba(32,46,53,0.06); }
 
-  /* 藕荷 · 淡淡的粉紫：底色像被水洗过一遍的藕荷纸，饱和度压在 5% 上下，「粉」只留一点体温；
-     强调色取兰花瓣根部那档柔紫红，压暗到能在浅底上站稳（对比度略优于暖砂的赭石）；
-     墨色带一丝李子紫的偏向，与底色同族，避免纯黑显得生硬 */
+  /* 藕荷 · 按你终端截图实采重调：底色就是那张图的贝壳粉 #FEF7FC——几乎是白，只透一口粉的呼吸；
+     强调色也从截图里取，是「accept edits」那档紫水晶（色相 280），比旧版兰紫更紫一点；
+     墨色跟着换成截图里的堇灰，冷一度，反而衬得底色更粉。
+     你的气泡做撞色：淡豆绿——藕荷配豆绿是老配方，粉绿同净度相遇，撞而不吵 */
   :root[data-palette="lilac"] {
-    --bg:        #F4EDF3;
-    --card:      #FDFAFC;
-    --user:      #EFE2EC;
-    --ink:       #382F3A;
-    --ink-2:     #80707F;
-    --ink-3:     #A795A4;
-    --accent:    #A15E93;
-    --accent-weak: rgba(161,94,147,0.10);
-    --accent-line: rgba(161,94,147,0.32);
-    --line:      rgba(56,47,58,0.10);
-    --code-bg:   #EDE1EA;
-    --code-head: rgba(56,47,58,0.045);
-    --scrim:     rgba(32,22,31,0.36);
+    --bg:        #FEF7FC;
+    --card:      #FFFFFF;
+    --user:      #E5F1E2;
+    --ink:       #474254;
+    --ink-2:     #837D93;
+    --ink-3:     #ADA6BC;
+    --accent:    #9C63C1;
+    --accent-weak: rgba(156,99,193,0.10);
+    --accent-line: rgba(156,99,193,0.32);
+    --line:      rgba(71,66,84,0.10);
+    --code-bg:   #F5E9F1;
+    --code-head: rgba(71,66,84,0.045);
+    --scrim:     rgba(40,30,44,0.36);
     color-scheme: light;
   }
-  /* 深色版沿用「夜晚的同一个房间」——带体温的深李子色，不是冷灰；强调色提亮成暮色里的丁香 */
+  /* 深色照旧是夜里的同一间房：深堇夜色，强调色是暮光里的紫水晶；你的气泡换成夜苔绿——撞色到了晚上也不熄灯 */
   :root[data-palette="lilac"][data-theme="dark"] {
-    --bg:        #221C23;
-    --card:      #2C252D;
-    --user:      #352C36;
-    --ink:       #EAE0E8;
-    --ink-2:     #A894A5;
-    --ink-3:     #7B6B79;
-    --accent:    #CE8FC0;
-    --accent-weak: rgba(206,143,192,0.13);
-    --accent-line: rgba(206,143,192,0.38);
-    --line:      rgba(234,224,232,0.10);
-    --code-bg:   #2B232C;
-    --code-head: rgba(234,224,232,0.05);
+    --bg:        #211C25;
+    --card:      #2B2530;
+    --user:      #2C332D;
+    --ink:       #E9E2ED;
+    --ink-2:     #A79BB3;
+    --ink-3:     #7A7088;
+    --accent:    #C79FE6;
+    --accent-weak: rgba(199,159,230,0.13);
+    --accent-line: rgba(199,159,230,0.38);
+    --line:      rgba(233,226,237,0.10);
+    --code-bg:   #292330;
+    --code-head: rgba(233,226,237,0.05);
     --scrim:     rgba(0,0,0,0.5);
     color-scheme: dark;
   }
   @media (prefers-color-scheme: dark) {
     :root[data-palette="lilac"]:not([data-theme="light"]) {
-      --bg:        #221C23;
-      --card:      #2C252D;
-      --user:      #352C36;
-      --ink:       #EAE0E8;
-      --ink-2:     #A894A5;
-      --ink-3:     #7B6B79;
-      --accent:    #CE8FC0;
-      --accent-weak: rgba(206,143,192,0.13);
-      --accent-line: rgba(206,143,192,0.38);
-      --line:      rgba(234,224,232,0.10);
-      --code-bg:   #2B232C;
-      --code-head: rgba(234,224,232,0.05);
+      --bg:        #211C25;
+      --card:      #2B2530;
+      --user:      #2C332D;
+      --ink:       #E9E2ED;
+      --ink-2:     #A79BB3;
+      --ink-3:     #7A7088;
+      --accent:    #C79FE6;
+      --accent-weak: rgba(199,159,230,0.13);
+      --accent-line: rgba(199,159,230,0.38);
+      --line:      rgba(233,226,237,0.10);
+      --code-bg:   #292330;
+      --code-head: rgba(233,226,237,0.05);
       --scrim:     rgba(0,0,0,0.5);
       color-scheme: dark;
     }
   }
 
-  /* 藕荷浅色专属：顶部一层丁香白的柔光，做法与冰蓝相同——只提亮度、不带色偏，往下自然沉回底色 */
+  /* 藕荷浅色专属：底色已经很浅，顶部柔光只剩一层微白的呼吸；深色不受影响 */
   :root[data-palette="lilac"]:not([data-theme="dark"]) .chat {
-    background: radial-gradient(115% 52% at 22% 3%, #FBF5FA 0%, var(--bg) 62%);
+    background: radial-gradient(115% 52% at 22% 3%, #FFFFFF 0%, var(--bg) 62%);
   }
   :root[data-palette="lilac"][data-theme="dark"] .chat { background: none; }
   @media (prefers-color-scheme: dark) {
     :root[data-palette="lilac"]:not([data-theme="light"]) .chat { background: none; }
   }
 
-  /* 藕荷专属：投影从暖棕换成深李子灰，避免暖砂的棕色渗进粉紫 */
-  :root[data-palette="lilac"] .model-pill { box-shadow: 0 1px 3px rgba(51,33,48,0.05); }
-  :root[data-palette="lilac"] .bubble { box-shadow: 0 1px 2px rgba(51,33,48,0.05), 0 3px 12px rgba(51,33,48,0.06); }
+  /* 藕荷专属：投影从暖棕换成堇灰，避免暖砂的棕色渗进粉紫 */
+  :root[data-palette="lilac"] .model-pill { box-shadow: 0 1px 3px rgba(48,42,60,0.05); }
+  :root[data-palette="lilac"] .bubble { box-shadow: 0 1px 2px rgba(48,42,60,0.05), 0 3px 12px rgba(48,42,60,0.06); }
 
   body {
     font-family: var(--sans);
@@ -848,7 +849,7 @@
     if (aiFont === 'serif') el.removeAttribute('data-aifont');
     else el.setAttribute('data-aifont', aiFont);
     const meta = document.getElementById('meta-theme');
-    const barColor = { 'warm-light': '#F4F0E8', 'warm-dark': '#221E1A', 'cool-light': '#EBF1F2', 'cool-dark': '#171B20', 'lilac-light': '#F4EDF3', 'lilac-dark': '#221C23' };
+    const barColor = { 'warm-light': '#F4F0E8', 'warm-dark': '#221E1A', 'cool-light': '#EBF1F2', 'cool-dark': '#171B20', 'lilac-light': '#FEF7FC', 'lilac-dark': '#211C25' };
     if (meta) meta.content = barColor[paletteMode + '-' + effectiveTheme()];
   }
   function setTheme(m) { themeMode = m; localStorage.setItem('islet_theme', m); applyTheme(); renderThemeTabs(); }
