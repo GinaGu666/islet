@@ -152,6 +152,74 @@
   :root[data-palette="cool"] .model-pill { box-shadow: 0 1px 3px rgba(32,46,53,0.05); }
   :root[data-palette="cool"] .bubble { box-shadow: 0 1px 2px rgba(32,46,53,0.05), 0 3px 12px rgba(32,46,53,0.06); }
 
+  /* 藕荷 · 淡淡的粉紫：底色像被水洗过一遍的藕荷纸，饱和度压在 5% 上下，「粉」只留一点体温；
+     强调色取兰花瓣根部那档柔紫红，压暗到能在浅底上站稳（对比度略优于暖砂的赭石）；
+     墨色带一丝李子紫的偏向，与底色同族，避免纯黑显得生硬 */
+  :root[data-palette="lilac"] {
+    --bg:        #F4EDF3;
+    --card:      #FDFAFC;
+    --user:      #EFE2EC;
+    --ink:       #382F3A;
+    --ink-2:     #80707F;
+    --ink-3:     #A795A4;
+    --accent:    #A15E93;
+    --accent-weak: rgba(161,94,147,0.10);
+    --accent-line: rgba(161,94,147,0.32);
+    --line:      rgba(56,47,58,0.10);
+    --code-bg:   #EDE1EA;
+    --code-head: rgba(56,47,58,0.045);
+    --scrim:     rgba(32,22,31,0.36);
+    color-scheme: light;
+  }
+  /* 深色版沿用「夜晚的同一个房间」——带体温的深李子色，不是冷灰；强调色提亮成暮色里的丁香 */
+  :root[data-palette="lilac"][data-theme="dark"] {
+    --bg:        #221C23;
+    --card:      #2C252D;
+    --user:      #352C36;
+    --ink:       #EAE0E8;
+    --ink-2:     #A894A5;
+    --ink-3:     #7B6B79;
+    --accent:    #CE8FC0;
+    --accent-weak: rgba(206,143,192,0.13);
+    --accent-line: rgba(206,143,192,0.38);
+    --line:      rgba(234,224,232,0.10);
+    --code-bg:   #2B232C;
+    --code-head: rgba(234,224,232,0.05);
+    --scrim:     rgba(0,0,0,0.5);
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-palette="lilac"]:not([data-theme="light"]) {
+      --bg:        #221C23;
+      --card:      #2C252D;
+      --user:      #352C36;
+      --ink:       #EAE0E8;
+      --ink-2:     #A894A5;
+      --ink-3:     #7B6B79;
+      --accent:    #CE8FC0;
+      --accent-weak: rgba(206,143,192,0.13);
+      --accent-line: rgba(206,143,192,0.38);
+      --line:      rgba(234,224,232,0.10);
+      --code-bg:   #2B232C;
+      --code-head: rgba(234,224,232,0.05);
+      --scrim:     rgba(0,0,0,0.5);
+      color-scheme: dark;
+    }
+  }
+
+  /* 藕荷浅色专属：顶部一层丁香白的柔光，做法与冰蓝相同——只提亮度、不带色偏，往下自然沉回底色 */
+  :root[data-palette="lilac"]:not([data-theme="dark"]) .chat {
+    background: radial-gradient(115% 52% at 22% 3%, #FBF5FA 0%, var(--bg) 62%);
+  }
+  :root[data-palette="lilac"][data-theme="dark"] .chat { background: none; }
+  @media (prefers-color-scheme: dark) {
+    :root[data-palette="lilac"]:not([data-theme="light"]) .chat { background: none; }
+  }
+
+  /* 藕荷专属：投影从暖棕换成深李子灰，避免暖砂的棕色渗进粉紫 */
+  :root[data-palette="lilac"] .model-pill { box-shadow: 0 1px 3px rgba(51,33,48,0.05); }
+  :root[data-palette="lilac"] .bubble { box-shadow: 0 1px 2px rgba(51,33,48,0.05), 0 3px 12px rgba(51,33,48,0.06); }
+
   body {
     font-family: var(--sans);
     background: var(--bg); color: var(--ink);
@@ -571,6 +639,7 @@
       <div class="comp-tabs" id="palette-tabs" style="padding:6px 0 0">
         <button type="button" class="comp-tab" data-mode="warm" onclick="setPalette('warm')">暖砂</button>
         <button type="button" class="comp-tab" data-mode="cool" onclick="setPalette('cool')">冰蓝</button>
+        <button type="button" class="comp-tab" data-mode="lilac" onclick="setPalette('lilac')">藕荷</button>
       </div>
       <div class="field-label">字号</div>
       <div class="comp-tabs" id="fontsize-tabs" style="padding:6px 0 0">
@@ -764,7 +833,7 @@
 
   /* ---------- 主题 ---------- */
   let themeMode = localStorage.getItem('islet_theme') || 'auto';       // auto | light | dark
-  let paletteMode = localStorage.getItem('islet_palette') || 'warm';   // warm | cool
+  let paletteMode = localStorage.getItem('islet_palette') || 'warm';   // warm | cool | lilac
   let fontSize = localStorage.getItem('islet_fontsize') || 'std';      // std | lg | xl
   let aiFont = localStorage.getItem('islet_aifont') || 'serif';        // serif | sans
   function effectiveTheme() { return themeMode !== 'auto' ? themeMode : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); }
@@ -779,7 +848,7 @@
     if (aiFont === 'serif') el.removeAttribute('data-aifont');
     else el.setAttribute('data-aifont', aiFont);
     const meta = document.getElementById('meta-theme');
-    const barColor = { 'warm-light': '#F4F0E8', 'warm-dark': '#221E1A', 'cool-light': '#EBF1F2', 'cool-dark': '#171B20' };
+    const barColor = { 'warm-light': '#F4F0E8', 'warm-dark': '#221E1A', 'cool-light': '#EBF1F2', 'cool-dark': '#171B20', 'lilac-light': '#F4EDF3', 'lilac-dark': '#221C23' };
     if (meta) meta.content = barColor[paletteMode + '-' + effectiveTheme()];
   }
   function setTheme(m) { themeMode = m; localStorage.setItem('islet_theme', m); applyTheme(); renderThemeTabs(); }
