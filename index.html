@@ -157,69 +157,69 @@
      墨色跟着换成截图里的堇灰，冷一度，反而衬得底色更粉。
      你的气泡做撞色：淡豆绿——藕荷配豆绿是老配方，粉绿同净度相遇，撞而不吵 */
   :root[data-palette="lilac"] {
-    --bg:        #FEF7FC;
-    --card:      #FFFFFF;
-    --user:      #E5F1E2;
-    --ink:       #474254;
-    --ink-2:     #837D93;
-    --ink-3:     #ADA6BC;
-    --accent:    #9C63C1;
-    --accent-weak: rgba(156,99,193,0.10);
-    --accent-line: rgba(156,99,193,0.32);
-    --line:      rgba(71,66,84,0.10);
-    --code-bg:   #F5E9F1;
-    --code-head: rgba(71,66,84,0.045);
-    --scrim:     rgba(40,30,44,0.36);
+    --bg:        #F3F2F0;
+    --card:      #FAFAF9;
+    --user:      #FCE4EC;
+    --ink:       #3A3A3C;
+    --ink-2:     #7A7A7E;
+    --ink-3:     #A8A8AC;
+    --accent:    #E8909C;
+    --accent-weak: rgba(232,144,156,0.10);
+    --accent-line: rgba(232,144,156,0.32);
+    --line:      rgba(58,58,60,0.09);
+    --code-bg:   #ECEAE8;
+    --code-head: rgba(58,58,60,0.04);
+    --scrim:     rgba(36,36,38,0.32);
     color-scheme: light;
   }
-  /* 深色照旧是夜里的同一间房：深堇夜色，强调色是暮光里的紫水晶；你的气泡换成夜苔绿——撞色到了晚上也不熄灯 */
+  /* 深色：深灰夜色，pale pink 强调色变柔变暖 */
   :root[data-palette="lilac"][data-theme="dark"] {
-    --bg:        #211C25;
-    --card:      #2B2530;
-    --user:      #2C332D;
-    --ink:       #E9E2ED;
-    --ink-2:     #A79BB3;
-    --ink-3:     #7A7088;
-    --accent:    #C79FE6;
-    --accent-weak: rgba(199,159,230,0.13);
-    --accent-line: rgba(199,159,230,0.38);
-    --line:      rgba(233,226,237,0.10);
-    --code-bg:   #292330;
-    --code-head: rgba(233,226,237,0.05);
+    --bg:        #1E1E20;
+    --card:      #28282A;
+    --user:      #352A2E;
+    --ink:       #E8E6E3;
+    --ink-2:     #A09DA0;
+    --ink-3:     #706D70;
+    --accent:    #F2B5BE;
+    --accent-weak: rgba(242,181,190,0.13);
+    --accent-line: rgba(242,181,190,0.38);
+    --line:      rgba(232,230,227,0.10);
+    --code-bg:   #252526;
+    --code-head: rgba(232,230,227,0.05);
     --scrim:     rgba(0,0,0,0.5);
     color-scheme: dark;
   }
   @media (prefers-color-scheme: dark) {
     :root[data-palette="lilac"]:not([data-theme="light"]) {
-      --bg:        #211C25;
-      --card:      #2B2530;
-      --user:      #2C332D;
-      --ink:       #E9E2ED;
-      --ink-2:     #A79BB3;
-      --ink-3:     #7A7088;
-      --accent:    #C79FE6;
-      --accent-weak: rgba(199,159,230,0.13);
-      --accent-line: rgba(199,159,230,0.38);
-      --line:      rgba(233,226,237,0.10);
-      --code-bg:   #292330;
-      --code-head: rgba(233,226,237,0.05);
+      --bg:        #1E1E20;
+      --card:      #28282A;
+      --user:      #352A2E;
+      --ink:       #E8E6E3;
+      --ink-2:     #A09DA0;
+      --ink-3:     #706D70;
+      --accent:    #F2B5BE;
+      --accent-weak: rgba(242,181,190,0.13);
+      --accent-line: rgba(242,181,190,0.38);
+      --line:      rgba(232,230,227,0.10);
+      --code-bg:   #252526;
+      --code-head: rgba(232,230,227,0.05);
       --scrim:     rgba(0,0,0,0.5);
       color-scheme: dark;
     }
   }
 
-  /* 藕荷浅色专属：底色已经很浅，顶部柔光只剩一层微白的呼吸；深色不受影响 */
+  /* 浅灰粉浅色专属：顶部微白柔光 */
   :root[data-palette="lilac"]:not([data-theme="dark"]) .chat {
-    background: radial-gradient(115% 52% at 22% 3%, #FFFFFF 0%, var(--bg) 62%);
+    background: radial-gradient(115% 52% at 22% 3%, #FAFAFA 0%, var(--bg) 62%);
   }
   :root[data-palette="lilac"][data-theme="dark"] .chat { background: none; }
   @media (prefers-color-scheme: dark) {
     :root[data-palette="lilac"]:not([data-theme="light"]) .chat { background: none; }
   }
 
-  /* 藕荷专属：投影从暖棕换成堇灰，避免暖砂的棕色渗进粉紫 */
-  :root[data-palette="lilac"] .model-pill { box-shadow: 0 1px 3px rgba(48,42,60,0.05); }
-  :root[data-palette="lilac"] .bubble { box-shadow: 0 1px 2px rgba(48,42,60,0.05), 0 3px 12px rgba(48,42,60,0.06); }
+  /* 浅灰粉专属：投影用中性灰 */
+  :root[data-palette="lilac"] .model-pill { box-shadow: 0 1px 3px rgba(58,58,60,0.05); }
+  :root[data-palette="lilac"] .bubble { box-shadow: 0 1px 2px rgba(58,58,60,0.05), 0 3px 12px rgba(58,58,60,0.06); }
 
   body {
     font-family: var(--sans);
@@ -640,7 +640,7 @@
       <div class="comp-tabs" id="palette-tabs" style="padding:6px 0 0">
         <button type="button" class="comp-tab" data-mode="warm" onclick="setPalette('warm')">暖砂</button>
         <button type="button" class="comp-tab" data-mode="cool" onclick="setPalette('cool')">冰蓝</button>
-        <button type="button" class="comp-tab" data-mode="lilac" onclick="setPalette('lilac')">藕荷</button>
+        <button type="button" class="comp-tab" data-mode="lilac" onclick="setPalette('lilac')">灰粉</button>
       </div>
       <div class="field-label">字号</div>
       <div class="comp-tabs" id="fontsize-tabs" style="padding:6px 0 0">
@@ -849,7 +849,7 @@
     if (aiFont === 'serif') el.removeAttribute('data-aifont');
     else el.setAttribute('data-aifont', aiFont);
     const meta = document.getElementById('meta-theme');
-    const barColor = { 'warm-light': '#F4F0E8', 'warm-dark': '#221E1A', 'cool-light': '#EBF1F2', 'cool-dark': '#171B20', 'lilac-light': '#FEF7FC', 'lilac-dark': '#211C25' };
+    const barColor = { 'warm-light': '#F4F0E8', 'warm-dark': '#221E1A', 'cool-light': '#EBF1F2', 'cool-dark': '#171B20', 'lilac-light': '#F3F2F0', 'lilac-dark': '#1E1E20' };
     if (meta) meta.content = barColor[paletteMode + '-' + effectiveTheme()];
   }
   function setTheme(m) { themeMode = m; localStorage.setItem('islet_theme', m); applyTheme(); renderThemeTabs(); }
