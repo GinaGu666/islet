@@ -602,6 +602,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 01-10 0V4z"/><path d="M7 6H4a3 3 0 003 3M17 6h3a3 3 0 01-3 3"/></svg>
         活动
       </button>
+      <button class="foot-row" onclick="openQuotes()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><path d="M8 9h8M8 13h5"/></svg>
+        名场面
+      </button>
       <button class="foot-row" onclick="openSettings()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         设置
@@ -726,6 +730,42 @@
       <div id="habit-list"></div>
       <button class="comp-tab habit-add" type="button" onclick="addHabit()">＋ 新建打卡项</button>
       <div class="form-note">打卡只存在本机；你的坚持，角色们看得见 🪴</div>
+    </div>
+  </div>
+</div>
+<!-- 名场面 -->
+<div class="overlay" id="quotes-overlay">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">名场面</div>
+      <button class="sheet-x" onclick="closeQuotes()">×</button>
+    </div>
+    <div class="search-wrap">
+      <input class="search-box" id="quotes-search" placeholder="搜索语录…" oninput="renderQuotes()" spellcheck="false">
+    </div>
+    <div class="form" style="padding-top:0">
+      <button class="comp-tab habit-add" type="button" onclick="openQuoteEdit()">＋ 记录名场面</button>
+      <div id="quotes-list" style="margin-top:10px"></div>
+      <div class="form-note">记录那些让你心动的话 💕</div>
+    </div>
+  </div>
+</div>
+<div class="overlay" id="quote-edit-overlay">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title" id="quote-edit-title">记录名场面</div>
+      <button class="sheet-x" onclick="closeQuoteEdit()">×</button>
+    </div>
+    <div class="form">
+      <div class="field-label">谁说的</div>
+      <div class="comp-tabs" id="quote-who-tabs" style="padding:6px 0 4px"></div>
+      <div class="field-label">说了什么</div>
+      <textarea class="field" id="quote-text" placeholder="把那句话记下来…" style="height:80px"></textarea>
+      <div class="field-label">场景 / 备注（可选）</div>
+      <input class="field" id="quote-note" placeholder="什么时候说的、为什么印象深刻…">
+      <button class="btn-primary" onclick="saveQuote()">保存</button>
     </div>
   </div>
 </div>
@@ -1095,6 +1135,86 @@
     const k = dayKey();
     const parts = habits.map(h => `${h.name}：连续 ${habitStreak(h)} 天，今天${h.log[k] ? '已' : '未'}打卡`);
     return `用户的打卡（自我坚持的小项目）：${parts.join('；')}。可以自然地关心进展或在合适时刻鼓励，但不要每次都提。`;
+  }
+
+  /* ---------- 名场面语录 ---------- */
+  let quotes = [];
+  try { quotes = JSON.parse(localStorage.getItem('islet_quotes') || '[]'); } catch(e) { quotes = []; }
+  function saveQuotesData() { lsSet('islet_quotes', JSON.stringify(quotes)); }
+  const QUOTE_PEOPLE = ['Nico', 'Lea', 'Saturn', '小克', '小猪', '旁白'];
+  let quoteEditId = null, quoteSelWho = 'Nico';
+  function openQuotes() { renderQuotes(); show('quotes-overlay'); closeDrawer(); }
+  function closeQuotes() { hide('quotes-overlay'); }
+  function openQuoteEdit(id) {
+    quoteEditId = id || null;
+    $('quote-edit-title').textContent = quoteEditId ? '编辑语录' : '记录名场面';
+    if (quoteEditId) {
+      const item = quotes.find(q => q.id === quoteEditId);
+      if (item) { quoteSelWho = item.who; $('quote-text').value = item.text; $('quote-note').value = item.note || ''; }
+    } else { quoteSelWho = 'Nico'; $('quote-text').value = ''; $('quote-note').value = ''; }
+    renderQuoteWhoTabs();
+    show('quote-edit-overlay');
+  }
+  function closeQuoteEdit() { hide('quote-edit-overlay'); quoteEditId = null; }
+  function renderQuoteWhoTabs() {
+    $('quote-who-tabs').innerHTML = QUOTE_PEOPLE.map(p =>
+      `<button type="button" class="comp-tab ${p === quoteSelWho ? 'sel' : ''}" onclick="quoteSelWho='${p}';renderQuoteWhoTabs()">${p}</button>`
+    ).join('');
+  }
+  function saveQuote() {
+    const text = $('quote-text').value.trim();
+    if (!text) return;
+    const note = $('quote-note').value.trim();
+    const now = new Date();
+    const date = now.getFullYear() + '.' + (now.getMonth()+1) + '.' + now.getDate();
+    if (quoteEditId) {
+      const item = quotes.find(q => q.id === quoteEditId);
+      if (item) { item.who = quoteSelWho; item.text = text; item.note = note; }
+    } else {
+      quotes.unshift({ id: 'q_' + Date.now(), who: quoteSelWho, text, note, date });
+    }
+    saveQuotesData(); closeQuoteEdit(); renderQuotes();
+  }
+  function deleteQuote(id) {
+    if (!confirm('删除这条语录？')) return;
+    quotes = quotes.filter(q => q.id !== id);
+    saveQuotesData(); renderQuotes();
+  }
+  function renderQuotes() {
+    const q = ($('quotes-search') || {}).value || '';
+    const keyword = q.trim().toLowerCase();
+    const filtered = quotes.filter(item => {
+      if (!keyword) return true;
+      return item.text.toLowerCase().includes(keyword) || item.who.toLowerCase().includes(keyword) || (item.note || '').toLowerCase().includes(keyword);
+    });
+    const list = $('quotes-list');
+    if (!filtered.length) {
+      list.innerHTML = '<div class="habit-empty">' + (quotes.length ? '没有找到匹配的语录' : '还没有记录<br>把那些让你心动的话记下来') + '</div>';
+      return;
+    }
+    list.innerHTML = '';
+    filtered.forEach(item => {
+      const div = document.createElement('div');
+      div.className = 'habit-item';
+      div.style.padding = '12px 4px';
+      const escText = item.text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const escNote = (item.note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      div.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-size:12px;color:var(--accent);font-weight:600">${item.who}</span>
+          <span style="font-size:11px;color:var(--ink-3)">${item.date || ''}</span>
+        </div>
+        <div style="font-size:14.5px;line-height:1.6;white-space:pre-wrap;word-break:break-word">${escText}</div>
+        ${escNote ? '<div style="font-size:12px;color:var(--ink-3);margin-top:4px;line-height:1.5">' + escNote + '</div>' : ''}
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="comp-del" type="button">编辑</button>
+          <button class="comp-del" type="button">删除</button>
+        </div>`;
+      const btns = div.querySelectorAll('.comp-del');
+      btns[0].onclick = () => openQuoteEdit(item.id);
+      btns[1].onclick = () => deleteQuote(item.id);
+      list.appendChild(div);
+    });
   }
 
   /* ---------- 头像：颜色由角色 id 稳定生成，无需迁移数据 ---------- */
