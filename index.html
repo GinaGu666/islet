@@ -694,7 +694,7 @@
       <input type="file" id="archive-file" accept=".json,application/json" style="display:none" onchange="importArchive(this)">
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-12c · cc + 记忆库</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-12d · cc + 记忆库</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -2371,7 +2371,7 @@
 
   /* ---------- token 底栏 ---------- */
   function fmtNum(n) { return (n || 0).toLocaleString('en-US'); }
-  let lastUsageSid = null;
+  let lastUsage = null, lastUsageSid = null;   // 全局：最近一次用量及其所属会话（generateAssistant 内另有同名局部，互不干扰）
   function updateTokenBar(u) {
     if (!u) return;
     lastUsage = u; lastUsageSid = currentId;
