@@ -694,7 +694,7 @@
       <input type="file" id="archive-file" accept=".json,application/json" style="display:none" onchange="importArchive(this)">
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-12b · cc + 记忆库</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-12c · cc + 记忆库</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -1283,6 +1283,7 @@
     const data = {
       app: 'islet', version: 1, exportedAt: new Date().toISOString(),
       companions, sessions, sessionMsgs,
+      quotes, habits, arena: loadArenaLog(),
       about: localStorage.getItem('islet_about') || '',
       activeCompanionId: localStorage.getItem('islet_active_companion') || '',
       currentId: localStorage.getItem('islet_cur') || '',
@@ -1384,6 +1385,9 @@
         if (st.aifont) localStorage.setItem('islet_aifont', st.aifont);
         if (st.provider) localStorage.setItem('islet_provider', st.provider);
         if (st.ccBase != null) localStorage.setItem('cc_base', st.ccBase);
+        if (Array.isArray(data.quotes)) localStorage.setItem('islet_quotes', JSON.stringify(data.quotes));
+        if (Array.isArray(data.habits)) localStorage.setItem('islet_habits', JSON.stringify(data.habits));
+        if (Array.isArray(data.arena)) localStorage.setItem('islet_arena', JSON.stringify(data.arena));
         alert('导入完成，即将刷新');
         location.reload();
       } catch (e) { alert('导入失败：' + e.message); }
@@ -1618,9 +1622,11 @@
     const s = sessions.find(x => x.id === currentId);
     if (s) {
       s.updated = Date.now();
+      s.count = messages.length;
       if (s.title === '新对话') s.title = deriveTitle(messages);
       sessions.sort((a, b) => b.updated - a.updated);
       saveIndex();
+      renderTokenBar();
       if ($('drawer-overlay').classList.contains('show')) renderSessions();
     }
   }
@@ -1688,12 +1694,15 @@
   function renderSessions() {
     const wrap = $('session-list');
     const list = sessions.filter(s => (s.companionId || companions[0].id) === activeCompanionId);
+    let filled = false;
+    list.forEach(s => { if (s.count == null) { try { s.count = loadSessionMsgs(s.id).length; filled = true; } catch (e) {} } });
+    if (filled) saveIndex();
     if (!list.length) { wrap.innerHTML = '<div class="list-empty-mini">还没有和「' + esc(activeCompanion().name) + '」的对话<br>点右上角 ＋ 开始</div>'; return; }
     wrap.innerHTML = list.map(s => `
       <div class="session-row ${s.id === currentId ? 'sel' : ''}" onclick="switchSession('${s.id}')">
         <div class="sr-main">
           <div class="sr-title">${esc(s.title)}</div>
-          <div class="sr-time">${fmtWhen(s.updated)}</div>
+          <div class="sr-time">${fmtWhen(s.updated)}${s.count != null ? ' · ' + s.count + ' 条' : ''}</div>
         </div>
         <button class="sr-btn" onclick="event.stopPropagation();renameSession('${s.id}')" aria-label="重命名">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>
@@ -1818,7 +1827,15 @@
     $('setup-x').style.visibility = (firstRun && !providerReady()) ? 'hidden' : 'visible';
     show('setup-overlay');
   }
-  function closeSettings() { if (providerReady()) hide('setup-overlay'); }
+  function closeSettings() {
+    if (!providerReady()) {
+      // 只是切过来看看、还没填地址：自动退回另一边可用的来源，别把人锁在设置里
+      const otherReady = provider === 'cc' ? !!apiKey : !!ccBaseNorm();
+      if (!otherReady) return;   // 真·首次运行，两边都没配好，保持锁定
+      switchProvider(provider === 'cc' ? 'or' : 'cc');
+    }
+    hide('setup-overlay');
+  }
   function saveSetup() {
     const wasReady = providerReady();
     if (provider === 'or') {
@@ -1850,7 +1867,7 @@
     cancelEdit();   // 切换会话等场景下退出编辑态（未在编辑时是空操作，不影响草稿）
     const chat = $('chat');
     chat.innerHTML = '';
-    const tb = $('token-bar'); if (tb) tb.style.display = 'none';
+    renderTokenBar();
     if (!messages.length) { chat.innerHTML = emptyHtml(); return; }
     let prevDay = null;
     messages.forEach((m, i) => {
@@ -2354,15 +2371,26 @@
 
   /* ---------- token 底栏 ---------- */
   function fmtNum(n) { return (n || 0).toLocaleString('en-US'); }
+  let lastUsageSid = null;
   function updateTokenBar(u) {
     if (!u) return;
-    const total = u.total_tokens || ((u.prompt_tokens || 0) + (u.completion_tokens || 0));
-    let cached = 0;
-    if (u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens) cached = u.prompt_tokens_details.cached_tokens;
-    else if (u.cache_read_input_tokens) cached = u.cache_read_input_tokens;
-    const bar = $('token-bar');
+    lastUsage = u; lastUsageSid = currentId;
+    renderTokenBar();
+  }
+  function renderTokenBar() {
+    const bar = $('token-bar'); if (!bar) return;
+    if (!messages.length) { bar.style.display = 'none'; return; }
+    let html = `第 <b>${messages.length}</b> 条` + (messages.length > CTX_MSGS ? `（模型只读最近 ${CTX_MSGS} 条）` : '');
+    const u = (lastUsage && lastUsageSid === currentId) ? lastUsage : null;
+    if (u) {
+      const total = u.total_tokens || ((u.prompt_tokens || 0) + (u.completion_tokens || 0));
+      let cached = 0;
+      if (u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens) cached = u.prompt_tokens_details.cached_tokens;
+      else if (u.cache_read_input_tokens) cached = u.cache_read_input_tokens;
+      html += ` · 本轮 <b>${fmtNum(total)}</b> tok` + (cached ? ` · <span class="cache">缓存命中 ${fmtNum(cached)}</span>` : '');
+    }
     bar.style.display = 'block';
-    bar.innerHTML = `本轮 <b>${fmtNum(total)}</b> tok` + (cached ? ` · <span class="cache">缓存命中 ${fmtNum(cached)}</span>` : '');
+    bar.innerHTML = html;
   }
 
   /* ---------- 轻量记忆库：一条条记忆卡（置顶/编辑/删除；提炼只增不改写） ---------- */
