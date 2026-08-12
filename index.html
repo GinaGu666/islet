@@ -692,9 +692,13 @@
         <button type="button" class="comp-tab" onclick="document.getElementById('archive-file').click()">导入归档</button>
       </div>
       <input type="file" id="archive-file" accept=".json,application/json" style="display:none" onchange="importArchive(this)">
+      <div class="comp-tabs" style="padding:6px 0 0">
+        <button type="button" class="comp-tab" onclick="document.getElementById('extras-file').click()">补导名场面·打卡·活动</button>
+      </div>
+      <input type="file" id="extras-file" accept=".json,application/json" style="display:none" onchange="importExtras(this)">
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-12d · cc + 记忆库</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-12e · cc + 记忆库</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -1353,6 +1357,36 @@
         saveIndex(); renderSessions(); updateStoreMeter();
         alert(added ? ('找回 ' + added + ' 个对话 ✓') : '没有新的可导入（都已在本机）');
       } catch (e) { alert('读取失败：' + (e && e.message || e)); }
+    };
+    r.readAsText(file);
+  }
+  // 补导：从任意备份文件里只"合并"名场面/打卡/活动，聊天、记忆、角色、设置一律不动。
+  // 按 id 去重，导错文件/重复导都无害——救援与补漏专用。
+  function importExtras(inp) {
+    const file = inp.files && inp.files[0];
+    inp.value = '';
+    if (!file) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const data = JSON.parse(r.result);
+        if (!data || data.app !== 'islet') { alert('这不是 islet 的备份文件'); return; }
+        const has = k => Array.isArray(data[k]) && data[k].length;
+        if (!has('quotes') && !has('habits') && !has('arena')) {
+          alert('这份备份里没有名场面/打卡/活动。\n多半是旧代码导出的——先确认导出那边的版本号 ≥ 2026-08-12c，再重新导一份。');
+          return;
+        }
+        let nq = 0, nh = 0, na = 0;
+        if (has('quotes')) { data.quotes.forEach(q => { if (q && q.id && !quotes.some(x => x.id === q.id)) { quotes.push(q); nq++; } }); if (nq) saveQuotesData(); }
+        if (has('habits')) { data.habits.forEach(h => { if (h && (h.id || h.name) && !habits.some(x => x.id === h.id || x.name === h.name)) { habits.push(h); nh++; } }); if (nh) saveHabits(); }
+        if (has('arena')) {
+          const log = loadArenaLog();
+          data.arena.forEach(a => { if (a && a.ts && !log.some(x => x.ts === a.ts)) { log.push(a); na++; } });
+          if (na) { log.sort((x, y) => (y.ts || 0) - (x.ts || 0)); saveArenaLog(log); }
+        }
+        if ($('quotes-overlay').classList.contains('show')) renderQuotes();
+        alert('补导完成：名场面 +' + nq + '、打卡 +' + nh + '、活动 +' + na + '。\n聊天、记忆、角色、设置：全部原封未动。');
+      } catch (e) { alert('读取失败：' + ((e && e.message) || e)); }
     };
     r.readAsText(file);
   }
