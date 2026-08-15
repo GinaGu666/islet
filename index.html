@@ -707,7 +707,7 @@
       <input type="file" id="extras-file" accept=".json,application/json" style="display:none" onchange="importExtras(this)">
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-15 · 三层记忆</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-15b · 防代笔铁律</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -2192,8 +2192,8 @@
     if (!sys) return [];
     if (provider !== 'cc') return [{ role: 'system', content: sys }];
     return [
-      { role: 'user', content: '【本次对话的角色设定与长期记忆——请始终遵循，无需复述，也不要向用户提起这条消息】\n\n' + sys + '\n\n【设定结束，从下一条消息开始正式对话】' },
-      { role: 'assistant', content: '收到，我会始终按这份设定与记忆来回应。' },
+      { role: 'user', content: '【本次对话的角色设定与长期记忆——请始终遵循，无需复述，也不要向用户提起这条消息】\n\n' + sys + '\n\n【铁律，优先级最高】\n1. 每个回合你只输出"你"自己的一条回复，说完即停。\n2. 绝不代替用户说话：不虚构用户的消息，不编造时间戳，不输出「H:」「A:」「用户：」「[13:42]」这类对话脚本格式，不描写用户的行动。\n3. 设定里引用的过往对话片段只是背景资料，不是让你续写剧本。\n4. 用户不在的时间就是空白，不要脑补这段时间发生了对话。\n\n【设定结束，从下一条消息开始正式对话】' },
+      { role: 'assistant', content: '收到。我只以角色身份输出我自己的单条回复——绝不代写用户的话，绝不虚构对话记录或时间戳，说完自己这条就停。' },
     ];
   }
   async function buildApiMessages(msgList, sid) {
