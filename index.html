@@ -707,7 +707,7 @@
       <input type="file" id="extras-file" accept=".json,application/json" style="display:none" onchange="importExtras(this)">
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-14b · 阶梯窗口</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-15 · 三层记忆</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -875,6 +875,8 @@
 
       <div class="field-label">这个角色是谁（可留空，让它慢慢长）</div>
       <textarea class="field persona" id="persona-input" placeholder="想设定就写；不写就从空白开始，在相处里慢慢长出脾气…" spellcheck="false"></textarea>
+      <div class="field-label">你们现在的关系状态 <span style="text-transform:none;opacity:.6">（提炼时自动更新，也可手改）</span></div>
+      <input class="field" id="rel-input" placeholder="描述「我们现在在哪里」，不是「你是谁」…" spellcheck="false">
       <div class="mem-hint">只属于这个角色。留空也行——空白起步、靠记忆长成 TA 自己。</div>
 
       <div class="field-head">
@@ -1756,7 +1758,7 @@
       });
       let text = tail.join('\n');
       if (text.length > 700) text = text.slice(-700);
-      return { title: prev.title || '上次对话', when: fmtWhen(prev.updated), text };
+      return { prevId: prev.id, title: prev.title || '上次对话', when: fmtWhen(prev.updated), text };
     } catch (e) { return null; }
   }
   function newSession() {
@@ -2156,7 +2158,16 @@
     // 交接棒：新对话带着上一场的结尾开场（只作衔接参考，模型可见、界面不可见）
     const _sess = sessions.find(s => s.id === sid);
     if (_sess && _sess.handoff && _sess.handoff.text) {
-      parts.push('你们上一次对话（' + _sess.handoff.when + '，「' + _sess.handoff.title + '」）的结尾是：\n' + _sess.handoff.text + '\n——这段只是帮你衔接语气和话题的余温：如果自然就轻轻接上，不必主动复述，也别被它拴住新话题。');
+      const _ho = _sess.handoff;
+      const _prev = _ho.prevId ? sessions.find(s => s.id === _ho.prevId) : null;
+      let _hand;
+      if (_prev && _prev.summary) {
+        const _tail2 = _ho.text.split('\n').slice(-2).join('\n');
+        _hand = '你们上一次对话（' + _ho.when + '，「' + _ho.title + '」）的小结：' + _prev.summary + '\n结尾的原话是：\n' + _tail2;
+      } else {
+        _hand = '你们上一次对话（' + _ho.when + '，「' + _ho.title + '」）的结尾是：\n' + _ho.text;
+      }
+      parts.push(_hand + '\n——这段只是帮你衔接语气和话题的余温：如果自然就轻轻接上，不必主动复述，也别被它拴住新话题。');
     }
     // 时间感：距上次和这个角色对话隔了多久（≥6 小时才提；每次构建都刷新 lastSeen，故间隔=距上一次真实交流）
     const tc = sessionCompanion(sid);
@@ -2696,6 +2707,7 @@
     $('about-input').value = sharedAbout();
     $('companion-name-input').value = c.name;
     $('persona-input').value = c.persona || '';
+    const _ri = $('rel-input'); if (_ri) _ri.value = c.rel || '';
     renderMemCards();
     $('autodistill-toggle').checked = c.autoDistill !== false;
     $('distill-status').textContent = '';
@@ -2718,6 +2730,8 @@
     const newName = $('companion-name-input').value.trim();
     if (newName) c.name = newName;
     c.persona = $('persona-input').value.trim();
+    const _rv = $('rel-input').value.trim();
+    if (_rv !== (c.rel || '')) { c.rel = _rv; c.relUpdated = Date.now(); }
     c.autoDistill = $('autodistill-toggle').checked;
     saveCompanions();
     renderDrawerCompanions(); updatePill();
@@ -2731,11 +2745,14 @@
     const btn = $('distill-btn');
     btn.disabled = true;
     $('distill-status').textContent = '正在提炼…';
-    const added = await distillMemory(messages, target);
+    const r = await distillMemory(messages, target);
     btn.disabled = false;
-    if (added == null) { $('distill-status').textContent = '提炼失败，请重试'; return; }
+    if (r == null) { $('distill-status').textContent = '提炼失败，请重试'; return; }
+    if (r.relation) { target.rel = r.relation; target.relUpdated = Date.now(); const ri = $('rel-input'); if (ri) ri.value = r.relation; }
     saveCompanions(); renderMemCards();
-    $('distill-status').textContent = added ? ('收进 ' + added + ' 条新记忆 ✓ 已自动保存') : '没有新的可记（这段都已在库中）';
+    const s = sessions.find(x => x.id === currentId);
+    if (s && r.summary) { s.summary = r.summary; saveIndex(); }
+    $('distill-status').textContent = (r.added ? ('收进 ' + r.added + ' 条新记忆') : '记忆无新增') + (r.summary ? ' · 本场小结已记' : '') + (r.relation ? ' · 关系状态已更新' : '') + ' ✓';
   }
   // 把对话提炼成 0~5 条"新"记忆卡（只增不改写）。返回新增条数，失败返回 null
   async function distillMemory(msgs, comp) {
@@ -2744,8 +2761,8 @@
         .map(m => (m.role === 'user' ? 'User: ' : 'AI: ') + (m.imgs && m.imgs.length ? '[发了图片] ' : '') + m.content).join('\n\n');
       if (!transcript.trim()) return null;
       const existing = memCardsOf(comp).slice(0, 60).map(k => '- ' + k.t).join('\n');
-      const sys = "You maintain a long-term memory bank for an AI companion app: a list of short memory cards about one specific relationship. You will see the existing cards, then a recent conversation between the user and the AI.\n\nExtract ONLY NEW durable information not already covered by existing cards: facts about the user's life, their preferences, meaningful events between them, how the relationship is developing, emotional notes that will still matter later.\n\nNEVER record any of the following — it would confuse future conversations:\n- Meta or technical talk: questions about which AI model this is, anything about the app itself, prompts, settings, API, or the user testing the AI\n- Small talk and one-off details that won't matter in a week\n- Blow-by-blow accounts of events — keep only the outcome and how it felt\n- Anything already covered by an existing card, even in different words\n\nStyle: each memory is ONE terse line, like an index card — \"喜欢手冲咖啡，最近工作压力大\" — not narrative sentences. Write in the language the conversation is mostly in.\n\nOutput 0 to 5 lines, one memory per line, nothing else — no bullets, no numbering, no commentary, no code fences. If there is nothing new worth keeping, output exactly: NONE";
-      const user = "EXISTING MEMORY CARDS:\n" + (existing || '(empty)') + "\n\n----\n\nRECENT CONVERSATION:\n" + transcript + "\n\n----\n\nOutput the new memory lines now (or NONE).";
+      const sys = "You maintain the long-term memory of an AI companion in a companion app: memory cards, a session summary, and a relationship-state line for one specific relationship. You will see the existing cards, the current relationship state, then a recent conversation between the user and the AI companion.\n\nOUTPUT FORMAT — exactly these parts, in this order, nothing else (no bullets, no numbering, no commentary, no code fences):\n1. One line starting with 'SUMMARY: ' — a short narrative recap of THIS conversation from the companion's own perspective (what was discussed, the emotional arc, any relationship beats, how it ended). 2-4 short sentences, under 120 Chinese characters. Not a chat log — an arc.\n2. 0 to 5 lines, one NEW memory card per line: only durable information not already covered by existing cards — facts about the user's life, preferences, meaningful events, emotional notes that will still matter later. When a fact carries the user's emotional stance, fold the stance into the card: not just the fact ('哥哥去世') but the posture ('提起哥哥仍会流泪'). Facts with posture beat bare facts. Each card is ONE terse line, like an index card. If nothing new: output exactly NONE on its own line.\n3. Optionally, one line starting with 'RELATION: ' — ONLY if where-you-two-are-now has meaningfully shifted from the current relationship state shown. Describe the relationship's present position (not who anyone is), under 60 Chinese characters. Omit this line entirely if nothing shifted.\n\nNEVER record in cards: meta/technical talk (which AI model, the app itself, prompts, settings, API, testing), small talk that won't matter in a week, blow-by-blow accounts (keep outcome + feeling), or anything an existing card already covers in different words.\n\nWrite everything in the language the conversation is mostly in.";
+      const user = "EXISTING MEMORY CARDS:\n" + (existing || '(empty)') + "\n\nCURRENT RELATIONSHIP STATE:\n" + ((comp.rel || '').trim() || '(not set yet)') + "\n\n----\n\nRECENT CONVERSATION:\n" + transcript + "\n\n----\n\nOutput now: the SUMMARY line, then memory lines (or NONE), then optionally the RELATION line.";
       const distMsgs = provider === 'cc'
         ? [{ role: 'user', content: sys + '\n\n====\n\n' + user }]
         : [{ role: 'system', content: sys }, { role: 'user', content: user }];
@@ -2758,10 +2775,16 @@
       const j = await res.json();
       const out = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
       if (out == null) return null;
-      let added = 0;
-      out.split('\n').map(l => l.replace(/^[-•·*\d.、\s]+/, '').trim()).filter(l => l && !/^none$/i.test(l)).slice(0, 5)
-        .forEach(t => { if (addMemCard(comp, t)) added++; });
-      return added;
+      let added = 0, summary = '', relation = '';
+      out.split('\n').map(l => l.replace(/^[-•·*\d.、\s]+/, '').trim()).filter(Boolean).forEach(l => {
+        const ms = l.match(/^summary[:：]\s*(.+)$/i);
+        const mr = l.match(/^relation[:：]\s*(.+)$/i);
+        if (ms) { summary = ms[1].slice(0, 300); return; }
+        if (mr) { relation = mr[1].slice(0, 120); return; }
+        if (/^none$/i.test(l)) return;
+        if (added < 5 && addMemCard(comp, l)) added++;
+      });
+      return { added, summary, relation };
     } catch (e) { return null; }
   }
   // 自动提炼的运行状态（不持久化）：cid -> {st:'running'|'fail', at}
@@ -2780,10 +2803,11 @@
     const lastCount = (s && s.distilled) ? s.distilled : 0;
     if (userTurns < 2 || userTurns <= lastCount) return;
     setDistillState(c.id, 'running');
-    const added = await distillMemory(snapshot, c);
-    if (added != null) {
-      if (added) saveCompanions();
-      if (s) { s.distilled = userTurns; saveIndex(); }
+    const r = await distillMemory(snapshot, c);
+    if (r != null) {
+      if (r.relation) { c.rel = r.relation; c.relUpdated = Date.now(); }
+      if (r.added || r.relation) saveCompanions();
+      if (s) { s.distilled = userTurns; if (r.summary) s.summary = r.summary; saveIndex(); }
       setDistillState(c.id, null);
       if ($('memory-overlay').classList.contains('show') && editingCompanionId === c.id) renderMemCards();
     } else {
@@ -2884,6 +2908,7 @@
     const parts = [`你是「${c.name}」，正在参加岛上的一场小活动，观众就是你最熟悉的那个人。放开演，拿出你自己的风格。`];
     if (about) parts.push('## 关于观众\n' + about);
     if ((c.persona || '').trim()) parts.push('## 你是谁\n' + c.persona.trim());
+    if ((c.rel || '').trim()) parts.push('## 你们现在的关系状态\n' + c.rel.trim() + '\n（这是随相处推移的动态位置，不是人设）');
     if ((c.mem || '').trim()) parts.push('## 你们的过往\n' + c.mem.trim());
     return parts.join('\n\n');
   }
