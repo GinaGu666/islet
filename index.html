@@ -368,6 +368,14 @@
   .input-bar { display: flex; align-items: flex-end; gap: 9px; padding: 8px 14px calc(12px + var(--safe-bottom)); background: var(--bg); flex-shrink: 0; border-top: 1px solid var(--line); }
   .input-wrap { flex: 1; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 9px 16px; display: flex; align-items: flex-end; transition: border-color .15s; }
   .input-wrap:focus-within { border-color: var(--accent-line); }
+  #web-btn { font-size: 17px; line-height: 1; filter: grayscale(1); opacity: .45; }
+  #web-btn.web-on { filter: none; opacity: 1; }
+  .img-strip .doc-chip { display: flex; align-items: center; gap: 6px; height: 56px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--accent) 7%, transparent); max-width: 170px; }
+  .doc-chip .doc-name { font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .msg-docs { display: flex; flex-direction: column; gap: 5px; margin-bottom: 6px; }
+  .msg-doc { display: flex; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 11px; background: color-mix(in srgb, var(--card) 80%, transparent); font-size: 12.5px; }
+  .msg-doc .doc-name { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .msg-doc .doc-sub { color: var(--ink-3); font-size: 11px; flex: none; }
   #msg-input { flex: 1; background: none; border: none; outline: none; color: var(--ink); font-size: var(--fs-input); font-family: inherit; resize: none; line-height: 1.5; max-height: 130px; min-height: 22px; }
   #msg-input::placeholder { color: var(--ink-3); }
   .send-btn { width: 40px; height: 40px; background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, #fff) 0%, var(--accent) 100%); border: none; border-radius: 50%; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: opacity .15s, transform .1s; box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent); }
@@ -570,10 +578,11 @@
 <div class="edit-bar hidden" id="edit-bar"><span>✎ 编辑消息 · 发送后将从这里重新生成</span><button class="x" type="button" onclick="cancelEdit()">取消</button></div>
 <div class="img-strip" id="img-strip"></div>
 <div class="input-bar" id="input-bar" style="display:none">
-  <button class="attach-btn" type="button" aria-label="发图片" onclick="document.getElementById('img-file').click()">
+  <button class="attach-btn" id="web-btn" type="button" aria-label="联网搜索" onclick="toggleWeb()">🌐</button>
+  <button class="attach-btn" type="button" aria-label="发图片或文件" onclick="document.getElementById('img-file').click()">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
   </button>
-  <input type="file" id="img-file" accept="image/*" multiple style="display:none" onchange="pickImgs(this)">
+  <input type="file" id="img-file" accept="image/*,.pdf,.txt,.md,.markdown,.json,.csv,.tsv,.log,.docx,.js,.py,.ts,.html,.css,.xml,.yaml,.yml" multiple style="display:none" onchange="pickImgs(this)">
   <div class="input-wrap">
     <textarea id="msg-input" rows="1" placeholder="说点什么…" oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
   </div>
@@ -698,7 +707,7 @@
       <input type="file" id="extras-file" accept=".json,application/json" style="display:none" onchange="importExtras(this)">
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-13b · 交接棒</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-14b · 阶梯窗口</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -900,6 +909,13 @@
   const OR_MODELS_URL = 'https://openrouter.ai/api/v1/models';
   let provider = 'or', ccBase = '', ccKey = '';
   const modelStoreKey = () => provider === 'cc' ? 'cc_model' : 'or_model';
+  let webOn = false;
+  function toggleWeb() {
+    webOn = !webOn;
+    localStorage.setItem('islet_web', webOn ? 'on' : 'off');
+    const b = $('web-btn'); if (b) b.classList.toggle('web-on', webOn);
+    if (webOn && provider === 'cc') alert('联网目前只在 OpenRouter 通道生效（CC 传话员暂不支持）。开关先记住了，切回 OpenRouter 就能用。');
+  }
   function ccBaseNorm() { let b = String(ccBase || '').trim().replace(/\/+$/, ''); if (b && !/\/v1$/i.test(b)) b += '/v1'; return b; }
   function apiUrl() { return provider === 'cc' ? ccBaseNorm() + '/chat/completions' : OR_API_URL; }
   function modelsUrl() { return provider === 'cc' ? ccBaseNorm() + '/models' : OR_MODELS_URL; }
@@ -971,8 +987,12 @@
   let _dbP = null;
   function idb() {
     if (!_dbP) _dbP = new Promise((res, rej) => {
-      const req = indexedDB.open('islet', 1);
-      req.onupgradeneeded = () => { req.result.createObjectStore('imgs', { keyPath: 'id' }); };
+      const req = indexedDB.open('islet', 2);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('imgs')) db.createObjectStore('imgs', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'id' });
+      };
       req.onsuccess = () => res(req.result);
       req.onerror = () => rej(req.error);
     });
@@ -980,6 +1000,8 @@
   }
   function imgPut(rec) { return idb().then(db => new Promise((res, rej) => { const tx = db.transaction('imgs', 'readwrite'); tx.objectStore('imgs').put(rec); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
   function imgGet(id) { return idb().then(db => new Promise((res, rej) => { const r = db.transaction('imgs').objectStore('imgs').get(id); r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error); })); }
+  function filePut(rec) { return idb().then(db => new Promise((res, rej) => { const tx = db.transaction('files', 'readwrite'); tx.objectStore('files').put(rec); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
+  function fileGet(id) { return idb().then(db => new Promise((res, rej) => { const r = db.transaction('files').objectStore('files').get(id); r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error); })); }
 
   async function compressImage(file, maxDim, quality) {
     const url = URL.createObjectURL(file);
@@ -996,32 +1018,83 @@
   }
 
   let pendingImgs = [];   // 待发送：{id, blob, url}
+  let pendingDocs = [];   // 待发送：{id, name, text, chars, trunc}
+  const MAX_DOC_CHARS = 20000;
+  function _loadLib(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('组件下载失败，检查网络')); document.head.appendChild(s); }); }
+  async function extractDocText(f) {
+    const ext = (f.name.split('.').pop() || '').toLowerCase();
+    if (ext === 'pdf') {
+      if (!window.pdfjsLib) {
+        await _loadLib('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
+      const doc = await pdfjsLib.getDocument({ data: await f.arrayBuffer() }).promise;
+      let out = '';
+      const pages = Math.min(doc.numPages, 80);
+      for (let i = 1; i <= pages && out.length < MAX_DOC_CHARS * 1.2; i++) {
+        const tc = await (await doc.getPage(i)).getTextContent();
+        out += tc.items.map(it => it.str).join(' ') + '\n';
+      }
+      if (!out.trim()) throw new Error('这个 PDF 提不出文字（可能是扫描件/纯图片），直接发截图让角色看图吧');
+      return out;
+    }
+    if (ext === 'docx') {
+      if (!window.mammoth) await _loadLib('https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js');
+      const r = await mammoth.extractRawText({ arrayBuffer: await f.arrayBuffer() });
+      if (!r.value.trim()) throw new Error('没提取到文字');
+      return r.value;
+    }
+    const t = await f.text();
+    if (/\u0000/.test(t.slice(0, 2000))) throw new Error('这个格式暂不支持（支持 txt/md/csv/json/代码/pdf/docx）');
+    return t;
+  }
   async function pickImgs(inp) {
     const files = Array.from(inp.files || []);
     try { inp.value = ''; } catch (e) {}
     for (const f of files) {
-      if (pendingImgs.length >= 3) { alert('一条消息最多 3 张图'); break; }
-      try {
-        const { blob } = await compressImage(f, 1024, 0.8);
-        pendingImgs.push({ id: genId(), blob, url: URL.createObjectURL(blob) });
-      } catch (e) { alert('这张图读不了：' + (e.message || e)); }
+      if (f.type.startsWith('image/')) {
+        if (pendingImgs.length >= 3) { alert('一条消息最多 3 张图'); continue; }
+        try {
+          const { blob } = await compressImage(f, 1024, 0.8);
+          pendingImgs.push({ id: genId(), blob, url: URL.createObjectURL(blob) });
+        } catch (e) { alert('这张图读不了：' + (e.message || e)); }
+      } else {
+        if (pendingDocs.length >= 3) { alert('一条消息最多 3 个文件'); continue; }
+        if (f.size > 15 * 1024 * 1024) { alert('「' + f.name + '」超过 15MB，太大了'); continue; }
+        try {
+          let text = await extractDocText(f);
+          text = text.replace(/\r\n/g, '\n');
+          const trunc = text.length > MAX_DOC_CHARS;
+          if (trunc) { text = text.slice(0, MAX_DOC_CHARS); alert('「' + f.name + '」较长，已截取前 2 万字'); }
+          pendingDocs.push({ id: genId(), name: f.name, text, chars: text.length, trunc });
+        } catch (e) { alert('读不了「' + f.name + '」：' + ((e && e.message) || e)); }
+      }
     }
     renderImgStrip();
   }
   function removePending(id) {
     const i = pendingImgs.findIndex(p => p.id === id);
     if (i >= 0) { URL.revokeObjectURL(pendingImgs[i].url); pendingImgs.splice(i, 1); }
+    const j = pendingDocs.findIndex(p => p.id === id);
+    if (j >= 0) pendingDocs.splice(j, 1);
     renderImgStrip();
   }
   function renderImgStrip() {
     const s = $('img-strip');
-    s.classList.toggle('show', pendingImgs.length > 0);
+    s.classList.toggle('show', pendingImgs.length > 0 || pendingDocs.length > 0);
     s.innerHTML = '';
     pendingImgs.forEach(p => {
       const d = document.createElement('div'); d.className = 'thumb';
       const img = document.createElement('img'); img.src = p.url; img.alt = '';
       const rm = document.createElement('button'); rm.className = 'rm'; rm.type = 'button'; rm.textContent = '×'; rm.onclick = () => removePending(p.id);
       d.appendChild(img); d.appendChild(rm); s.appendChild(d);
+    });
+    pendingDocs.forEach(p => {
+      const d = document.createElement('div'); d.className = 'thumb doc-chip';
+      d.innerHTML = '<span class="doc-ico">📄</span><span class="doc-name"></span>';
+      d.querySelector('.doc-name').textContent = p.name;
+      const rm = document.createElement('button'); rm.className = 'rm'; rm.type = 'button'; rm.textContent = '×'; rm.onclick = () => removePending(p.id);
+      d.appendChild(rm); s.appendChild(d);
     });
   }
 
@@ -1447,6 +1520,8 @@
     systemPrompt = localStorage.getItem('or_system') || '';
     selectedModel = localStorage.getItem(modelStoreKey()) || (provider === 'cc' ? 'claude-sonnet-4-6' : 'anthropic/claude-sonnet-4.6');
     reasoningEnabled = localStorage.getItem('or_reasoning') !== 'off';
+    webOn = localStorage.getItem('islet_web') === 'on';
+    const _wb = $('web-btn'); if (_wb) _wb.classList.toggle('web-on', webOn);
     loadCompanions();
 
     loadCatalogCache(); buildCatalogMap();
@@ -1926,7 +2001,7 @@
     let prevDay = null;
     messages.forEach((m, i) => {
       if (m.ts) { const dk = dayKey(new Date(m.ts)); if (dk !== prevDay) { appendDaySep(m.ts); prevDay = dk; } }
-      if (m.role === 'user') addUser(m.content, m.time, i, m.imgs);
+      if (m.role === 'user') addUser(m.content, m.time, i, m.imgs, m.files);
       else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true, m.reqModel);
       const last = chat.lastElementChild; if (last) last.dataset.midx = i;
     });
@@ -1934,7 +2009,7 @@
   }
   function dropEmpty() { const e = $('empty'); if (e) e.remove(); }
 
-  function addUser(text, time, idx, imgs) {
+  function addUser(text, time, idx, imgs, files) {
     dropEmpty();
     const row = document.createElement('div');
     row.className = 'msg user';
@@ -1942,6 +2017,17 @@
     const bub = row.querySelector('.bubble');
     bub.textContent = text;
     if (!text) bub.style.display = 'none';
+    if (files && files.length) {
+      const fw = document.createElement('div'); fw.className = 'msg-docs';
+      files.forEach(f => {
+        const c = document.createElement('div'); c.className = 'msg-doc';
+        c.innerHTML = '<span>📄</span><span class="doc-name"></span><span class="doc-sub"></span>';
+        c.querySelector('.doc-name').textContent = f.name;
+        c.querySelector('.doc-sub').textContent = (f.chars > 999 ? (f.chars / 1000).toFixed(1) + 'k' : f.chars) + ' 字' + (f.trunc ? '·截' : '');
+        fw.appendChild(c);
+      });
+      row.insertBefore(fw, bub);
+    }
     if (imgs && imgs.length) {
       const wrap = document.createElement('div'); wrap.className = 'msg-imgs';
       imgs.forEach(id => {
@@ -2085,7 +2171,10 @@
     return parts.join("\n\n");
   }
   const CTX_MSGS = 120;   // 发给模型的最近消息条数（控制成本）；界面和存储始终保留完整记录
+  const CTX_STEP = 20;    // 阶梯窗口步长：起点每 20 条才前移一次，窗口在 120~140 条间浮动，保住缓存命中
+  function ctxStart(len) { return len <= CTX_MSGS + CTX_STEP ? 0 : Math.ceil((len - (CTX_MSGS + CTX_STEP)) / CTX_STEP) * CTX_STEP; }
   const IMG_CTX = 3;      // 最多把最近几张图发给模型（图片按 token 计费很贵，旧图自动退出上下文）
+  const FILE_CTX = 3;     // 最多把最近几个文件的全文随行（同理，旧文件退成一句提示，结论靠记忆卡）
   // 传话员（CC 通道）会把 system 消息整个丢弃（实测 prompt_tokens 只剩用户消息），但聊天历史转交完好。
   // 所以 CC 通道下把 system 内容伪装成对话开场的一组握手，走畅通的历史管道；OpenRouter 照旧走正规 system。
   function packSystem(sys) {
@@ -2099,12 +2188,27 @@
   async function buildApiMessages(msgList, sid) {
     const list = msgList || messages;
     const sys = buildSystemContent(sid);
-    const win = list.filter(m => m.role !== 'system').slice(-CTX_MSGS);
-    let budget = IMG_CTX;
+    const _all = list.filter(m => m.role !== 'system');
+    const win = _all.slice(ctxStart(_all.length));
+    let budget = IMG_CTX, fileBudget = FILE_CTX;
     const out = [];
     for (let i = win.length - 1; i >= 0; i--) {
       const m = win[i];
       let content = (m.role === 'user' && m.time) ? `[${m.time}] ${m.content}` : m.content;
+      if (m.role === 'user' && m.files && m.files.length) {
+        if (fileBudget > 0) {
+          const blocks = [];
+          for (const f of m.files.slice(0, fileBudget)) {
+            const rec = await fileGet(f.id).catch(() => null);
+            if (rec && rec.text) blocks.push('【附件：' + f.name + (f.trunc ? '（超长已截取）' : '') + '】\n<<<\n' + rec.text + '\n>>>');
+          }
+          fileBudget -= blocks.length;
+          if (blocks.length) content = blocks.join('\n\n') + '\n\n' + (content || '（见附件）');
+          else content = (content ? content + ' ' : '') + '[此前发过文件，内容已不在上下文]';
+        } else {
+          content = (content ? content + ' ' : '') + '[此前发过文件：' + m.files.map(f => f.name).join('、') + '，内容已不在上下文]';
+        }
+      }
       if (m.role === 'user' && m.imgs && m.imgs.length) {
         const parts = [];
         if (budget > 0) {
@@ -2149,7 +2253,7 @@
     let gotContent = false, sawDone = false, usage = null, finish = null, served = null;
     try {
       // max_tokens：OpenRouter 会按此值预扣余额，不设则按模型最大输出预估，余额少时会被拒
-      const payload = { model, messages: provider === 'or' ? withCacheBreakpoints(model, msgs) : msgs, max_tokens: 8192, stream: true };
+      const payload = { model: (provider === 'or' && webOn) ? model + ':online' : model, messages: provider === 'or' ? withCacheBreakpoints(model, msgs) : msgs, max_tokens: 8192, stream: true };
       if (provider === 'or') payload.stream_options = { include_usage: true };
       // 开关开：请求思考；开关关：显式禁用（不发的话 GLM 等混合推理模型会按默认思考，照样计费）
       // 例外：Fable/Mythos 这类强制思考的模型没法真正关思考——传 enabled:false 有的 provider 会报错，
@@ -2293,21 +2397,28 @@
   function sendMessage() {
     const input = $('msg-input');
     const text = input.value.trim();
-    if (!text && !pendingImgs.length) return;
+    if (!text && !pendingImgs.length && !pendingDocs.length) return;
     input.value = ''; input.style.height = '';
     ensureSession();
-    let imgs = null;
+    let imgs = null, docs = null;
     if (pendingImgs.length) {
-      const toStore = pendingImgs.slice(); pendingImgs = []; renderImgStrip();
+      const toStore = pendingImgs.slice(); pendingImgs = [];
       imgs = toStore.map(p => p.id);
       toStore.forEach(p => { imgUrlCache.set(p.id, p.url); imgPut({ id: p.id, blob: p.blob, created: Date.now() }).catch(() => {}); });
     }
+    if (pendingDocs.length) {
+      const toStore = pendingDocs.slice(); pendingDocs = [];
+      docs = toStore.map(p => ({ id: p.id, name: p.name, chars: p.chars, trunc: p.trunc ? 1 : 0 }));
+      toStore.forEach(p => { filePut({ id: p.id, name: p.name, text: p.text, created: Date.now() }).catch(() => {}); });
+    }
+    renderImgStrip();
     if (editingIdx != null) {
       const idx = editingIdx;
       editingIdx = null; $('edit-bar').classList.add('hidden');
       if (messages[idx] && messages[idx].role === 'user') {
         messages[idx].content = text;
         if (imgs) messages[idx].imgs = (messages[idx].imgs || []).concat(imgs);
+        if (docs) messages[idx].files = (messages[idx].files || []).concat(docs);
         messages.length = idx + 1;   // 之后的消息作废，从这里重新生成
         saveCurrent(); renderAll();
         generateAssistant();
@@ -2319,8 +2430,9 @@
     if (!prev || !prev.ts || dayKey(new Date(prev.ts)) !== dayKey(new Date(ts))) appendDaySep(ts);
     const msg = { role: 'user', content: text, time: t, ts };
     if (imgs) msg.imgs = imgs;
+    if (docs) msg.files = docs;
     messages.push(msg);
-    addUser(text, t, messages.length - 1, msg.imgs);
+    addUser(text, t, messages.length - 1, msg.imgs, msg.files);
     const _lr = $('chat').lastElementChild; if (_lr) _lr.dataset.midx = messages.length - 1;
     saveCurrent();
     generateAssistant();
@@ -2449,7 +2561,8 @@
   function renderTokenBar() {
     const bar = $('token-bar'); if (!bar) return;
     if (!messages.length) { bar.style.display = 'none'; return; }
-    let html = `第 <b>${messages.length}</b> 条` + (messages.length > CTX_MSGS ? `（模型只读最近 ${CTX_MSGS} 条）` : '');
+    const _vis = messages.length - ctxStart(messages.length);
+    let html = `第 <b>${messages.length}</b> 条` + (_vis < messages.length ? `（模型可见最近 ${_vis} 条）` : '');
     const u = (lastUsage && lastUsageSid === currentId) ? lastUsage : null;
     if (u) {
       const total = u.total_tokens || ((u.prompt_tokens || 0) + (u.completion_tokens || 0));
