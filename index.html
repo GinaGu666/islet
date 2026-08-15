@@ -698,7 +698,7 @@
       <input type="file" id="extras-file" accept=".json,application/json" style="display:none" onchange="importExtras(this)">
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-13 · cc直连记忆修复</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-13b · 交接棒</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -1558,7 +1558,8 @@
     if (theirs.length) { currentId = theirs[0].id; localStorage.setItem('islet_cur', currentId); messages = loadSessionMsgs(currentId); }
     else {
       const nid = genId();
-      sessions.unshift({ id: nid, title: '新对话', updated: Date.now(), companionId: cid });
+      const _ho1 = makeHandoff(cid);
+      sessions.unshift({ id: nid, title: '新对话', updated: Date.now(), companionId: cid, handoff: _ho1 || undefined });
       currentId = nid; messages = []; saveIndex(); saveSessionMsgs(nid, []); localStorage.setItem('islet_cur', nid);
     }
   }
@@ -1644,7 +1645,8 @@
   function ensureSession() {
     if (currentId && sessions.find(s => s.id === currentId)) return;
     const id = genId();
-    sessions.unshift({ id, title: '新对话', updated: Date.now(), companionId: activeCompanionId });
+    const _ho3 = makeHandoff(activeCompanionId);
+    sessions.unshift({ id, title: '新对话', updated: Date.now(), companionId: activeCompanionId, handoff: _ho3 || undefined });
     currentId = id; messages = [];
     saveIndex(); saveSessionMsgs(id, []);
     localStorage.setItem('islet_cur', id);
@@ -1665,12 +1667,30 @@
     }
   }
 
+  // 交接棒：取该角色最近一个会话的结尾几句，压缩成一小段（约700字封顶），存进新会话的档案里
+  function makeHandoff(cid) {
+    try {
+      const prev = sessions.find(s => (s.companionId || (companions[0] && companions[0].id)) === cid);
+      if (!prev) return null;
+      const msgs = loadSessionMsgs(prev.id).filter(m => (m.role === 'user' || m.role === 'assistant') && m.content);
+      if (!msgs.length) return null;
+      const tail = msgs.slice(-6).map(m => {
+        let t = String(m.content).replace(/\s+/g, ' ').trim();
+        if (t.length > 140) t = t.slice(0, 140) + '…';
+        return (m.role === 'user' ? '用户：' : '你：') + t;
+      });
+      let text = tail.join('\n');
+      if (text.length > 700) text = text.slice(-700);
+      return { title: prev.title || '上次对话', when: fmtWhen(prev.updated), text };
+    } catch (e) { return null; }
+  }
   function newSession() {
     const prevId = currentId, snap = messages.slice();
     if (currentAbort) currentAbort.abort();
     maybeAutoDistill(prevId, snap);
     const id = genId();
-    sessions.unshift({ id, title: '新对话', updated: Date.now(), companionId: activeCompanionId });
+    const _ho2 = makeHandoff(activeCompanionId);
+    sessions.unshift({ id, title: '新对话', updated: Date.now(), companionId: activeCompanionId, handoff: _ho2 || undefined });
     currentId = id; messages = [];
     saveIndex(); saveSessionMsgs(id, []);
     localStorage.setItem('islet_cur', id);
@@ -2047,6 +2067,11 @@
     if (systemPrompt) parts.push(systemPrompt);
     const hb = habitBrief();
     if (hb) parts.push(hb);
+    // 交接棒：新对话带着上一场的结尾开场（只作衔接参考，模型可见、界面不可见）
+    const _sess = sessions.find(s => s.id === sid);
+    if (_sess && _sess.handoff && _sess.handoff.text) {
+      parts.push('你们上一次对话（' + _sess.handoff.when + '，「' + _sess.handoff.title + '」）的结尾是：\n' + _sess.handoff.text + '\n——这段只是帮你衔接语气和话题的余温：如果自然就轻轻接上，不必主动复述，也别被它拴住新话题。');
+    }
     // 时间感：距上次和这个角色对话隔了多久（≥6 小时才提；每次构建都刷新 lastSeen，故间隔=距上一次真实交流）
     const tc = sessionCompanion(sid);
     if (tc) {
