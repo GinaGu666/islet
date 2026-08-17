@@ -12,6 +12,16 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
+  /* 西文单独立一族：只接管拉丁字母/数字/西文标点，并把字号顶大一档去够中文的字面。
+     中英同号时英文总显小，是因为汉字几乎占满字身框、拉丁字母只占七成左右。
+     嫌英文太大就把 105% 调回 100%；size-adjust 老浏览器不认，忽略即可，不影响别的。 */
+  @font-face {
+    font-family: "IsletLatin";
+    src: local("Georgia"), local("Iowan Old Style"), local("Times New Roman");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+2000-206F, U+2122, U+2212;
+    size-adjust: 105%;
+  }
+
   :root {
     --bg:        #F4F0E8;
     --card:      #FCFAF5;
@@ -30,20 +40,23 @@
     --radius-sm: 12px;
     --safe-top:    env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
-    --serif:     "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Source Han Serif CN", "Noto Serif SC", STSong, SimSun, Georgia, "Times New Roman", serif;
+    /* 字体栈是逐字回落的：中文字体排在前面，英文也会被它接管（宋体的西文又细又小）。
+       所以西文族在前、中文族在后，各自命中各自的字。 */
+    --serif:     "IsletLatin", Georgia, "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Source Han Serif CN", "Noto Serif SC", STSong, SimSun, serif;
     --sans:      -apple-system, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
     --mono:      ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-    /* 阅读字号：默认「标准」，可在设置里调大 */
-    --fs-bubble: 16px;
+    /* 阅读字号：默认「标准」，可在设置里调大。
+       气泡和正文取同号——原来 16 / 17 差一档，一屏里两种大小，眼睛会一直在重新对焦。 */
+    --fs-bubble: 17px;
     --fs-ai:     17px;
-    --fs-think:  14px;
-    --fs-input:  16px;
+    --fs-think:  14.5px;
+    --fs-input:  17px;
     color-scheme: light;
   }
 
   /* 字号档位：大 / 特大 */
-  :root[data-fontsize="lg"] { --fs-bubble: 17.5px; --fs-ai: 18.5px; --fs-think: 15px; --fs-input: 17.5px; }
-  :root[data-fontsize="xl"] { --fs-bubble: 19px;   --fs-ai: 20px;   --fs-think: 16px; --fs-input: 19px; }
+  :root[data-fontsize="lg"] { --fs-bubble: 18.5px; --fs-ai: 18.5px; --fs-think: 15.5px; --fs-input: 18.5px; }
+  :root[data-fontsize="xl"] { --fs-bubble: 20px;   --fs-ai: 20px;   --fs-think: 16.5px; --fs-input: 20px; }
   /* 正文字体切到黑体（宋体在部分设备上回退效果不佳时用） */
   :root[data-aifont="sans"] .ai-text,
   :root[data-aifont="sans"] .think-body-inner { font-family: var(--sans) !important; }
@@ -283,6 +296,9 @@
     height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
     -webkit-font-smoothing: antialiased;
   }
+  /* 深色底上的浅色字本来就显细，别再削一道。
+     注意：这个属性在 iOS 上无效（iOS 一律灰度抗锯齿），改的是 Mac / 桌面浏览器的观感。 */
+  :root[data-theme="dark"] body { -webkit-font-smoothing: auto; }
   .serif { font-family: var(--serif); }
 
   /* 纸张颗粒：极淡的噪点让平色有"纸的肌理"；在弹层之下，不影响看图 */
@@ -307,7 +323,7 @@
   @keyframes msg-in { from { opacity: 0; transform: translateY(4px); } }
   .msg.user { align-self: flex-end; align-items: flex-end; }
   .msg.ai { align-self: flex-start; align-items: flex-start; width: 100%; max-width: 100%; }
-  .bubble { background: var(--user); border: 1px solid var(--line); border-radius: var(--radius); border-bottom-right-radius: 7px; padding: 11px 15px; font-size: var(--fs-bubble); line-height: 1.6; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 2px rgba(58,51,43,0.04), 0 3px 12px rgba(58,51,43,0.05); }
+  .bubble { background: var(--user); border: 1px solid var(--line); border-radius: var(--radius); border-bottom-right-radius: 7px; padding: 12px 15px; font-size: var(--fs-bubble); line-height: 1.7; letter-spacing: .01em; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; box-shadow: 0 1px 2px rgba(58,51,43,0.04), 0 3px 12px rgba(58,51,43,0.05); }
   .time { font-size: 11px; color: var(--ink-3); padding: 4px 4px 0; }
   .to-bottom { position: fixed; right: 16px; bottom: calc(86px + var(--safe-bottom)); z-index: 20; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 10px rgba(0,0,0,0.10); opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .18s, transform .18s; }
   .to-bottom.show { opacity: 1; pointer-events: auto; transform: none; }
@@ -379,17 +395,20 @@
   .think-body { max-height: 0; overflow: hidden; transition: max-height .25s ease; }
   .think.open .think-body { max-height: 280px; overflow-y: auto; }
   .think-body::-webkit-scrollbar { width: 0; }
-  .think-body-inner { font-family: var(--serif) !important; margin-top: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); font-size: var(--fs-think); line-height: 1.7; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
+  .think-body-inner { font-family: var(--serif) !important; margin-top: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); font-size: var(--fs-think); line-height: 1.75; letter-spacing: .01em; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; }
 
   /* AI 正文 + Markdown */
-  .ai-text { font-family: var(--serif) !important; font-size: var(--fs-ai); line-height: 1.75; color: var(--ink); word-break: break-word; }
+  .ai-text { font-family: var(--serif) !important; font-size: var(--fs-ai); line-height: 1.75; letter-spacing: .01em; color: var(--ink); overflow-wrap: break-word; word-break: normal; text-wrap: pretty; }
   .ai-text.err { color: var(--accent); white-space: pre-wrap; }
-  .ai-text p { margin: 0 0 10px; }
+  /* 段距原来是死值 10px，比行距还小，整段会糊成一坨。
+     改成跟着字号走的 1.1em，段与段之间的空当明显宽过行与行，眼睛才有落脚点。 */
+  .ai-text p { margin: 0 0 1.1em; }
   .ai-text p:last-child { margin-bottom: 0; }
-  .ai-text h1, .ai-text h2, .ai-text h3, .ai-text h4 { line-height: 1.35; margin: 14px 0 8px; font-weight: 700; }
+  .ai-text h1, .ai-text h2, .ai-text h3, .ai-text h4 { line-height: 1.4; margin: 1.5em 0 .5em; font-weight: 700; letter-spacing: 0; }
+  .ai-text > :first-child { margin-top: 0; }
   .ai-text h1 { font-size: 1.22em; } .ai-text h2 { font-size: 1.1em; } .ai-text h3 { font-size: 1.02em; } .ai-text h4 { font-size: 0.96em; }
-  .ai-text ul, .ai-text ol { margin: 6px 0 10px; padding-left: 22px; }
-  .ai-text li { margin: 3px 0; }
+  .ai-text ul, .ai-text ol { margin: .5em 0 1.1em; padding-left: 1.4em; }
+  .ai-text li { margin: .3em 0; }
   .ai-text blockquote { margin: 8px 0; padding: 2px 0 2px 12px; border-left: 3px solid var(--accent-line); color: var(--ink-2); }
   .ai-text hr { border: none; border-top: 1px solid var(--line); margin: 14px 0; }
   .ai-text a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
@@ -2142,9 +2161,22 @@
   /* ---------- Markdown ---------- */
   function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 
+  /* 中英之间补一个空隙：「你跟Saturn聊」这种贴在一起最硌眼，正经中文排版里要留约四分之一个字宽。
+     \u0001 是行内代码的占位符、\u0002 是链接的占位符，都算作「西文」，所以 `code` 和网址两侧也会分开。
+     只碰汉字与拉丁字母/数字的交界，标点和 HTML 实体一概不动。 */
+  const AS_CJK = '\\u2e80-\\u2eff\\u3040-\\u30ff\\u3400-\\u4dbf\\u4e00-\\u9fff\\uf900-\\ufaff';
+  const AS_LAT = 'A-Za-z0-9%$\\u0001\\u0002';
+  const AS_RE1 = new RegExp('([' + AS_CJK + '])([' + AS_LAT + '])', 'g');
+  const AS_RE2 = new RegExp('([' + AS_LAT + '])([' + AS_CJK + '])', 'g');
+  function autoSpace(s) { return s.replace(AS_RE1, '$1 $2').replace(AS_RE2, '$1 $2'); }
+
   function renderInline(s) {
     const codes = [];
     s = s.replace(/`([^`]+)`/g, (m, c) => { codes.push(c); return '\u0001' + (codes.length - 1) + '\u0001'; });
+    const urls = [];
+    s = s.replace(/(?:https?:\/\/|www\.)[^\s<]+/gi, m => { urls.push(m); return '\u0002' + (urls.length - 1) + '\u0002'; });
+    s = autoSpace(s);
+    s = s.replace(/\u0002(\d+)\u0002/g, (m, i) => urls[+i]);
     s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, t, u) => /^https?:\/\//i.test(u) ? `<a href="${u}" target="_blank" rel="noopener noreferrer">${t}</a>` : m);
     s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>');
     s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>').replace(/(^|[^_\w])_([^_\n]+)_/g, '$1<em>$2</em>');
