@@ -2389,6 +2389,8 @@
     }
     // L2 记忆唤醒：按最新话题召回相关旧卡，附在最后一条用户消息之后。
     // 不进存储、不上屏；之所以放在上下文末尾而不是 system，是为了每回合动态变化时不炸掉前面的前缀缓存。
+    // 文本消息不直接拼进 content，而是挂在 _tail 上，走线时再拼装（见 withCacheBreakpoints / flattenTails）——
+    // 这样缓存断点能打在浮现块之前；否则下一轮历史里这条消息没有浮现块，前缀从这里失配，整段历史按全价重算。
     try {
       const _mc = sessionCompanion(sid == null ? currentId : sid);
       const _lines = memRecall(_mc, win, memCoreParts(_mc).ids);
@@ -2396,8 +2398,9 @@
         for (let i = out.length - 1; i >= 0; i--) {
           if (out[i].role !== 'user') continue;
           const _blk = '\n\n——【记忆浮现】以下旧记忆被当前话题勾起，供你自然地想起（别逐条复述，也别提这段标注）：\n' + _lines.join('\n');
-          if (typeof out[i].content === 'string') out[i].content += _blk;
+          if (typeof out[i].content === 'string') out[i]._tail = _blk;
           else if (Array.isArray(out[i].content)) {
+            // 图片消息本就是块数组，且断点只落在纯文本消息上，浮现块在这里天然位于断点之后，无失配问题
             const _tp = out[i].content.filter(p => p.type === 'text').pop();
             if (_tp) _tp.text += _blk; else out[i].content.push({ type: 'text', text: _blk.trim() });
           }
@@ -2474,15 +2477,24 @@
 
   // Anthropic 的 prompt caching 要求 cache_control 放在消息内容块上（顶层字段会被忽略）。
   // 断点打在 system 和最后一条消息上：下一轮请求时，之前的整段前缀都能命中缓存。
+  // 末条消息若挂着 _tail（记忆浮现块），拆成两个内容块：正文带断点，浮现块放断点之后——
+  // 浮现块每回合都不同，放进前缀会让下一轮从这里失配；放在断点之外，它爱怎么变都不碍事。
   // ⚠️ 此判断依赖 OpenRouter 的模型 id 格式（anthropic/claude-...）；若换直连官方 API 需同步修改
   function withCacheBreakpoints(model, msgs) {
-    if (!model.startsWith('anthropic/')) return msgs;
+    if (!model.startsWith('anthropic/')) return flattenTails(msgs);
     const ok = m => typeof m.content === 'string' && m.content;
     let lastIdx = -1;
     for (let i = msgs.length - 1; i >= 0; i--) { if (ok(msgs[i])) { lastIdx = i; break; } }
-    return msgs.map((m, i) => (ok(m) && (m.role === 'system' || i === lastIdx))
-      ? { role: m.role, content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }] }
-      : m);
+    return msgs.map((m, i) => {
+      if (!(ok(m) && (m.role === 'system' || i === lastIdx))) return m._tail ? { role: m.role, content: m.content + m._tail } : m;
+      const parts = [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }];
+      if (m._tail) parts.push({ type: 'text', text: m._tail });
+      return { role: m.role, content: parts };
+    });
+  }
+  // 不打断点的通道把 _tail 老老实实拼回正文（顺带剥掉这个私有字段，不让它上线）
+  function flattenTails(msgs) {
+    return msgs.map(m => m._tail ? { role: m.role, content: m.content + m._tail } : m);
   }
 
   // 返回 {ended:'done'|'aborted'|'http'|'network', error?}
@@ -2493,7 +2505,7 @@
     const guard = (provider === 'cc' && opts && opts.ghostGuard) ? makeGhostGuard(onContent) : null;   // 代笔拦截：只在 CC 通道 + 正式聊天启用
     try {
       // max_tokens：OpenRouter 会按此值预扣余额，不设则按模型最大输出预估，余额少时会被拒
-      const payload = { model: (provider === 'or' && webOn) ? model + ':online' : model, messages: provider === 'or' ? withCacheBreakpoints(model, msgs) : msgs, max_tokens: 8192, stream: true };
+      const payload = { model: (provider === 'or' && webOn) ? model + ':online' : model, messages: provider === 'or' ? withCacheBreakpoints(model, msgs) : flattenTails(msgs), max_tokens: 8192, stream: true };
       if (provider === 'or') payload.stream_options = { include_usage: true };
       // 开关开：请求思考；开关关：显式禁用（不发的话 GLM 等混合推理模型会按默认思考，照样计费）
       // 例外：Fable/Mythos 这类强制思考的模型没法真正关思考——传 enabled:false 有的 provider 会报错，
