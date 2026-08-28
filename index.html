@@ -568,6 +568,23 @@
   .mcard-date { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
   .mcard-del { background: none; border: none; padding: 2px 4px; color: var(--ink-3); font-size: 16px; flex: none; cursor: pointer; }
   .mcard-empty { text-align: center; color: var(--ink-3); font-size: 12.5px; padding: 14px 0; line-height: 1.7; }
+  /* 分层记忆库：分类筛选 / 标签 / 大事记 / 整理提案 */
+  .mini-tab { flex-shrink: 0; background: var(--card); border: 1px solid var(--line); color: var(--ink-3); font-size: 12px; padding: 4px 10px; border-radius: 999px; cursor: pointer; white-space: nowrap; font-family: inherit; }
+  .mini-tab.sel { background: var(--accent-weak); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  #mem-cat-tabs, #card-cat-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 6px; }
+  #mem-cat-tabs::-webkit-scrollbar, #card-cat-tabs::-webkit-scrollbar { display: none; }
+  .mem-chip { display: inline-block; font-size: 10px; color: var(--accent); background: var(--accent-weak); border-radius: 4px; padding: 0 5px; }
+  #epi-list { max-height: 240px; overflow-y: auto; margin: 2px 0 6px; }
+  #tidy-list { max-height: 52vh; overflow-y: auto; }
+  .tidy-row { display: flex; gap: 10px; padding: 10px 2px; border-bottom: 1px dashed var(--line); cursor: pointer; }
+  .tidy-row:last-child { border-bottom: none; }
+  .tidy-row.off { opacity: .42; }
+  .tidy-check { flex: none; width: 20px; height: 20px; border: 1.5px solid var(--accent); border-radius: 6px; color: var(--accent); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+  .tidy-body { flex: 1; min-width: 0; }
+  .tidy-kind { font-size: 11.5px; color: var(--accent); font-weight: 600; margin-bottom: 3px; }
+  .tidy-old { font-size: 12.5px; color: var(--ink-3); text-decoration: line-through; line-height: 1.5; word-break: break-word; }
+  .tidy-keep { font-size: 12.5px; color: var(--ink); line-height: 1.5; word-break: break-word; }
+  .tidy-new { font-size: 13px; color: var(--ink); line-height: 1.55; margin-top: 3px; word-break: break-word; }
   .hidden { display: none !important; }
 
   /* 日期分隔线 */
@@ -880,8 +897,26 @@
     </div>
     <div class="form" style="padding-top:0">
       <textarea class="field" id="card-text" placeholder="一句话，像索引卡那样短…" spellcheck="false" style="min-height:90px"></textarea>
+      <div class="field-label" style="margin-top:10px">分类<span style="text-transform:none;opacity:.6">（「约定」会常驻带进每次对话）</span></div>
+      <div id="card-cat-tabs"></div>
       <button class="btn-primary" onclick="saveCardEdit()">保存</button>
       <button class="btn-ghost" id="card-del-btn" style="display:none;margin-top:10px" onclick="deleteCardFromEdit()">删除这条</button>
+    </div>
+  </div>
+</div>
+<div class="overlay" id="tidy-overlay">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">整理提案</div>
+      <button class="sheet-x" onclick="tidyPlan=null;hide('tidy-overlay')">×</button>
+    </div>
+    <div class="form" style="padding-top:0">
+      <div class="mem-hint" style="margin:0 0 4px">模型只提建议，你来拍板：点一行可取消勾选。置顶的记忆从不参与整理。</div>
+      <div id="tidy-list"></div>
+      <div class="distill-status" id="tidy-count"></div>
+      <button class="btn-primary" onclick="applyTidy()">应用选中项</button>
+      <button class="btn-ghost" onclick="tidyPlan=null;hide('tidy-overlay')">先不动</button>
     </div>
   </div>
 </div>
@@ -960,13 +995,26 @@
         <div class="field-label">积累的记忆</div>
         <span class="count" id="mem-count">空</span>
       </div>
+      <input class="field" id="mem-search" placeholder="搜记忆…" oninput="memQuery=this.value;renderMemCards()" spellcheck="false" style="margin-top:2px">
+      <div id="mem-cat-tabs"></div>
       <div id="mem-cards"></div>
       <button class="comp-tab habit-add" type="button" onclick="openCardEdit()">＋ 手动记一条</button>
       <button class="btn-ghost" id="distill-btn" onclick="distillNow()">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.6L18 9l-4.4 1.4L12 15l-1.6-4.6L6 9l4.4-1.4z"/></svg>
         从当前对话提炼记忆
       </button>
+      <button class="btn-ghost" id="tidy-btn" onclick="tidyNow()">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M7 12h10M10 17h4"/></svg>
+        整理记忆（合并重复 · 移除过时 · 补分类）
+      </button>
       <div class="distill-status" id="distill-status"></div>
+
+      <div class="field-head">
+        <div class="field-label">大事记</div>
+        <span class="count" id="epi-count">空</span>
+      </div>
+      <div id="epi-list"></div>
+      <div class="mem-hint">每场对话的小结自动落在这里，攒成你们的编年史；最近几条和「去年今天」会带进对话，给 TA 时间纵深。</div>
 
       <div class="toggle-row">
         <div>
@@ -1586,7 +1634,7 @@
   let messages = [];        // 当前会话消息
   let isLoading = false, currentAbort = null;
 
-  let companions = [];          // [{id,name,persona,cards:[{id,t,d,p}],autoDistill,model?}]  cards=记忆卡（t文本 d时间 p置顶）；旧版 mem 整块文本首次加载时自动迁移
+  let companions = [];          // [{id,name,persona,cards:[{id,t,d,p,c}],epis:[{id,sid,d,t}],autoDistill,model?}]  cards=记忆卡（t文本 d时间 p置顶 c分类 u上次被想起 n被想起次数）epis=大事记；旧版 mem 整块文本首次加载时自动迁移
   let activeCompanionId = null; // 当前正在对话的角色（跟随当前会话）
   let editingCompanionId = null;// 记忆面板里正在编辑的角色（与对话解耦）
 
@@ -1605,6 +1653,7 @@
 
     loadCatalogCache(); buildCatalogMap();
     loadSessions();
+    seedEpis();
     if (currentId) { const sc = sessionCompanion(currentId); if (sc) { activeCompanionId = sc.id; localStorage.setItem('islet_active_companion', sc.id); } }
     if (activeCompanionId) applyCompanionModel(activeCompanionId);
 
@@ -2233,13 +2282,17 @@
     const about = sharedAbout();
     const c = sessionCompanion(sid == null ? currentId : sid);
     const persona = (c.persona || '').trim();
-    const mem = memInjectText(c);
+    const rel = (c.rel || '').trim();
+    const core = memCoreParts(c);
+    const epi = epiInjectText(c);
     const parts = [];
-    if (about || persona || mem) {
+    if (about || persona || rel || core.text || epi) {
       let block = "You are talking with a real person — this is a genuine, ongoing relationship, not a character to play or a script to perform. Just be yourself and be present with them.";
       if (about) block += "\n\n## About the person you're talking with\n" + about;
       if (persona) block += "\n\n## Who you are to them\n" + persona;
-      if (mem) block += "\n\n## What you remember from your time together\n" + mem;
+      if (rel) block += "\n\n## Where the two of you are right now\n" + rel + "\n（这是随相处推移的动态位置，不是人设）";
+      if (epi) block += "\n\n## Milestones you've shared\n" + epi;
+      if (core.text) block += "\n\n## What you remember from your time together\n" + core.text + "\n\n（对话途中若见到【记忆浮现】标注，那是被当前话题勾起的更早记忆——自然地想起就好，不必逐条复述，也不要向用户提起这个机制本身。带【约定】的是你们说好的事，认真对待。）";
       parts.push(block);
     }
     if (systemPrompt) parts.push(systemPrompt);
@@ -2334,6 +2387,24 @@
       }
       out.unshift({ role: m.role, content });
     }
+    // L2 记忆唤醒：按最新话题召回相关旧卡，附在最后一条用户消息之后。
+    // 不进存储、不上屏；之所以放在上下文末尾而不是 system，是为了每回合动态变化时不炸掉前面的前缀缓存。
+    try {
+      const _mc = sessionCompanion(sid == null ? currentId : sid);
+      const _lines = memRecall(_mc, win, memCoreParts(_mc).ids);
+      if (_lines.length) {
+        for (let i = out.length - 1; i >= 0; i--) {
+          if (out[i].role !== 'user') continue;
+          const _blk = '\n\n——【记忆浮现】以下旧记忆被当前话题勾起，供你自然地想起（别逐条复述，也别提这段标注）：\n' + _lines.join('\n');
+          if (typeof out[i].content === 'string') out[i].content += _blk;
+          else if (Array.isArray(out[i].content)) {
+            const _tp = out[i].content.filter(p => p.type === 'text').pop();
+            if (_tp) _tp.text += _blk; else out[i].content.push({ type: 'text', text: _blk.trim() });
+          }
+          break;
+        }
+      }
+    } catch (e) {}
     return [
       ...packSystem(sys),
       ...out,
@@ -2750,41 +2821,200 @@
     bar.innerHTML = html;
   }
 
-  /* ---------- 轻量记忆库：一条条记忆卡（置顶/编辑/删除；提炼只增不改写） ---------- */
-  const MAX_CARDS = 200;          // 每角色卡片上限，超出自动清最旧的未置顶
-  const MEM_INJECT_BUDGET = 1600; // 每次对话注入给模型的记忆总字数预算：置顶优先，其余按新→旧
+  /* ---------- 分层记忆库 ----------
+   * L0 核心层：置顶 + 约定 + 最近的卡（会话内恒定，进 system，前缀缓存友好）
+   * L1 大事记：每场对话的小结攒成编年史（进 system，给角色时间纵深）
+   * L2 唤醒层：按当前话题相关性召回的旧卡（附在最新一条用户消息后，每回合重算——
+   *            提到什么才想起什么；放在上下文末尾，不炸前面的缓存）
+   *            词面匹配之上垫了三块补丁：同义词组（说「我爸」也能勾起写着「父亲」的卡）、
+   *            热度（被想起过的卡更容易再被想起）、遗忘坡度（久未想起的旧卡略微退后——只降序，不删卡）
+   * L3 沉睡层：其余卡片平时不打扰模型，被话题勾起时经 L2 浮现，或在面板里搜索
+   * 写入端：提炼是增量式的——只把上次提炼之后的对话发给模型，长会话不再整场重发 */
+  const MAX_CARDS = 200;           // 每角色卡片上限，超出自动清最旧的未置顶
+  const MEM_CORE_BUDGET = 900;     // L0 常驻注入字数：置顶 → 约定 → 新→旧
+  const MEM_RECALL_BUDGET = 600;   // L2 每回合按话题召回的字数
+  const MEM_RECALL_MAX = 8;        // L2 每回合最多召回几条
+  const EPI_BUDGET = 400;          // L1 大事记注入字数
+  const EPI_MAX = 120;             // 大事记条数上限
+  const MEM_CATS = ['事实', '偏好', '事件', '约定'];   // 分类；约定类保证常驻注入
   function memCardsOf(c) { if (!Array.isArray(c.cards)) c.cards = []; return c.cards; }
   function normMem(s) { return String(s || '').toLowerCase().replace(/[\s，。！？!?.、,'"“”「」『』（）()\-—·…:：;；~～]/g, ''); }
   function memDup(c, text) {
     const n = normMem(text); if (!n) return true;
     return memCardsOf(c).some(k => { const m = normMem(k.t); return m === n || (m.length > 8 && n.includes(m)) || (n.length > 8 && m.includes(n)); });
   }
-  function addMemCard(c, text, dedupe) {
-    text = String(text || '').trim().slice(0, 500);
-    if (!text) return false;
-    if (dedupe !== false && memDup(c, text)) return false;
-    memCardsOf(c).unshift({ id: genId(), t: text, d: Date.now(), p: 0 });
+  function splitCatTag(text) {   // 尾部 [约定]/【约定】→ 拆出分类
+    const m = String(text || '').match(/^([\s\S]*?)\s*[\[【](事实|偏好|事件|约定)[\]】]\s*$/);
+    return m ? { t: m[1].trim(), c: m[2] } : { t: String(text || '').trim(), c: '' };
+  }
+  function addMemCard(c, text, dedupe, cat) {
+    const st = splitCatTag(text);
+    const t = st.t.slice(0, 500);
+    if (!t) return false;
+    if (dedupe !== false && memDup(c, t)) return false;
+    memCardsOf(c).unshift({ id: genId(), t, d: Date.now(), p: 0, c: cat || st.c || '' });
     trimMemCards(c); c.memUpdated = Date.now();
     return true;
   }
   function trimMemCards(c) {
     const arr = memCardsOf(c);
-    for (let i = arr.length - 1; i >= 0 && arr.length > MAX_CARDS; i--) if (!arr[i].p) arr.splice(i, 1);
+    // 超上限的淘汰顺序：先淘「从没被想起过的最旧普通卡」，再淘「最旧普通卡」，最后才轮到约定；
+    // 置顶永远豁免。约定压轴是因为那是说好的事——静默消失比多占几张卡糟糕得多。
+    const rounds = [k => !k.p && k.c !== '约定' && !k.n, k => !k.p && k.c !== '约定', k => !k.p];
+    for (const drop of rounds)
+      for (let i = arr.length - 1; i >= 0 && arr.length > MAX_CARDS; i--) if (drop(arr[i])) arr.splice(i, 1);
     if (arr.length > MAX_CARDS) arr.length = MAX_CARDS;
   }
-  function memInjectText(c) {
-    const arr = memCardsOf(c); if (!arr.length) return '';
-    const ordered = arr.filter(k => k.p).concat(arr.filter(k => !k.p));   // 数组本身即新→旧
-    const out = []; let used = 0, skipped = 0;
-    for (const k of ordered) {
-      const line = '- ' + k.t;
-      if (out.length && used + line.length > MEM_INJECT_BUDGET) { skipped++; continue; }
-      out.push(line); used += line.length + 1;
+  function memCoreParts(comp) {   // L0：置顶 → 约定 → 其余按新→旧，塞满预算为止；返回 {text, ids}
+    const arr = memCardsOf(comp);
+    if (!arr.length) return { text: '', ids: new Set() };
+    const pin = arr.filter(k => k.p);
+    const vow = arr.filter(k => !k.p && k.c === '约定');
+    const rest = arr.filter(k => !k.p && k.c !== '约定');
+    const ids = new Set(); const out = []; let used = 0;
+    for (const k of pin.concat(vow, rest)) {
+      const line = '- ' + (k.c === '约定' ? '【约定】' : '') + k.t;
+      if (out.length && used + line.length > MEM_CORE_BUDGET) continue;
+      out.push(line); used += line.length + 1; ids.add(k.id);
     }
-    if (skipped) out.push('（另有 ' + skipped + ' 条更早的记忆，此处未展开）');
+    const dormant = arr.length - ids.size;
+    if (dormant > 0) out.push('（另有 ' + dormant + ' 条旧记忆在沉睡，聊到相关话题时会自动浮现）');
+    return { text: out.join('\n'), ids };
+  }
+
+  /* L2 相关性召回：中文按字二元组 + 英文单词做轻量匹配，罕见词权重高（不调 API，零成本） */
+  /* 同义词组：词面召回的近义词补丁。文本里出现组内任一词，就往词袋里加一枚该组的记号（§n），
+     于是「我爸」和「父亲」共享同一枚记号，能互相勾起。组记号和普通词条一样参与罕见度降权：
+     某组要是出现在几十张卡里（比如吃饭组），权重自动掉到地板，不会变成噪声源。想扩充直接往里加。 */
+  const SYN_GROUPS = [
+    ['爸', '父亲', '爹'], ['妈', '母亲'], ['爷爷', '祖父'], ['奶奶', '祖母'], ['外公', '姥爷'], ['外婆', '姥姥'],
+    ['老婆', '妻子', '媳妇', '太太'], ['老公', '丈夫'], ['男朋友', '男友'], ['女朋友', '女友'],
+    ['孩子', '小孩', '儿子', '女儿'], ['猫', '喵'], ['狗'],
+    ['工作', '上班', '加班', '打工', '职场'], ['公司', '单位'], ['考试', '考研', '高考', '期末'],
+    ['生病', '看病', '医院', '就医'], ['睡觉', '睡眠', '入睡', '失眠', '熬夜'],
+    ['难过', '伤心', '难受', '委屈', '低落'], ['开心', '高兴', '快乐', '兴奋'],
+    ['焦虑', '紧张', '压力', '烦躁'], ['生气', '愤怒', '火大'],
+    ['减肥', '健身', '运动', '锻炼', '跑步'], ['旅行', '旅游', '出游', '出去玩'],
+    ['电影', '观影'], ['音乐', '听歌', '歌曲', '唱歌'], ['做饭', '下厨', '厨艺', '菜谱'],
+    ['吃饭', '早饭', '午饭', '晚饭', '早餐', '午餐', '晚餐', '夜宵', '外卖'],
+  ];
+  const _synIdx = (() => { const m = new Map(); SYN_GROUPS.forEach((g, i) => g.forEach(w => m.set(w, i))); return m; })();
+  const _bgCache = new Map();   // 卡片分词缓存 id -> {t, set}
+  function memTokens(s) {
+    s = String(s || '').toLowerCase().slice(0, 1500);
+    const set = new Set();
+    (s.match(/[a-z0-9]{2,}/g) || []).forEach(w => set.add(w));
+    const han = s.replace(/[^\u3400-\u9fff]/g, '');
+    for (let i = 0; i + 1 < han.length; i++) set.add(han.slice(i, i + 2));
+    if (han.length === 1) set.add(han);
+    for (const [w, gi] of _synIdx) if (han.includes(w)) set.add('§' + gi);   // 命中同义词 → 打上组记号
+    return set;
+  }
+  function cardTokens(k) {
+    let e = _bgCache.get(k.id);
+    if (!e || e.t !== k.t) { e = { t: k.t, set: memTokens(k.t) }; _bgCache.set(k.id, e); }
+    return e.set;
+  }
+  let _dfCache = { key: '', df: null };
+  function memDF(comp) {   // 词条出现在多少张卡里：「喜欢」这类高频词降权，专名/罕见词才算强信号
+    const arr = memCardsOf(comp);
+    const key = comp.id + ':' + (comp.memUpdated || 0) + ':' + arr.length;
+    if (_dfCache.key === key) return _dfCache.df;
+    const df = new Map();
+    arr.forEach(k => cardTokens(k).forEach(t => df.set(t, (df.get(t) || 0) + 1)));
+    _dfCache = { key: key, df };
+    return df;
+  }
+  function tokenWeight(df) { return df <= 2 ? 1 : df <= 6 ? .55 : df <= 15 ? .28 : .1; }
+  function memRecall(comp, win, exclude) {   // 用最近几条用户消息当查询，召回话题相关的沉睡卡
+    const arr = memCardsOf(comp);
+    if (arr.length < 4) return [];
+    const users = win.filter(m => m.role === 'user' && typeof m.content === 'string' && m.content);
+    if (!users.length) return [];
+    const qNow = memTokens(users[users.length - 1].content);   // 最新一条权重加倍
+    const qPast = new Set();
+    users.slice(-4, -1).forEach(m => memTokens(m.content).forEach(t => qPast.add(t)));
+    if (!qNow.size && !qPast.size) return [];
+    const df = memDF(comp);
+    const scored = [];
+    for (const k of arr) {
+      if (exclude && exclude.has(k.id)) continue;
+      let s = 0;
+      for (const t of cardTokens(k)) {
+        if (qNow.has(t)) s += 2 * tokenWeight(df.get(t) || 1);
+        else if (qPast.has(t)) s += tokenWeight(df.get(t) || 1);
+      }
+      if (s < 1.1) continue;   // 噪声门槛：至少要命中一个偏罕见的词条
+      s *= 1 + Math.min(k.n || 0, 5) * 0.06;                      // 热度：被想起过的更容易再被想起（封顶 +30%）
+      if (Date.now() - (k.u || k.d) > 90 * 864e5) s *= 0.85;      // 遗忘坡度：三个月没被想起的旧卡略微退后（只影响排序，不删卡）
+      scored.push({ k, s });
+    }
+    scored.sort((a, b) => b.s - a.s || b.k.d - a.k.d);
+    const out = []; let used = 0;
+    for (const it of scored) {
+      if (out.length >= MEM_RECALL_MAX) break;
+      const line = '- ' + it.k.t + '（' + fmtYM(it.k.d) + '）';
+      if (out.length && used + line.length > MEM_RECALL_BUDGET) continue;
+      out.push(line); used += line.length + 1;
+      it.k.u = Date.now(); it.k.n = (it.k.n || 0) + 1;            // 真被送进上下文才算「想起一次」
+    }
+    if (out.length) saveCompanions();                             // 只写 u/n，不动 memUpdated——词频缓存不受扰
+    return out;
+  }
+  function fmtYM(ts) {
+    const d = new Date(ts), n = new Date();
+    return d.getFullYear() === n.getFullYear() ? (d.getMonth() + 1) + '月记' : d.getFullYear() + '年' + (d.getMonth() + 1) + '月记';
+  }
+
+  /* L1 大事记：每场对话的小结按 sid 落一条，注入最近几条 + 「去年今天」 */
+  function epiOf(c) { if (!Array.isArray(c.epis)) c.epis = []; return c.epis; }
+  function epiUpsert(c, sid, text) {
+    if (!text) return;
+    const arr = epiOf(c);
+    const old = sid ? arr.find(e => e.sid === sid) : null;
+    if (old) { old.t = String(text).slice(0, 300); return; }
+    arr.unshift({ id: genId(), sid: sid || '', d: Date.now(), t: String(text).slice(0, 300) });
+    if (arr.length > EPI_MAX) arr.length = EPI_MAX;
+  }
+  function epiDelete(id) { const c = editingCompanion(); c.epis = epiOf(c).filter(e => e.id !== id); saveCompanions(); renderEpiList(); }
+  function fmtEpiDay(ts) {
+    const d = new Date(ts), n = new Date();
+    return (d.getFullYear() !== n.getFullYear() ? d.getFullYear() + '年' : '') + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  }
+  function epiInjectText(c) {
+    const arr = epiOf(c); if (!arr.length) return '';
+    const out = []; let used = 0; const shown = new Set();
+    for (const e of arr.slice(0, 5)) {
+      const line = '- ' + fmtEpiDay(e.d) + '：' + e.t.slice(0, 110);
+      if (out.length >= 3 || used + line.length > EPI_BUDGET) break;
+      out.push(line); used += line.length + 1; shown.add(e.id);
+    }
+    const n = new Date();
+    const anni = arr.find(e => { if (shown.has(e.id)) return false; const d = new Date(e.d); return d.getMonth() === n.getMonth() && d.getDate() === n.getDate() && d.getFullYear() < n.getFullYear(); });
+    if (anni) {
+      const gap = n.getFullYear() - new Date(anni.d).getFullYear();
+      out.push('- ✨' + (gap === 1 ? '去年今天' : gap + '年前的今天') + '：' + anni.t.slice(0, 110));
+    }
     return out.join('\n');
   }
-  let cardEditId = null;
+  function seedEpis() {   // 把既有会话的小结一次性补进大事记（按 sid 去重，幂等）
+    let changed = false;
+    sessions.forEach(s => {
+      if (!s.summary) return;
+      const c = companions.find(x => x.id === s.companionId) || companions[0];
+      if (!c || epiOf(c).some(e => e.sid === s.id)) return;
+      epiOf(c).push({ id: genId(), sid: s.id, d: s.updated || Date.now(), t: String(s.summary).slice(0, 300) });
+      changed = true;
+    });
+    if (changed) { companions.forEach(c => epiOf(c).sort((a, b) => b.d - a.d)); saveCompanions(); }
+  }
+  let cardEditId = null, cardEditCat = '';
+  function setCardCat(v) { cardEditCat = v; renderCardCatTabs(); }
+  function renderCardCatTabs() {
+    const wrap = $('card-cat-tabs'); if (!wrap) return;
+    const tabs = [['', '无分类'], ['事实', '事实'], ['偏好', '偏好'], ['事件', '事件'], ['约定', '约定']];
+    wrap.innerHTML = tabs.map(tb => '<button type="button" class="mini-tab ' + (cardEditCat === tb[0] ? 'sel' : '') + '" onclick="setCardCat(\'' + tb[0] + '\')">' + tb[1] + '</button>').join('');
+  }
   function openCardEdit(id) {
     cardEditId = id || null;
     $('card-edit-title').textContent = id ? '编辑记忆' : '记一条记忆';
@@ -2792,6 +3022,8 @@
     const c = editingCompanion();
     const k = id ? memCardsOf(c).find(x => x.id === id) : null;
     $('card-text').value = k ? k.t : '';
+    cardEditCat = (k && k.c) || '';
+    renderCardCatTabs();
     show('card-edit-overlay');
   }
   function closeCardEdit() { hide('card-edit-overlay'); cardEditId = null; }
@@ -2799,8 +3031,8 @@
     const c = editingCompanion();
     const text = $('card-text').value.trim().slice(0, 500);
     if (!text) { $('card-text').focus(); return; }
-    if (cardEditId) { const k = memCardsOf(c).find(x => x.id === cardEditId); if (k) { k.t = text; c.memUpdated = Date.now(); } }
-    else if (!addMemCard(c, text)) { alert('已经有一条很相近的记忆啦'); return; }
+    if (cardEditId) { const k = memCardsOf(c).find(x => x.id === cardEditId); if (k) { k.t = text; k.c = cardEditCat; c.memUpdated = Date.now(); } }
+    else if (!addMemCard(c, text, undefined, cardEditCat)) { alert('已经有一条很相近的记忆啦'); return; }
     saveCompanions(); renderMemCards(); closeCardEdit();
   }
   function deleteCardFromEdit() {
@@ -2817,30 +3049,154 @@
     c.cards = memCardsOf(c).filter(x => x.id !== id);
     saveCompanions(); renderMemCards();
   }
+  let memFilter = '', memQuery = '';
+  function setMemFilter(f) { memFilter = memFilter === f ? '' : f; renderMemCards(); }
+  function renderMemCatTabs() {
+    const wrap = $('mem-cat-tabs'); if (!wrap) return;
+    const arr = memCardsOf(editingCompanion());
+    const cnt = f => f === '' ? arr.length : f === 'pin' ? arr.filter(k => k.p).length : f === '未' ? arr.filter(k => !k.c).length : arr.filter(k => k.c === f).length;
+    const tabs = [['', '全部'], ['pin', '📌'], ['事实', '事实'], ['偏好', '偏好'], ['事件', '事件'], ['约定', '约定'], ['未', '未分类']];
+    wrap.innerHTML = tabs.map(function (tb) {
+      const n = cnt(tb[0]);
+      if (!n && tb[0] !== '' && memFilter !== tb[0]) return '';
+      return '<button type="button" class="mini-tab ' + (memFilter === tb[0] ? 'sel' : '') + '" onclick="setMemFilter(\'' + tb[0] + '\')">' + tb[1] + (n ? ' ' + n : '') + '</button>';
+    }).join('');
+  }
   function renderMemCards() {
     const wrap = $('mem-cards'); if (!wrap) return;
     const c = editingCompanion();
-    const ordered = memCardsOf(c).filter(k => k.p).concat(memCardsOf(c).filter(k => !k.p));
+    const q = normMem(memQuery);
+    let arr = memCardsOf(c);
+    if (memFilter === 'pin') arr = arr.filter(k => k.p);
+    else if (memFilter === '未') arr = arr.filter(k => !k.c);
+    else if (memFilter) arr = arr.filter(k => k.c === memFilter);
+    if (q) arr = arr.filter(k => normMem(k.t).includes(q));
+    const ordered = arr.filter(k => k.p).concat(arr.filter(k => !k.p));
     wrap.innerHTML = ordered.length ? ordered.map(k => `
       <div class="mcard ${k.p ? 'pinned' : ''}">
         <button class="mcard-pin" type="button" onclick="togglePinCard('${k.id}')" aria-label="置顶"><svg viewBox="0 0 24 24" width="15" height="15" fill="${k.p ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.2 4.1 1 5.8L12 16.4 6.7 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg></button>
         <div class="mcard-body" onclick="openCardEdit('${k.id}')">
           <div class="mcard-text">${esc(k.t)}</div>
-          <div class="mcard-date">${k.p ? '📌 ' : ''}${fmtWhen(k.d)}</div>
+          <div class="mcard-date">${k.p ? '📌 ' : ''}${k.c ? '<span class="mem-chip">' + k.c + '</span> ' : ''}${fmtWhen(k.d)}${k.n ? ' · 想起 ' + k.n + ' 次' : ''}</div>
         </div>
         <button class="mcard-del" type="button" onclick="deleteCardRow('${k.id}')" aria-label="删除">×</button>
-      </div>`).join('') : '<div class="mcard-empty">还没有记忆卡片<br>聊过之后点下面「提炼」，或手动记一条</div>';
+      </div>`).join('') : '<div class="mcard-empty">' + (q || memFilter ? '没有匹配的记忆' : '还没有记忆卡片<br>聊过之后点下面「提炼」，或手动记一条') + '</div>';
+    renderMemCatTabs();
     updateMemCount();
+  }
+  function renderEpiList() {
+    const wrap = $('epi-list'); if (!wrap) return;
+    const arr = epiOf(editingCompanion());
+    const ec = $('epi-count'); if (ec) ec.textContent = arr.length ? arr.length + ' 条' : '空';
+    wrap.innerHTML = arr.length ? arr.map(e => `
+      <div class="mcard">
+        <div class="mcard-body" style="cursor:default">
+          <div class="mcard-text">${esc(e.t)}</div>
+          <div class="mcard-date">${fmtEpiDay(e.d)}</div>
+        </div>
+        <button class="mcard-del" type="button" onclick="epiDelete('${e.id}')" aria-label="删除">×</button>
+      </div>`).join('') : '<div class="mcard-empty">每场对话提炼后的小结会自动落在这里<br>攒成你们的编年史</div>';
   }
   // 名场面 → 收进对应角色的记忆（按名字对号入座，对不上就给当前角色）
   function quoteToMem(id, btn) {
     const q = quotes.find(x => x.id === id); if (!q) return;
     const target = companions.find(c => c.name === q.who) || activeCompanion();
     const text = '【名场面】' + q.who + '：「' + q.text + '」' + (q.note ? '（' + q.note + '）' : '');
-    const ok = addMemCard(target, text);
+    const ok = addMemCard(target, text, undefined, '事件');
     if (ok) saveCompanions();
     if (btn) { btn.textContent = ok ? ('已进' + target.name + '的记忆 ✓') : '已经记得啦'; btn.disabled = true; }
     if ($('memory-overlay').classList.contains('show') && editingCompanionId === target.id) renderMemCards();
+  }
+
+  /* ---------- 记忆整理：模型只提案，人来拍板（合并重复 / 移除过时 / 补分类）；置顶永不参与 ---------- */
+  let tidyPlan = null;   // { compId, items:[{kind:'M'|'D'|'T', ids, olds, text?, cat?, why?, on}] }
+  async function tidyNow() {
+    const comp = editingCompanion();
+    const pool = memCardsOf(comp).filter(k => !k.p);
+    if (pool.length < 5) { $('distill-status').textContent = '卡片还少，暂时不用整理'; return; }
+    if (!providerReady()) { $('distill-status').textContent = '请先在设置里配置接口来源'; return; }
+    const btn = $('tidy-btn'); btn.disabled = true;
+    $('distill-status').textContent = '正在盘点记忆…';
+    const list = pool.map((k, i) => (i + 1) + '. ' + (k.c ? '[' + k.c + '] ' : '') + k.t + '（' + fmtYM(k.d) + '）').join('\n');
+    const sys = "You are the curator of an AI companion's memory cards. Cards are numbered, NEWEST FIRST (lower number = newer). Propose ONLY clear, safe maintenance actions, one per line:\n- M: merge cards that say the same thing in different words. Format: 'M: 3,7 => merged one-line text [分类]'\n- D: drop a card that is clearly outdated (contradicted by a NEWER card) or clearly worthless. Format: 'D: 12 = short reason'. Prefer M over D; never drop unique facts.\n- T: add a category to an untagged card. Format: 'T: 5 = 分类'. Category is exactly one of 事实 / 偏好 / 事件 / 约定 (约定 = promises or plans made between the two of them).\nAt most 15 lines. If nothing needs doing, output exactly NONE. No commentary, no numbering, no code fences. Merged text stays in the cards' language, terse like an index card.";
+    const user = 'MEMORY CARDS (newest first):\n' + list + '\n\nOutput actions now.';
+    try {
+      const distMsgs = provider === 'cc' ? [{ role: 'user', content: sys + '\n\n====\n\n' + user }] : [{ role: 'system', content: sys }, { role: 'user', content: user }];
+      const payload = { model: (provider === 'or' && comp && comp.model) || selectedModel, messages: distMsgs, max_tokens: 2048, stream: false };
+      const res = await fetch(apiUrl(), { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) });
+      if (!res.ok) throw 0;
+      const j = await res.json();
+      const outTxt = (j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+      const items = parseTidy(outTxt, pool);
+      btn.disabled = false;
+      if (!items.length) { $('distill-status').textContent = '盘点完毕：暂时没有需要整理的 ✓'; return; }
+      tidyPlan = { compId: comp.id, items };
+      renderTidy(); show('tidy-overlay');
+      $('distill-status').textContent = '';
+    } catch (e) { btn.disabled = false; $('distill-status').textContent = '整理失败，请重试'; }
+  }
+  function parseTidy(txt, pool) {
+    const items = []; const used = new Set();   // 一张卡最多进一个提案，防冲突
+    String(txt).split('\n').map(l => l.trim()).filter(Boolean).forEach(l => {
+      if (items.length >= 15) return;
+      let m;
+      if ((m = l.match(/^M\s*[:：]\s*([\d\s,，]+)=>\s*(.+)$/i))) {
+        const idx = m[1].split(/[,，\s]+/).filter(Boolean).map(n => +n - 1).filter(i => pool[i] && !used.has(i));
+        if (idx.length < 2) return;
+        const st = splitCatTag(m[2]); if (!st.t) return;
+        idx.forEach(i => used.add(i));
+        items.push({ kind: 'M', ids: idx.map(i => pool[i].id), olds: idx.map(i => pool[i].t), text: st.t.slice(0, 500), cat: st.c, on: true });
+      } else if ((m = l.match(/^D\s*[:：]\s*(\d+)\s*[=＝]\s*(.+)$/i))) {
+        const i = +m[1] - 1; if (!pool[i] || used.has(i)) return; used.add(i);
+        items.push({ kind: 'D', ids: [pool[i].id], olds: [pool[i].t], why: m[2].slice(0, 80), on: true });
+      } else if ((m = l.match(/^T\s*[:：]\s*(\d+)\s*[=＝]\s*(事实|偏好|事件|约定)/i))) {
+        const i = +m[1] - 1; if (!pool[i] || used.has(i) || pool[i].c) return; used.add(i);
+        items.push({ kind: 'T', ids: [pool[i].id], olds: [pool[i].t], cat: m[2], on: true });
+      }
+    });
+    return items;
+  }
+  function tidyToggle(i) { if (tidyPlan && tidyPlan.items[i]) { tidyPlan.items[i].on = !tidyPlan.items[i].on; renderTidy(); } }
+  function renderTidy() {
+    const wrap = $('tidy-list'); if (!wrap || !tidyPlan) return;
+    const lab = { M: '合并为一条', D: '移除', T: '补分类' };
+    wrap.innerHTML = tidyPlan.items.map((it, i) => `
+      <div class="tidy-row ${it.on ? '' : 'off'}" onclick="tidyToggle(${i})">
+        <div class="tidy-check">${it.on ? '✓' : ''}</div>
+        <div class="tidy-body">
+          <div class="tidy-kind">${lab[it.kind]}${it.kind === 'T' ? ' → ' + it.cat : ''}${it.kind === 'D' && it.why ? '（' + esc(it.why) + '）' : ''}</div>
+          ${it.olds.map(t => '<div class="' + (it.kind === 'T' ? 'tidy-keep' : 'tidy-old') + '">' + esc(t) + '</div>').join('')}
+          ${it.kind === 'M' ? '<div class="tidy-new">→ ' + esc(it.text) + (it.cat ? ' <span class="mem-chip">' + it.cat + '</span>' : '') + '</div>' : ''}
+        </div>
+      </div>`).join('');
+    $('tidy-count').textContent = tidyPlan.items.filter(x => x.on).length + ' / ' + tidyPlan.items.length + ' 项将被应用';
+  }
+  function applyTidy() {
+    if (!tidyPlan) { hide('tidy-overlay'); return; }
+    const comp = companions.find(c => c.id === tidyPlan.compId);
+    if (!comp) { tidyPlan = null; hide('tidy-overlay'); return; }
+    const arr = memCardsOf(comp);
+    const byId = id => arr.findIndex(k => k.id === id);
+    let n = 0;
+    for (const it of tidyPlan.items) {
+      if (!it.on) continue;
+      if (it.kind === 'T') { const i = byId(it.ids[0]); if (i >= 0) { arr[i].c = it.cat; n++; } }
+      else if (it.kind === 'D') { const i = byId(it.ids[0]); if (i >= 0) { arr.splice(i, 1); n++; } }
+      else if (it.kind === 'M') {
+        const ks = it.ids.map(byId).filter(i => i >= 0).sort((a, b) => a - b);
+        if (!ks.length) continue;
+        const dMin = Math.min.apply(null, ks.map(i => arr[i].d));   // 保留最早"学到"的时间
+        const pos = ks[0];                                           // 落在最新那张的位置
+        for (let j = ks.length - 1; j >= 0; j--) arr.splice(ks[j], 1);
+        arr.splice(pos, 0, { id: genId(), t: it.text, d: dMin, p: 0, c: it.cat || '' });
+        n++;
+      }
+    }
+    comp.memUpdated = Date.now();
+    saveCompanions();
+    tidyPlan = null; hide('tidy-overlay');
+    renderMemCards();
+    $('distill-status').textContent = '整理完成：应用了 ' + n + ' 项 ✓';
   }
 
   /* ---------- 记忆（共享档案 + 每角色人设/记忆） ---------- */
@@ -2872,7 +3228,10 @@
     $('companion-name-input').value = c.name;
     $('persona-input').value = c.persona || '';
     const _ri = $('rel-input'); if (_ri) _ri.value = c.rel || '';
+    memQuery = ''; memFilter = '';
+    const _ms = $('mem-search'); if (_ms) _ms.value = '';
     renderMemCards();
+    renderEpiList();
     $('autodistill-toggle').checked = c.autoDistill !== false;
     $('distill-status').textContent = '';
     updateMemCount();
@@ -2909,24 +3268,39 @@
     const btn = $('distill-btn');
     btn.disabled = true;
     $('distill-status').textContent = '正在提炼…';
-    const r = await distillMemory(messages, target);
+    const s = sessions.find(x => x.id === currentId);
+    const userTurns = messages.filter(m => m.role === 'user').length;
+    const lastCount = (s && s.distilled && s.distilled < userTurns) ? s.distilled : 0;   // 没有新回合却手动点了 → 整场重看一遍
+    const r = await distillMemory(sliceForDistill(messages, lastCount), target, lastCount ? ((s && s.summary) || '') : '');
     btn.disabled = false;
     if (r == null) { $('distill-status').textContent = '提炼失败，请重试'; return; }
     if (r.relation) { target.rel = r.relation; target.relUpdated = Date.now(); const ri = $('rel-input'); if (ri) ri.value = r.relation; }
     saveCompanions(); renderMemCards();
-    const s = sessions.find(x => x.id === currentId);
-    if (s && r.summary) { s.summary = r.summary; saveIndex(); }
+    if (s) { s.distilled = userTurns; saveIndex(); }
+    if (s && r.summary) { s.summary = r.summary; saveIndex(); epiUpsert(target, s.id, r.summary); saveCompanions(); renderEpiList(); }
     $('distill-status').textContent = (r.added ? ('收进 ' + r.added + ' 条新记忆') : '记忆无新增') + (r.summary ? ' · 本场小结已记' : '') + (r.relation ? ' · 关系状态已更新' : '') + ' ✓';
   }
-  // 把对话提炼成 0~5 条"新"记忆卡（只增不改写）。返回新增条数，失败返回 null
-  async function distillMemory(msgs, comp) {
+  // 增量切片：只取「上次提炼之后」的消息，多带上一个已提炼的用户回合当衔接语境。
+  // 重叠部分是安全的——重复内容有 existing cards + memDup 兜底，不会记两遍。
+  function sliceForDistill(msgs, lastCount) {
+    const list = msgs.filter(m => m.role !== 'system');
+    if (!lastCount) return list;
+    let seen = 0;
+    for (let i = 0; i < list.length; i++)
+      if (list[i].role === 'user' && ++seen > Math.max(0, lastCount - 1)) return list.slice(i);
+    return list;
+  }
+  // 把对话提炼成 0~5 条"新"记忆卡（只增不改写）。增量式：调用方只传上次提炼之后的消息；
+  // prevSummary 是这场对话此前部分的小结，模型会把新旧合并成整场的最新小结。失败返回 null
+  async function distillMemory(msgs, comp, prevSummary) {
     try {
-      const transcript = msgs.filter(m => m.role !== 'system')
+      let transcript = msgs.filter(m => m.role !== 'system')
         .map(m => (m.role === 'user' ? 'User: ' : 'AI: ') + (m.imgs && m.imgs.length ? '[发了图片] ' : '') + m.content).join('\n\n');
       if (!transcript.trim()) return null;
+      if (transcript.length > 24000) transcript = '…（更早的内容已截去）\n\n' + transcript.slice(-24000);   // 双保险：就算增量也封顶
       const existing = memCardsOf(comp).slice(0, 60).map(k => '- ' + k.t).join('\n');
-      const sys = "You maintain the long-term memory of an AI companion in a companion app: memory cards, a session summary, and a relationship-state line for one specific relationship. You will see the existing cards, the current relationship state, then a recent conversation between the user and the AI companion.\n\nOUTPUT FORMAT — exactly these parts, in this order, nothing else (no bullets, no numbering, no commentary, no code fences):\n1. One line starting with 'SUMMARY: ' — a short narrative recap of THIS conversation from the companion's own perspective (what was discussed, the emotional arc, any relationship beats, how it ended). 2-4 short sentences, under 120 Chinese characters. Not a chat log — an arc.\n2. 0 to 5 lines, one NEW memory card per line: only durable information not already covered by existing cards — facts about the user's life, preferences, meaningful events, emotional notes that will still matter later. When a fact carries the user's emotional stance, fold the stance into the card: not just the fact ('哥哥去世') but the posture ('提起哥哥仍会流泪'). Facts with posture beat bare facts. Each card is ONE terse line, like an index card. If nothing new: output exactly NONE on its own line.\n3. Optionally, one line starting with 'RELATION: ' — ONLY if where-you-two-are-now has meaningfully shifted from the current relationship state shown. Describe the relationship's present position (not who anyone is), under 60 Chinese characters. Omit this line entirely if nothing shifted.\n\nNEVER record in cards: meta/technical talk (which AI model, the app itself, prompts, settings, API, testing), small talk that won't matter in a week, blow-by-blow accounts (keep outcome + feeling), or anything an existing card already covers in different words.\n\nWrite everything in the language the conversation is mostly in.";
-      const user = "EXISTING MEMORY CARDS:\n" + (existing || '(empty)') + "\n\nCURRENT RELATIONSHIP STATE:\n" + ((comp.rel || '').trim() || '(not set yet)') + "\n\n----\n\nRECENT CONVERSATION:\n" + transcript + "\n\n----\n\nOutput now: the SUMMARY line, then memory lines (or NONE), then optionally the RELATION line.";
+      const sys = "You maintain the long-term memory of an AI companion in a companion app: memory cards, a session summary, and a relationship-state line for one specific relationship. You will see the existing cards, the current relationship state, then a recent conversation between the user and the AI companion.\n\nOUTPUT FORMAT — exactly these parts, in this order, nothing else (no bullets, no numbering, no commentary, no code fences):\n1. One line starting with 'SUMMARY: ' — a short narrative recap of THIS conversation from the companion's own perspective (what was discussed, the emotional arc, any relationship beats, how it ended). If a summary of the earlier part of this conversation is provided, fold it in and output the updated recap of the WHOLE conversation, not just the new part. 2-4 short sentences, under 120 Chinese characters. Not a chat log — an arc.\n2. 0 to 5 lines, one NEW memory card per line: only durable information not already covered by existing cards — facts about the user's life, preferences, meaningful events, emotional notes that will still matter later. When a fact carries the user's emotional stance, fold the stance into the card: not just the fact ('哥哥去世') but the posture ('提起哥哥仍会流泪'). Facts with posture beat bare facts. Each card is ONE terse line, like an index card, ending with exactly one category tag: [事实] life facts about them · [偏好] tastes/likes/dislikes · [事件] things that happened · [约定] promises or plans made between the two of you (use 约定 strictly for real commitments). Example: '答应下个月一起重读《小王子》 [约定]'. If nothing new: output exactly NONE on its own line. Never put a tag on the SUMMARY or RELATION lines.\n3. Optionally, one line starting with 'RELATION: ' — ONLY if where-you-two-are-now has meaningfully shifted from the current relationship state shown. Describe the relationship's present position (not who anyone is), under 60 Chinese characters. Omit this line entirely if nothing shifted.\n\nNEVER record in cards: meta/technical talk (which AI model, the app itself, prompts, settings, API, testing), small talk that won't matter in a week, blow-by-blow accounts (keep outcome + feeling), or anything an existing card already covers in different words.\n\nWrite everything in the language the conversation is mostly in.";
+      const user = "EXISTING MEMORY CARDS:\n" + (existing || '(empty)') + "\n\nCURRENT RELATIONSHIP STATE:\n" + ((comp.rel || '').trim() || '(not set yet)') + (prevSummary ? "\n\nSUMMARY OF THE EARLIER PART OF THIS CONVERSATION (already distilled — the transcript below is only what came after):\n" + prevSummary : '') + "\n\n----\n\nRECENT CONVERSATION" + (prevSummary ? ' (newest part only)' : '') + ":\n" + transcript + "\n\n----\n\nOutput now: the SUMMARY line, then memory lines (or NONE), then optionally the RELATION line.";
       const distMsgs = provider === 'cc'
         ? [{ role: 'user', content: sys + '\n\n====\n\n' + user }]
         : [{ role: 'system', content: sys }, { role: 'user', content: user }];
@@ -2967,10 +3341,11 @@
     const lastCount = (s && s.distilled) ? s.distilled : 0;
     if (userTurns < 2 || userTurns <= lastCount) return;
     setDistillState(c.id, 'running');
-    const r = await distillMemory(snapshot, c);
+    const r = await distillMemory(sliceForDistill(snapshot, lastCount), c, lastCount ? ((s && s.summary) || '') : '');
     if (r != null) {
       if (r.relation) { c.rel = r.relation; c.relUpdated = Date.now(); }
-      if (r.added || r.relation) saveCompanions();
+      if (r.summary) epiUpsert(c, sid, r.summary);
+      if (r.added || r.relation || r.summary) saveCompanions();
       if (s) { s.distilled = userTurns; if (r.summary) s.summary = r.summary; saveIndex(); }
       setDistillState(c.id, null);
       if ($('memory-overlay').classList.contains('show') && editingCompanionId === c.id) renderMemCards();
@@ -3073,7 +3448,8 @@
     if (about) parts.push('## 关于观众\n' + about);
     if ((c.persona || '').trim()) parts.push('## 你是谁\n' + c.persona.trim());
     if ((c.rel || '').trim()) parts.push('## 你们现在的关系状态\n' + c.rel.trim() + '\n（这是随相处推移的动态位置，不是人设）');
-    if ((c.mem || '').trim()) parts.push('## 你们的过往\n' + c.mem.trim());
+    const _mc = memCoreParts(c).text;
+    if (_mc) parts.push('## 你们的过往\n' + _mc);
     return parts.join('\n\n');
   }
 
