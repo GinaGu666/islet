@@ -1145,6 +1145,7 @@
   }
 
   let pendingImgs = [];   // 待发送：{id, blob, url}
+  let ccImgHinted = false;   // CC 通道附图提示：本次页面生命周期只弹一次
   let pendingDocs = [];   // 待发送：{id, name, text, chars, trunc}
   const MAX_DOC_CHARS = 20000;
   function _loadLib(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('组件下载失败，检查网络')); document.head.appendChild(s); }); }
@@ -2370,6 +2371,12 @@
         }
       }
       if (m.role === 'user' && m.imgs && m.imgs.length) {
+        // CC 传话员是文本管道：图片块要么被丢掉、要么把请求体撑爆（Express 默认只收 100KB）。
+        // 从源头不带图，只留一句占位——模型知道你发过图，请求也不会炸。想让它看图，切 OpenRouter。
+        if (provider === 'cc') {
+          out.unshift({ role: 'user', content: (content ? content + ' ' : '') + '[发了 ' + m.imgs.length + ' 张图片，此通道看不到图]' });
+          continue;
+        }
         const parts = [];
         if (budget > 0) {
           for (const id of m.imgs.slice(0, budget)) {
@@ -2660,6 +2667,10 @@
     ensureSession();
     let imgs = null, docs = null;
     if (pendingImgs.length) {
+      if (provider === 'cc' && !ccImgHinted) {   // 每次打开页面只提醒一次，不拦发送
+        ccImgHinted = true;
+        alert('提醒：CC 通道的传话员看不到图片。这张图会保存在对话里，但不会发给模型；想让它看图，切到 OpenRouter 通道再发。');
+      }
       const toStore = pendingImgs.slice(); pendingImgs = [];
       imgs = toStore.map(p => p.id);
       toStore.forEach(p => { imgUrlCache.set(p.id, p.url); imgPut({ id: p.id, blob: p.blob, created: Date.now() }).catch(() => {}); });
