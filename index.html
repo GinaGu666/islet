@@ -21,11 +21,11 @@
   /* 西文单独立一族：只接管拉丁字母/数字/西文标点，并把字号顶大一档去够中文的字面。
      中英同号时英文总显小，是因为汉字几乎占满字身框、拉丁字母只占七成左右。
      嫌英文太大就把 105% 调回 100%；size-adjust 老浏览器不认，忽略即可，不影响别的。
-     苹果设备上西文优先走 ui-serif，也就是 New York——它藏在系统里、local() 够不着，只能用这个关键字点名；
-     其他平台落到下面这个 Georgia 族。 */
+     西文首选 Iowan Old Style：苹果自家 Books 的正文字体，iOS / macOS 都自带，能用 local() 点到名。
+     不要用 ui-serif（New York）：它是"系统字体"，自带整套中文回落，会把汉字一起接管成苹方，宋体永远轮不到。 */
   @font-face {
     font-family: "IsletLatin";
-    src: local("Georgia"), local("Iowan Old Style"), local("Times New Roman");
+    src: local("Iowan Old Style"), local("Georgia"), local("Times New Roman");
     unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+2000-206F, U+2122, U+2212;
     size-adjust: 105%;
   }
@@ -52,7 +52,7 @@
     --safe-bottom: env(safe-area-inset-bottom, 0px);
     /* 字体栈是逐字回落的：中文字体排在前面，英文也会被它接管（宋体的西文又细又小）。
        所以西文族在前、中文族在后，各自命中各自的字。 */
-    --serif:     ui-serif, "IsletLatin", Georgia, "Noto Serif SC", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Source Han Serif CN", "Noto Serif SC", STSong, SimSun, serif;
+    --serif:     "IsletLatin", Georgia, "Noto Serif SC", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Source Han Serif CN", "Noto Serif SC", STSong, SimSun, serif;
     --sans:      -apple-system, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
     --mono:      ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     /* 阅读字号：默认「标准」，可在设置里调大。
