@@ -150,6 +150,10 @@
   /* 对话区 */
   .chat { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px 16px 20px; display: flex; flex-direction: column; gap: 20px; scroll-behavior: smooth; }
   .chat::-webkit-scrollbar { width: 0; }
+  .chat.streaming { scroll-behavior: auto; }   /* 流式期间每帧都在改 scrollTop，平滑滚动会跟它打架、画面发抖 */
+  .chat.bulk .msg { animation: none; }         /* 整屏重建时别让几十条一起做入场动画 */
+  .load-more { align-self: center; flex-shrink: 0; background: var(--card); border: 1px solid var(--line); color: var(--ink-2); font-size: 12.5px; padding: 7px 16px; border-radius: 999px; cursor: pointer; font-family: inherit; }
+  .load-more:active { background: var(--accent-weak); color: var(--accent); }
   .msg { display: flex; flex-direction: column; max-width: 86%; animation: msg-in .3s ease both; }
   @keyframes msg-in { from { opacity: 0; transform: translateY(4px); } }
   .msg.user { align-self: flex-end; align-items: flex-end; }
@@ -2052,24 +2056,66 @@
       ${chips}
     </div>`;
   }
+  const RENDER_WINDOW = 80;   // 首屏只渲染最近这么多条；更早的点顶部按钮再补，切会话不再整场重建
+  let renderTop = 0;          // 当前已渲染的最早一条消息的下标（data-midx 始终是绝对下标，不受影响）
   function renderAll() {
     cancelEdit();   // 切换会话等场景下退出编辑态（未在编辑时是空操作，不影响草稿）
     const chat = $('chat');
     chat.innerHTML = '';
+    imgUrlCache.forEach(u => URL.revokeObjectURL(u)); imgUrlCache.clear();   // 上一屏的 blob URL 一并释放，下面按需从 IndexedDB 重建
     renderTokenBar();
+    renderTop = 0;
     if (!messages.length) { chat.innerHTML = emptyHtml(); return; }
-    let prevDay = null;
-    messages.forEach((m, i) => {
-      if (m.ts) { const dk = dayKey(new Date(m.ts)); if (dk !== prevDay) { appendDaySep(m.ts); prevDay = dk; } }
-      if (m.role === 'user') addUser(m.content, m.time, i, m.imgs, m.files);
-      else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true, m.reqModel);
-      const last = chat.lastElementChild; if (last) last.dataset.midx = i;
-    });
-    scrollToBottom(true);
+    renderTop = Math.max(0, messages.length - RENDER_WINDOW);
+    chat.classList.add('bulk');
+    renderRange(renderTop, messages.length, chat);
+    updateLoadMore();
+    jumpToBottom();
+    requestAnimationFrame(() => chat.classList.remove('bulk'));
   }
+  // 把 [from, to) 的消息渲染进 target（chat 本体或一个 fragment）；返回最后一条的日期键
+  function renderRange(from, to, target) {
+    let prevDay = null;
+    for (let i = from; i < to; i++) {
+      const m = messages[i];
+      if (m.ts) { const dk = dayKey(new Date(m.ts)); if (dk !== prevDay) { appendDaySep(m.ts, target); prevDay = dk; } }
+      if (m.role === 'user') addUser(m.content, m.time, i, m.imgs, m.files, target);
+      else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true, m.reqModel, target);
+      const last = target.lastElementChild; if (last) last.dataset.midx = i;
+    }
+    return prevDay;
+  }
+  function updateLoadMore() {
+    const chat = $('chat');
+    let btn = chat.querySelector('.load-more');
+    if (renderTop <= 0) { if (btn) btn.remove(); return; }
+    if (!btn) { btn = document.createElement('button'); btn.type = 'button'; btn.className = 'load-more'; btn.onclick = () => loadOlder(); chat.insertBefore(btn, chat.firstChild); }
+    btn.textContent = '查看更早的 ' + renderTop + ' 条';
+  }
+  function loadOlder(count) {
+    if (renderTop <= 0) return;
+    const chat = $('chat');
+    const from = Math.max(0, renderTop - (count || RENDER_WINDOW)), to = renderTop;
+    const frag = document.createDocumentFragment();
+    const lastDay = renderRange(from, to, frag);
+    // 原窗口第一条前面的日期线：若与新补进来的最后一条同一天，就重复了，去掉
+    const btn = chat.querySelector('.load-more');
+    const oldFirst = btn ? btn.nextElementSibling : chat.firstElementChild;
+    if (oldFirst && oldFirst.classList.contains('day-sep') && messages[to] && messages[to].ts && dayKey(new Date(messages[to].ts)) === lastDay) oldFirst.remove();
+    const before = chat.scrollHeight;
+    chat.classList.add('bulk');
+    chat.insertBefore(frag, btn ? btn.nextSibling : chat.firstChild);
+    renderTop = from;
+    updateLoadMore();
+    const prev = chat.style.scrollBehavior; chat.style.scrollBehavior = 'auto';
+    chat.scrollTop += chat.scrollHeight - before;   // 视口停在原处，不跳
+    chat.style.scrollBehavior = prev;
+    requestAnimationFrame(() => chat.classList.remove('bulk'));
+  }
+  function ensureRendered(idx) { while (renderTop > idx) loadOlder(); }
   function dropEmpty() { const e = $('empty'); if (e) e.remove(); }
 
-  function addUser(text, time, idx, imgs, files) {
+  function addUser(text, time, idx, imgs, files, target) {
     dropEmpty();
     const row = document.createElement('div');
     row.className = 'msg user';
@@ -2097,11 +2143,11 @@
       });
       row.insertBefore(wrap, row.firstChild);
     }
-    $('chat').appendChild(row);
+    (target || $('chat')).appendChild(row);
     scrollToBottom();
   }
 
-  function addAi(content, thinking, thinkSec, model, time, done, reqModel) {
+  function addAi(content, thinking, thinkSec, model, time, done, reqModel, target) {
     dropEmpty();
     const row = document.createElement('div');
     row.className = 'msg ai';
@@ -2122,7 +2168,7 @@
       <div class="ai-text"></div>`;
     const thinkEl = row.querySelector('.think');
     thinkEl.querySelector('.think-head').onclick = () => thinkEl.classList.toggle('open');
-    $('chat').appendChild(row);
+    (target || $('chat')).appendChild(row);
 
     if (done) {
       if (thinking) {
@@ -2249,13 +2295,14 @@
     if (tc) {
       const _now = Date.now(), _gapH = tc.lastSeen ? (_now - tc.lastSeen) / 3600e3 : 0;
       if (_gapH >= 6) parts.push('距离你们上次对话已过去' + (_gapH < 48 ? '约 ' + Math.round(_gapH) + ' 小时' : '约 ' + Math.round(_gapH / 24) + ' 天') + '。如果自然的话可以提一句，不必刻意。');
-      tc.lastSeen = _now; saveCompanions();
+      if (!tc.lastSeen || _now - tc.lastSeen > 60e3) { tc.lastSeen = _now; companionsDirty = true; }   // 一分钟内不反复写
     }
     const d = new Date(), wd = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
     parts.push(`今天是 ${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日，星期${wd}${tz ? '，用户设备时区 ' + tz : ''}。用户消息开头的 [时:分] 是那条消息按此时区的发送时刻，仅供你感知时间和间隔，回复时不要模仿这个格式。`);
     return parts.join("\n\n");
   }
+  let companionsDirty = false;   // 构建请求途中对角色对象的零碎改动（lastSeen、记忆热度）先记着，buildApiMessages 末尾一次写盘
   const CTX_MSGS = 120;   // 发给模型的最近消息条数（控制成本）；界面和存储始终保留完整记录
   const CTX_STEP = 20;    // 阶梯窗口步长：起点每 20 条才前移一次，窗口在 120~140 条间浮动，保住缓存命中
   function ctxStart(len) { return len <= CTX_MSGS + CTX_STEP ? 0 : Math.ceil((len - (CTX_MSGS + CTX_STEP)) / CTX_STEP) * CTX_STEP; }
@@ -2346,6 +2393,7 @@
         }
       }
     } catch (e) {}
+    if (companionsDirty) { companionsDirty = false; saveCompanions(); }
     return [
       ...packSystem(sys),
       ...out,
@@ -2546,11 +2594,36 @@
     };
   }
 
+  /* 流式渲染：只重排「还没定稿」的尾巴。以空行为界，前面已经完整的段落渲染一次就不再动，
+     免得回复越长每帧越慢（原来每帧把全文重新走一遍 Markdown，长回复越到后面越卡）。
+     代码围栏没闭合时不在它中间切，否则代码块会被拆散。定稿（renderNow）时仍整篇重渲一次兜底。 */
+  function stableSplit(text) {
+    let pos = text.lastIndexOf('\n\n');
+    while (pos > 0) {
+      if ((text.slice(0, pos).match(/```/g) || []).length % 2 === 0) return pos + 2;
+      pos = text.lastIndexOf('\n\n', pos - 1);
+    }
+    return 0;
+  }
+  function paintStream(h, text) {
+    if (!h._tail || h._tail.parentNode !== h.textEl) {   // 首帧，或正文被别处清空过（重试提示等）：重建
+      h.textEl.innerHTML = ''; h._split = 0;
+      h._tail = document.createElement('div'); h._tail.className = 'ai-tail'; h.textEl.appendChild(h._tail);
+    }
+    const split = stableSplit(text);
+    if (split > h._split) {
+      const tpl = document.createElement('template');
+      tpl.innerHTML = renderMarkdown(text.slice(h._split, split));
+      h.textEl.insertBefore(tpl.content, h._tail);
+      h._split = split;
+    }
+    h._tail.innerHTML = renderMarkdown(text.slice(h._split));
+  }
   function scheduleRender(h, get) {
     if (h._raf) return;
-    h._raf = requestAnimationFrame(() => { h._raf = null; h.textEl.innerHTML = renderMarkdown(get()); maybeScroll(); });
+    h._raf = requestAnimationFrame(() => { h._raf = null; paintStream(h, get()); maybeScroll(); });
   }
-  function renderNow(h, text) { if (h._raf) { cancelAnimationFrame(h._raf); h._raf = null; } h.textEl.innerHTML = renderMarkdown(text); maybeScroll(); }
+  function renderNow(h, text) { if (h._raf) { cancelAnimationFrame(h._raf); h._raf = null; } h._tail = null; h.textEl.innerHTML = renderMarkdown(text); maybeScroll(); }
 
   function showBroken(h, onContinue, onRetry, label) {
     removeBroken(h);
@@ -2746,6 +2819,7 @@
 
   function setLoading(v) {
     isLoading = v;
+    $('chat').classList.toggle('streaming', !!v);
     const btn = $('send-btn'), ic = $('send-ic');
     if (v) { btn.setAttribute('aria-label', '停止'); ic.outerHTML = '<svg id="send-ic" viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>'; }
     else { btn.setAttribute('aria-label', '发送'); ic.outerHTML = '<svg id="send-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'; }
@@ -2913,7 +2987,7 @@
       out.push(line); used += line.length + 1;
       it.k.u = Date.now(); it.k.n = (it.k.n || 0) + 1;            // 真被送进上下文才算「想起一次」
     }
-    if (out.length) saveCompanions();                             // 只写 u/n，不动 memUpdated——词频缓存不受扰
+    if (out.length) companionsDirty = true;                       // 只写 u/n，不动 memUpdated——词频缓存不受扰；落盘合并到 buildApiMessages 末尾
     return out;
   }
   function fmtYM(ts) {
@@ -3577,12 +3651,12 @@
     if (dayKey(d) === dayKey(y)) return '昨天';
     return (d.getFullYear() !== n.getFullYear() ? d.getFullYear() + '年' : '') + (d.getMonth() + 1) + '月' + d.getDate() + '日';
   }
-  function appendDaySep(ts) {
+  function appendDaySep(ts, target) {
     dropEmpty();
     const el = document.createElement('div');
     el.className = 'day-sep';
     el.textContent = dayLabel(ts);
-    $('chat').appendChild(el);
+    (target || $('chat')).appendChild(el);
   }
 
   /* ---------- 消息搜索：搜遍所有角色的所有会话 ---------- */
@@ -3593,14 +3667,25 @@
     show('search-overlay');
     setTimeout(() => inp.focus(), 300);
   }
-  function closeSearch() { hide('search-overlay'); }
-  function runSearch(q) {
+  let _searchTimer = null;
+  const _searchCache = new Map();   // sid -> {updated, msgs}：搜索期间缓存已解析的会话，不用每敲一个字就把全部会话 JSON.parse 一遍
+  function sessionMsgsCached(sess) {
+    if (sess.id === currentId) return messages;
+    const e = _searchCache.get(sess.id);
+    if (e && e.updated === sess.updated) return e.msgs;
+    const msgs = loadSessionMsgs(sess.id);
+    _searchCache.set(sess.id, { updated: sess.updated, msgs });
+    return msgs;
+  }
+  function closeSearch() { hide('search-overlay'); clearTimeout(_searchTimer); _searchCache.clear(); }
+  function runSearch(q) { clearTimeout(_searchTimer); _searchTimer = setTimeout(() => doSearch(q), 160); }   // 防抖：停手 160ms 再搜
+  function doSearch(q) {
     q = (q || '').trim();
     const box = $('search-results');
     if (!q) { box.innerHTML = '<div class="list-empty-mini">输入关键词，搜遍所有角色的所有对话</div>'; return; }
     const ql = q.toLowerCase(), hits = [];
     for (const sess of sessions) {
-      const msgs = sess.id === currentId ? messages : loadSessionMsgs(sess.id);
+      const msgs = sessionMsgsCached(sess);
       for (let i = 0; i < msgs.length; i++) {
         const c = msgs[i].content || '';
         const pos = c.toLowerCase().indexOf(ql);
@@ -3629,6 +3714,7 @@
   function jumpToHit(sid, idx) {
     hide('search-overlay');
     if (sid !== currentId) switchSession(sid);
+    ensureRendered(idx);
     setTimeout(() => {
       const el = document.querySelector('.msg[data-midx="' + idx + '"]');
       if (el) {
@@ -3702,6 +3788,8 @@
   function isNearBottom() { const c = $('chat'); return c.scrollHeight - c.scrollTop - c.clientHeight < 120; }
   function maybeScroll() { if (isNearBottom()) scrollToBottom(); }
   function scrollToBottom(force) { const c = $('chat'); if (force || isNearBottom()) c.scrollTop = c.scrollHeight; }
+  // 整屏重建后直接落到底，不做平滑动画（从顶滚到底的几秒动画毫无意义，还会被后续 scroll 事件打断）
+  function jumpToBottom() { const c = $('chat'); const p = c.style.scrollBehavior; c.style.scrollBehavior = 'auto'; c.scrollTop = c.scrollHeight; c.style.scrollBehavior = p; }
   $('chat').addEventListener('scroll', () => {
     const c = $('chat');
     const away = c.scrollHeight - c.scrollTop - c.clientHeight > c.clientHeight / 3;
