@@ -46,13 +46,14 @@
     --code-head: rgba(43,42,40,0.04);
     --scrim:     rgba(43,42,40,0.36);
     --user-ink:  var(--ink);
+    --danger:    #A8473F;   /* 砖红：只给「删除」和「报错」，石墨主题里唯一的警示色 */
     --radius:    20px;
     --radius-sm: 12px;
     --safe-top:    env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
     /* 字体栈是逐字回落的：中文字体排在前面，英文也会被它接管（宋体的西文又细又小）。
        所以西文族在前、中文族在后，各自命中各自的字。 */
-    --serif:     "IsletLatin", Georgia, "Noto Serif SC", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Source Han Serif CN", "Noto Serif SC", STSong, SimSun, serif;
+    --serif:     "IsletLatin", Georgia, "Noto Serif SC", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Source Han Serif CN", STSong, SimSun, serif;
     --sans:      -apple-system, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
     --mono:      ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     /* 阅读字号：默认「标准」，可在设置里调大。
@@ -93,6 +94,7 @@
     --code-bg:   #161514;
     --code-head: rgba(232,229,223,0.05);
     --scrim:     rgba(0,0,0,0.5);
+    --danger:    #E09189;
     color-scheme: dark;
   }
   @media (prefers-color-scheme: dark) {
@@ -112,6 +114,7 @@
       --code-bg:   #161514;
       --code-head: rgba(232,229,223,0.05);
       --scrim:     rgba(0,0,0,0.5);
+      --danger:    #E09189;
       color-scheme: dark;
     }
   }
@@ -228,7 +231,7 @@
 
   /* AI 正文 + Markdown */
   .ai-text { font-family: var(--serif) !important; font-weight: 500; font-size: var(--fs-ai); line-height: 1.75; letter-spacing: .01em; color: var(--ink); overflow-wrap: break-word; word-break: normal; text-wrap: pretty; }
-  .ai-text.err { color: var(--accent); white-space: pre-wrap; }
+  .ai-text.err { color: var(--danger); white-space: pre-wrap; }
   /* 段距原来是死值 10px，比行距还小，整段会糊成一坨。
      改成跟着字号走的 1.1em，段与段之间的空当明显宽过行与行，眼睛才有落脚点。 */
   .ai-text p { margin: 0 0 1.1em; }
@@ -434,7 +437,7 @@
   .mm-preview { font-size: 12.5px; color: var(--ink-3); padding: 2px 4px 10px; line-height: 1.5; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .mm-btn { width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 13px; font-size: 15px; color: var(--ink); cursor: pointer; margin-top: 8px; font-family: inherit; }
   .mm-btn:active { background: var(--accent-weak); }
-  .mm-btn.danger { color: var(--accent); }
+  .mm-btn.danger { color: var(--danger); }
 
   /* 消息搜索 */
   .hit-row { padding: 10px 8px; border-radius: 12px; cursor: pointer; }
@@ -633,14 +636,13 @@
       <input type="file" id="extras-file" accept=".json,application/json" style="display:none" onchange="importExtras(this)">
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-08-17c · 代笔拦截 v2 · 终端色调</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-09-03 · 代笔拦截 v2 · 石墨配色</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
   </div>
 </div>
 
-<!-- 模型选择 -->
 <!-- 活动 -->
 <div class="overlay" id="arena-overlay">
   <div class="sheet">
@@ -673,6 +675,7 @@
   </div>
 </div>
 
+<!-- 模型选择 -->
 <div class="overlay" id="picker-overlay">
   <div class="sheet">
     <div class="grabber"></div>
@@ -687,7 +690,7 @@
   </div>
 </div>
 
-<!-- 记忆（按角色分开） -->
+<!-- 打卡 -->
 <div class="overlay" id="habit-overlay">
   <div class="sheet">
     <div class="grabber"></div>
@@ -795,6 +798,7 @@
     </div>
   </div>
 </div>
+<!-- 记忆（按角色分开） -->
 <div class="overlay" id="memory-overlay">
   <div class="sheet">
     <div class="grabber"></div>
@@ -954,6 +958,36 @@
   function imgGet(id) { return idb().then(db => new Promise((res, rej) => { const r = db.transaction('imgs').objectStore('imgs').get(id); r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error); })); }
   function filePut(rec) { return idb().then(db => new Promise((res, rej) => { const tx = db.transaction('files', 'readwrite'); tx.objectStore('files').put(rec); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
   function fileGet(id) { return idb().then(db => new Promise((res, rej) => { const r = db.transaction('files').objectStore('files').get(id); r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error); })); }
+  function idbDel(store, id) { return idb().then(db => new Promise((res, rej) => { const tx = db.transaction(store, 'readwrite'); tx.objectStore(store).delete(id); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
+  function idbClear(store) { return idb().then(db => new Promise((res, rej) => { const tx = db.transaction(store, 'readwrite'); tx.objectStore(store).clear(); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
+  // 消息被删时连带清掉 IndexedDB 里的图片与文件；不清的话附件只涨不降，删对话也腾不出空间
+  function purgeAttachments(msgs) {
+    (msgs || []).forEach(m => {
+      (m.imgs || []).forEach(id => {
+        const u = imgUrlCache.get(id); if (u) { URL.revokeObjectURL(u); imgUrlCache.delete(id); }
+        idbDel('imgs', id).catch(() => {});
+      });
+      (m.files || []).forEach(f => { if (f && f.id) idbDel('files', f.id).catch(() => {}); });
+    });
+  }
+  // 备份/归档时把附件也带上：图片转 dataURL、文件带全文，按 id 去重
+  async function collectAttachments(msgLists) {
+    const imgs = {}, files = {};
+    for (const msgs of msgLists) for (const m of (msgs || [])) {
+      for (const id of (m.imgs || [])) if (!imgs[id]) { const rec = await imgGet(id).catch(() => null); if (rec && rec.blob) imgs[id] = await blobToDataURL(rec.blob); }
+      for (const f of (m.files || [])) if (f && f.id && !files[f.id]) { const rec = await fileGet(f.id).catch(() => null); if (rec) files[f.id] = { name: rec.name, text: rec.text }; }
+    }
+    return { imgs, files };
+  }
+  async function restoreAttachments(att) {
+    if (!att) return;
+    for (const [id, url] of Object.entries(att.imgs || {})) {
+      try { const blob = await (await fetch(url)).blob(); await imgPut({ id, blob, created: Date.now() }); } catch (e) {}
+    }
+    for (const [id, f] of Object.entries(att.files || {})) {
+      try { await filePut({ id, name: f.name, text: f.text, created: Date.now() }); } catch (e) {}
+    }
+  }
 
   async function compressImage(file, maxDim, quality) {
     const url = URL.createObjectURL(file);
@@ -1065,6 +1099,10 @@
 
   /* 粘贴图片直接进待发条 */
   document.addEventListener('paste', e => {
+    // 只在聊天页生效：弹层开着、或焦点在别的输入框（比如设置里的 System Prompt）时，不把图抢进待发条
+    if (document.querySelector('.overlay.show')) return;
+    const ae = document.activeElement;
+    if (ae && ae !== $('msg-input') && /^(input|textarea)$/i.test(ae.tagName)) return;
     const items = Array.from((e.clipboardData && e.clipboardData.items) || []).filter(it => it.type && it.type.startsWith('image/'));
     if (!items.length) return;
     e.preventDefault();
@@ -1279,12 +1317,11 @@
       const div = document.createElement('div');
       div.className = 'habit-item';
       div.style.padding = '12px 4px';
-      const escText = item.text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const escNote = (item.note || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const escText = esc(item.text), escNote = esc(item.note || '');
       div.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-          <span style="font-size:12px;color:var(--accent);font-weight:600">${item.who}</span>
-          <span style="font-size:11px;color:var(--ink-3)">${item.date || ''}</span>
+          <span style="font-size:12px;color:var(--accent);font-weight:600">${esc(item.who)}</span>
+          <span style="font-size:11px;color:var(--ink-3)">${esc(item.date || '')}</span>
         </div>
         <div style="font-size:14.5px;line-height:1.6;white-space:pre-wrap;word-break:break-word">${escText}</div>
         ${escNote ? '<div style="font-size:12px;color:var(--ink-3);margin-top:4px;line-height:1.5">' + escNote + '</div>' : ''}
@@ -1307,12 +1344,13 @@
   function avaChar(name) { const t = (name || '').trim(); return t ? t.charAt(0) : '✦'; };
 
   /* ---------- 备份 ---------- */
-  function exportBackup() {
+  async function exportBackup() {
     const sessionMsgs = {};
     sessions.forEach(s => { sessionMsgs[s.id] = loadSessionMsgs(s.id); });
+    const attachments = await collectAttachments(Object.values(sessionMsgs));   // v2 起带图片与文件
     const data = {
-      app: 'islet', version: 1, exportedAt: new Date().toISOString(),
-      companions, sessions, sessionMsgs,
+      app: 'islet', version: 2, exportedAt: new Date().toISOString(),
+      companions, sessions, sessionMsgs, attachments,
       quotes, habits, arena: loadArenaLog(),
       about: localStorage.getItem('islet_about') || '',
       activeCompanionId: localStorage.getItem('islet_active_companion') || '',
@@ -1340,7 +1378,7 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 3000);
   }
   // 归档：把久未活动的对话导出成文件并从本机删除（随时可用「导入归档」找回）
-  function archiveOldSessions() {
+  async function archiveOldSessions() {
     const ans = prompt('把多少天没动过的对话归档？（先导出成文件，再从本机删除；当前对话不动）', '30');
     if (ans == null) return;
     const days = parseInt(ans, 10);
@@ -1349,7 +1387,9 @@
     const picked = sessions.filter(s => s.id !== currentId && (s.updated || 0) < cutoff);
     if (!picked.length) { alert('没有 ' + days + ' 天前的旧对话'); return; }
     if (!confirm('将归档 ' + picked.length + ' 个对话：先导出成文件，再从本机删除。继续？')) return;
-    const data = { app: 'islet-archive', version: 1, exportedAt: new Date().toISOString(), sessions: picked.map(s => ({ meta: s, msgs: loadSessionMsgs(s.id) })) };
+    const recs = picked.map(s => ({ meta: s, msgs: loadSessionMsgs(s.id) }));
+    const attachments = await collectAttachments(recs.map(r => r.msgs));
+    const data = { app: 'islet-archive', version: 2, exportedAt: new Date().toISOString(), sessions: recs, attachments };
     const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
     const a = document.createElement('a');
     const d = new Date(), pad = n => String(n).padStart(2, '0');
@@ -1357,7 +1397,7 @@
     a.download = `islet-archive-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 3000);
-    picked.forEach(s => localStorage.removeItem('islet_s_' + s.id));
+    recs.forEach(r => { purgeAttachments(r.msgs); localStorage.removeItem('islet_s_' + r.meta.id); });
     sessions = sessions.filter(s => !picked.some(p => p.id === s.id));
     saveIndex(); renderSessions(); updateStoreMeter();
     alert('已归档 ' + picked.length + ' 个对话。归档文件请妥善保存，想找回时在设置里「导入归档」。');
@@ -1367,10 +1407,11 @@
     input.value = '';
     if (!file) return;
     const r = new FileReader();
-    r.onload = () => {
+    r.onload = async () => {
       try {
         const data = JSON.parse(r.result);
         if (!data || data.app !== 'islet-archive' || !Array.isArray(data.sessions)) { alert('这不是 islet 的归档文件'); return; }
+        await restoreAttachments(data.attachments);
         let added = 0;
         data.sessions.forEach(rec => {
           if (!rec || !rec.meta || !rec.meta.id) return;
@@ -1420,7 +1461,7 @@
     inp.value = '';
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       let data;
       try { data = JSON.parse(reader.result); } catch (e) { alert('文件无法解析，不是有效的备份'); return; }
       if (!data || data.app !== 'islet' || !Array.isArray(data.companions) || !Array.isArray(data.sessions)) { alert('这不是 islet 的备份文件'); return; }
@@ -1446,6 +1487,9 @@
         if (Array.isArray(data.quotes)) localStorage.setItem('islet_quotes', JSON.stringify(data.quotes));
         if (Array.isArray(data.habits)) localStorage.setItem('islet_habits', JSON.stringify(data.habits));
         if (Array.isArray(data.arena)) localStorage.setItem('islet_arena', JSON.stringify(data.arena));
+        // 附件：先清空本机的（旧对话已被覆盖，它们的图没人引用了），再把备份里的写回去
+        try { await idbClear('imgs'); await idbClear('files'); } catch (e) {}
+        await restoreAttachments(data.attachments);
         alert('导入完成，即将刷新');
         location.reload();
       } catch (e) { alert('导入失败：' + e.message); }
@@ -1605,7 +1649,7 @@
     wrap.innerHTML = companions.map(c => {
       const st = distillState[c.id];
       const mark = st && st.st === 'running' ? ' <span style="opacity:.6">…</span>'
-                 : st && st.st === 'fail'    ? ' <span style="color:var(--accent);font-weight:700">!</span>' : '';
+                 : st && st.st === 'fail'    ? ' <span style="color:var(--danger);font-weight:700">!</span>' : '';
       return `<button type="button" class="comp-tab ${c.id === activeCompanionId ? 'sel' : ''}" onclick="switchCompanion('${c.id}')"><span class="tab-dot" style="background:${avaColor(c.id)}"></span>${esc(c.name)}${mark}</button>`;
     }).join('');
   }
@@ -1637,7 +1681,7 @@
     if (companions.length <= 1) { alert('至少保留一个角色'); return; }
     const c = companions.find(x => x.id === id);
     if (!confirm('删除角色「' + (c ? c.name : '') + '」？TA 的人设、记忆和所有对话都会一并删除，不可恢复。')) return;
-    sessions.filter(s => s.companionId === id).forEach(s => localStorage.removeItem('islet_s_' + s.id));
+    sessions.filter(s => s.companionId === id).forEach(s => { purgeAttachments(loadSessionMsgs(s.id)); localStorage.removeItem('islet_s_' + s.id); });
     sessions = sessions.filter(s => s.companionId !== id);
     companions = companions.filter(x => x.id !== id);
     saveCompanions(); saveIndex();
@@ -1744,6 +1788,7 @@
   function deleteSession(id) {
     const s = sessions.find(x => x.id === id);
     if (!confirm('删除「' + (s ? s.title : '此对话') + '」？不可恢复。')) return;
+    purgeAttachments(loadSessionMsgs(id));
     localStorage.removeItem('islet_s_' + id);
     sessions = sessions.filter(x => x.id !== id);
     saveIndex();
@@ -1798,13 +1843,17 @@
   function closeDrawer() { hide('drawer-overlay'); }
 
   /* ---------- 模型列表 ---------- */
+  let catalogErr = '';   // 上次拉取模型列表的失败原因；空 = 没失败（或还在拉）
   async function fetchModels() {
     const p = provider;   // 快照：拉取途中切了来源就丢弃结果
+    catalogErr = '';
     try {
       const res = await fetch(modelsUrl(), p === 'cc' ? { headers: authHeaders() } : undefined);
-      if (!res.ok || p !== provider) return;
+      if (p !== provider) return;
+      if (!res.ok) throw new Error('HTTP ' + res.status);
       const j = await res.json();
-      if (!Array.isArray(j.data) || p !== provider) return;
+      if (p !== provider) return;
+      if (!Array.isArray(j.data)) throw new Error('返回的不是模型列表');
       catalog = j.data.map(m => ({
         id: m.id, name: cleanName(m.name || m.id),
         reason: (m.supported_parameters || []).some(pp => pp === 'reasoning' || pp === 'include_reasoning'),
@@ -1816,7 +1865,12 @@
         selectedModel = catalog[0].id; localStorage.setItem('cc_model', selectedModel); updatePill();
       }
       if ($('picker-overlay').classList.contains('show')) renderModelList($('model-search').value);
-    } catch (e) {}
+    } catch (e) {
+      if (p !== provider) return;
+      const msg = (e && e.message) || String(e);
+      catalogErr = /fetch|network/i.test(msg) ? '网络不通，或地址被浏览器拦截' : msg;
+      if ($('picker-overlay').classList.contains('show')) renderModelList($('model-search').value);
+    }
   }
   function effectiveCatalog() { return catalog.length ? catalog : (provider === 'cc' ? [] : FALLBACK_MODELS.map(m => ({ ...m, ctx: 0 }))); }
   function buildCatalogMap() {
@@ -1868,7 +1922,12 @@
       const f = list.filter(m => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));
       html = f.length ? f.map(row).join('') : '<div class="list-empty">没有匹配的模型</div>';
     }
-    if (!catalog.length) html += provider === 'cc' ? '<div class="list-loading">正在向自定义接口获取模型列表…<br>一直没结果就回设置里检查地址</div>' : '<div class="list-loading">正在获取完整模型列表…</div>';
+    if (!catalog.length) {
+      if (catalogErr) html += provider === 'cc'
+        ? '<div class="list-loading">模型列表获取失败：' + esc(catalogErr) + '<br>回设置里检查接口地址和门禁密码</div>'
+        : '<div class="list-loading">完整列表获取失败：' + esc(catalogErr) + '<br>先用上面内置的常用模型</div>';
+      else html += provider === 'cc' ? '<div class="list-loading">正在向自定义接口获取模型列表…<br>一直没结果就回设置里检查地址</div>' : '<div class="list-loading">正在获取完整模型列表…</div>';
+    }
     $('model-list').innerHTML = html;
   }
   // 选模型 = 固定给当前角色；同时写入全局默认，作为新角色/未绑定角色的回退值
@@ -2532,6 +2591,7 @@
         messages[idx].content = text;
         if (imgs) messages[idx].imgs = (messages[idx].imgs || []).concat(imgs);
         if (docs) messages[idx].files = (messages[idx].files || []).concat(docs);
+        purgeAttachments(messages.slice(idx + 1));
         messages.length = idx + 1;   // 之后的消息作废，从这里重新生成
         saveCurrent(); renderAll();
         generateAssistant();
@@ -3600,7 +3660,7 @@
     const f = n => n < 1048576 ? Math.round(n / 1024) + 'K' : (n / 1048576).toFixed(2) + 'M';
     const parts = Object.entries(buckets).filter(([, v]) => v > 0).map(([n, v]) => n + ' ' + f(v)).join(' · ');
     el.innerHTML = '本地存储约已用 ' + f(used) + ' / ~5M（' + parts + '）'
-      + (pct > 75 ? ' · <span style="color:var(--accent)">空间偏紧，建议备份后「归档旧对话」</span>' : '')
+      + (pct > 75 ? ' · <span style="color:var(--danger)">空间偏紧，建议备份后「归档旧对话」</span>' : '')
       + '<div class="store-bar"><div class="store-fill" style="width:' + pct.toFixed(1) + '%"></div></div>';
   }
 
@@ -3642,6 +3702,7 @@
     if (!m) { hide('msgmenu-overlay'); return; }
     if (!confirm('删除这条消息？不可恢复。')) return;
     if (isLoading && currentAbort) currentAbort.abort();
+    purgeAttachments([m]);
     messages.splice(menuIdx, 1);
     saveCurrent(); renderAll();
     hide('msgmenu-overlay');
