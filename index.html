@@ -388,6 +388,8 @@
   .comp-tab { flex-shrink: 0; background: var(--card); border: 1px solid var(--line); color: var(--ink-2); font-size: 13.5px; padding: 7px 14px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
   .comp-tab.sel { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
   .comp-tab.comp-add { color: var(--accent); font-weight: 700; padding: 7px 12px; }
+  .comp-tab .tab-x { margin-left: 6px; opacity: .45; font-weight: 400; }
+  .comp-tab.sel .tab-x { opacity: .7; }
   .lock-tag { font-size: 10px; color: var(--accent); background: var(--accent-weak); border-radius: 5px; padding: 1px 6px; margin-left: 6px; letter-spacing: .02em; text-transform: none; }
   textarea.field.tall { height: 160px; }
   textarea.field.mem { height: 120px; }
@@ -1261,8 +1263,26 @@
   let quotes = [];
   try { quotes = JSON.parse(localStorage.getItem('islet_quotes') || '[]'); } catch(e) { quotes = []; }
   function saveQuotesData() { lsSet('islet_quotes', JSON.stringify(quotes)); }
-  const QUOTE_PEOPLE = ['Nico', 'Lea', 'Saturn', '小克', '小猪', '旁白'];
-  let quoteEditId = null, quoteSelWho = 'Nico';
+  // 「谁说的」：默认只有 Nico，其余人名由用户自己加，存在本机
+  const QUOTE_DEFAULT_PEOPLE = ['Nico'];
+  let quotePeople = [];
+  try { quotePeople = JSON.parse(localStorage.getItem('islet_quote_people') || '[]'); } catch (e) { quotePeople = []; }
+  if (!Array.isArray(quotePeople)) quotePeople = [];
+  function saveQuotePeople() { lsSet('islet_quote_people', JSON.stringify(quotePeople)); }
+  function allQuotePeople() { const seen = new Set(); return QUOTE_DEFAULT_PEOPLE.concat(quotePeople).filter(p => p && !seen.has(p) && seen.add(p)); }
+  function addQuotePerson() {
+    const name = (prompt('这句话是谁说的？', '') || '').trim().slice(0, 20);
+    if (!name) return;
+    if (!allQuotePeople().includes(name)) { quotePeople.push(name); saveQuotePeople(); }
+    quoteSelWho = name; renderQuoteWhoTabs();
+  }
+  function removeQuotePerson(name) {
+    if (!confirm('从「谁说的」列表里移除「' + name + '」？已记录的语录不受影响。')) return;
+    quotePeople = quotePeople.filter(p => p !== name); saveQuotePeople();
+    if (quoteSelWho === name) quoteSelWho = QUOTE_DEFAULT_PEOPLE[0];
+    renderQuoteWhoTabs();
+  }
+  let quoteEditId = null, quoteSelWho = QUOTE_DEFAULT_PEOPLE[0];
   function openQuotes() { renderQuotes(); show('quotes-overlay'); closeDrawer(); }
   function closeQuotes() { hide('quotes-overlay'); }
   function openQuoteEdit(id) {
@@ -1271,15 +1291,21 @@
     if (quoteEditId) {
       const item = quotes.find(q => q.id === quoteEditId);
       if (item) { quoteSelWho = item.who; $('quote-text').value = item.text; $('quote-note').value = item.note || ''; }
-    } else { quoteSelWho = 'Nico'; $('quote-text').value = ''; $('quote-note').value = ''; }
+    } else { quoteSelWho = QUOTE_DEFAULT_PEOPLE[0]; $('quote-text').value = ''; $('quote-note').value = ''; }
     renderQuoteWhoTabs();
     show('quote-edit-overlay');
   }
   function closeQuoteEdit() { hide('quote-edit-overlay'); quoteEditId = null; }
   function renderQuoteWhoTabs() {
-    $('quote-who-tabs').innerHTML = QUOTE_PEOPLE.map(p =>
-      `<button type="button" class="comp-tab ${p === quoteSelWho ? 'sel' : ''}" onclick="quoteSelWho='${p}';renderQuoteWhoTabs()">${p}</button>`
-    ).join('');
+    const list = allQuotePeople();
+    if (quoteSelWho && !list.includes(quoteSelWho)) list.push(quoteSelWho);   // 编辑旧语录：人名已不在列表里也要能选中
+    const wrap = $('quote-who-tabs');
+    wrap.innerHTML = list.map(p =>
+      `<button type="button" class="comp-tab ${p === quoteSelWho ? 'sel' : ''}" data-who="${esc(p)}">${esc(p)}${quotePeople.includes(p) ? '<span class="tab-x" aria-label="移除">×</span>' : ''}</button>`
+    ).join('') + '<button type="button" class="comp-tab comp-add" onclick="addQuotePerson()" aria-label="新增人名">+</button>';
+    wrap.querySelectorAll('.comp-tab[data-who]').forEach(b => {
+      b.onclick = e => { if (e.target.closest('.tab-x')) { removeQuotePerson(b.dataset.who); return; } quoteSelWho = b.dataset.who; renderQuoteWhoTabs(); };
+    });
   }
   function saveQuote() {
     const text = $('quote-text').value.trim();
@@ -1351,7 +1377,7 @@
     const data = {
       app: 'islet', version: 2, exportedAt: new Date().toISOString(),
       companions, sessions, sessionMsgs, attachments,
-      quotes, habits, arena: loadArenaLog(),
+      quotes, quotePeople, habits, arena: loadArenaLog(),
       about: localStorage.getItem('islet_about') || '',
       activeCompanionId: localStorage.getItem('islet_active_companion') || '',
       currentId: localStorage.getItem('islet_cur') || '',
@@ -1444,6 +1470,7 @@
         }
         let nq = 0, nh = 0, na = 0;
         if (has('quotes')) { data.quotes.forEach(q => { if (q && q.id && !quotes.some(x => x.id === q.id)) { quotes.push(q); nq++; } }); if (nq) saveQuotesData(); }
+        if (has('quotePeople')) { let np = 0; data.quotePeople.forEach(p => { if (typeof p === 'string' && p && !allQuotePeople().includes(p)) { quotePeople.push(p); np++; } }); if (np) saveQuotePeople(); }
         if (has('habits')) { data.habits.forEach(h => { if (h && (h.id || h.name) && !habits.some(x => x.id === h.id || x.name === h.name)) { habits.push(h); nh++; } }); if (nh) saveHabits(); }
         if (has('arena')) {
           const log = loadArenaLog();
@@ -1485,6 +1512,7 @@
         if (st.provider) localStorage.setItem('islet_provider', st.provider);
         if (st.ccBase != null) localStorage.setItem('cc_base', st.ccBase);
         if (Array.isArray(data.quotes)) localStorage.setItem('islet_quotes', JSON.stringify(data.quotes));
+        if (Array.isArray(data.quotePeople)) localStorage.setItem('islet_quote_people', JSON.stringify(data.quotePeople));
         if (Array.isArray(data.habits)) localStorage.setItem('islet_habits', JSON.stringify(data.habits));
         if (Array.isArray(data.arena)) localStorage.setItem('islet_arena', JSON.stringify(data.arena));
         // 附件：先清空本机的（旧对话已被覆盖，它们的图没人引用了），再把备份里的写回去
