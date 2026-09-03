@@ -486,6 +486,18 @@
   .ar-log-title { font-size: 13.5px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ar-log-sub { font-size: 11px; opacity: .55; flex-shrink: 0; }
 
+  /* 应用内弹窗（替代系统 alert / confirm / prompt）与轻提示 */
+  #dlg-overlay { z-index: 60; }   /* 压在其他抽屉、面板之上 */
+  .dlg-msg { font-size: 15.5px; line-height: 1.6; color: var(--ink); padding: 6px 4px 2px; white-space: pre-wrap; word-break: break-word; }
+  .dlg-sub { font-size: 12.5px; line-height: 1.55; color: var(--ink-3); padding: 4px 4px 4px; white-space: pre-wrap; }
+  #dlg-input, #dlg-textarea { margin-top: 10px; }
+  #dlg-textarea { height: 150px; font-size: 13px; }
+  #dlg-btns { margin-top: 6px; }
+  .mm-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+  .mm-btn.primary:active { opacity: .9; }
+  .toast { position: fixed; top: calc(64px + var(--safe-top)); left: 50%; transform: translateX(-50%) translateY(-8px); max-width: min(88vw, 420px); background: var(--card); border: 1px solid var(--line); color: var(--ink); font-size: 13.5px; line-height: 1.55; padding: 10px 16px; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.14); z-index: 110; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; white-space: pre-wrap; word-break: break-word; }
+  .toast.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 </style>
 </head>
@@ -750,14 +762,14 @@
     <div class="grabber"></div>
     <div class="sheet-head">
       <div class="sheet-title">整理提案</div>
-      <button class="sheet-x" onclick="tidyPlan=null;hide('tidy-overlay')">×</button>
+      <button class="sheet-x" onclick="closeTidy()">×</button>
     </div>
     <div class="form" style="padding-top:0">
       <div class="mem-hint" style="margin:0 0 4px">模型只提建议，你来拍板：点一行可取消勾选。置顶的记忆从不参与整理。</div>
       <div id="tidy-list"></div>
       <div class="distill-status" id="tidy-count"></div>
       <button class="btn-primary" onclick="applyTidy()">应用选中项</button>
-      <button class="btn-ghost" onclick="tidyPlan=null;hide('tidy-overlay')">先不动</button>
+      <button class="btn-ghost" onclick="closeTidy()">先不动</button>
     </div>
   </div>
 </div>
@@ -801,6 +813,19 @@
       <button class="mm-btn" id="mm-edit" type="button">编辑并从这里重发</button>
       <button class="mm-btn danger" id="mm-del" type="button">删除这条消息</button>
       <button class="mm-btn" type="button" onclick="hide('msgmenu-overlay')">取消</button>
+    </div>
+  </div>
+</div>
+<!-- 应用内弹窗：alert / confirm / prompt 都走这里 -->
+<div class="overlay" id="dlg-overlay" role="dialog" aria-modal="true" aria-labelledby="dlg-msg">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="form" style="padding-bottom:6px">
+      <div class="dlg-msg" id="dlg-msg"></div>
+      <div class="dlg-sub" id="dlg-sub" style="display:none"></div>
+      <input class="field" id="dlg-input" style="display:none" autocomplete="off" spellcheck="false">
+      <textarea class="field" id="dlg-textarea" style="display:none" spellcheck="false"></textarea>
+      <div id="dlg-btns"></div>
     </div>
   </div>
 </div>
@@ -883,13 +908,67 @@
     webOn = !webOn;
     localStorage.setItem('islet_web', webOn ? 'on' : 'off');
     const b = $('web-btn'); if (b) b.classList.toggle('web-on', webOn);
-    if (webOn && provider === 'cc') alert('联网目前只在 OpenRouter 通道生效（CC 传话员暂不支持）。开关先记住了，切回 OpenRouter 就能用。');
+    if (webOn && provider === 'cc') toast('联网目前只在 OpenRouter 通道生效（CC 传话员暂不支持）。开关先记住了，切回 OpenRouter 就能用。', 4500);
   }
   function ccBaseNorm() { let b = String(ccBase || '').trim().replace(/\/+$/, ''); if (b && !/\/v1$/i.test(b)) b += '/v1'; return b; }
   function apiUrl() { return provider === 'cc' ? ccBaseNorm() + '/chat/completions' : OR_API_URL; }
   function modelsUrl() { return provider === 'cc' ? ccBaseNorm() + '/models' : OR_MODELS_URL; }
   function providerReady() { return provider === 'cc' ? !!ccBaseNorm() : !!apiKey; }
   const $ = id => document.getElementById(id);
+
+  /* ---------- 应用内弹窗：替代 alert / confirm / prompt ----------
+   * 都返回 Promise：uiAlert 关掉即 resolve；uiConfirm → true/false；uiPrompt → 字符串或 null（取消）；uiChoice → 选项值或 null。
+   * 同一时刻只开一个，后来的排队等前一个关掉。不需要打断操作的轻提示走 toast()。 */
+  let _dlgQueue = Promise.resolve(), _dlgResolve = null;
+  function uiDialog(o) {
+    const run = () => new Promise(res => {
+      _dlgResolve = res;
+      $('dlg-msg').textContent = o.msg || '';
+      const sub = $('dlg-sub'); sub.textContent = o.sub || ''; sub.style.display = o.sub ? '' : 'none';
+      const inp = $('dlg-input'), ta = $('dlg-textarea');
+      inp.style.display = (o.input && !o.multiline) ? '' : 'none';
+      ta.style.display = (o.input && o.multiline) ? '' : 'none';
+      const field = o.multiline ? ta : inp;
+      if (o.input) { field.value = o.value || ''; field.placeholder = o.placeholder || ''; }
+      const btns = $('dlg-btns'); btns.innerHTML = '';
+      (o.buttons || []).forEach(b => {
+        const el = document.createElement('button'); el.type = 'button';
+        el.className = 'mm-btn' + (b.kind ? ' ' + b.kind : '');
+        el.textContent = b.label;
+        el.onclick = () => closeDlg(typeof b.value === 'function' ? b.value() : b.value);
+        btns.appendChild(el);
+      });
+      show('dlg-overlay');
+      if (o.input) setTimeout(() => { field.focus(); if (!o.multiline) field.select(); }, 250);
+    });
+    const p = _dlgQueue.then(run, run);
+    _dlgQueue = p.catch(() => {});
+    return p;
+  }
+  function closeDlg(v) { if (!_dlgResolve) return; const r = _dlgResolve; _dlgResolve = null; hide('dlg-overlay'); r(v); }
+  function uiAlert(msg, opts) { opts = opts || {}; return uiDialog({ msg, sub: opts.sub, buttons: [{ label: opts.ok || '好', value: true, kind: 'primary' }] }); }
+  function uiConfirm(msg, opts) {
+    opts = opts || {};
+    return uiDialog({ msg, sub: opts.sub, buttons: [{ label: opts.ok || '确定', value: true, kind: opts.danger ? 'danger' : 'primary' }, { label: opts.cancel || '取消', value: false }] }).then(v => !!v);
+  }
+  function uiPrompt(msg, def, opts) {
+    opts = opts || {};
+    const field = () => $(opts.multiline ? 'dlg-textarea' : 'dlg-input');
+    return uiDialog({ msg, sub: opts.sub, input: true, value: def || '', placeholder: opts.placeholder, multiline: opts.multiline,
+      buttons: [{ label: opts.ok || '确定', value: () => field().value, kind: 'primary' }, { label: opts.cancel || '取消', value: null }] });
+  }
+  function uiChoice(msg, options, opts) {
+    opts = opts || {};
+    return uiDialog({ msg, sub: opts.sub, buttons: options.map(([label, value]) => ({ label, value })).concat([{ label: opts.cancel || '取消', value: null }]) });
+  }
+  let _toastT = null;
+  function toast(msg, ms) {
+    let el = $('toast');
+    if (!el) { el = document.createElement('div'); el.id = 'toast'; el.className = 'toast'; el.onclick = () => el.classList.remove('show'); document.body.appendChild(el); }
+    el.textContent = msg;
+    requestAnimationFrame(() => el.classList.add('show'));
+    clearTimeout(_toastT); _toastT = setTimeout(() => el.classList.remove('show'), ms || 2600);
+  }
 
   const FALLBACK_MODELS = [
     { id:'anthropic/claude-opus-4.6',     name:'Claude Opus 4.6',   reason:true },
@@ -910,7 +989,8 @@
   const FAVORITES = ['anthropic/claude-opus-4.6','anthropic/claude-sonnet-4.6','anthropic/claude-haiku-4.5','openai/gpt-5.2','google/gemini-3-flash-preview','deepseek/deepseek-r1','z-ai/glm-5.2'];
 
   let apiKey = '', systemPrompt = '', reasoningEnabled = true;
-  let selectedModel = 'anthropic/claude-sonnet-4.6';
+  const DEFAULT_MODEL = { or: 'anthropic/claude-sonnet-4.6', cc: 'claude-sonnet-4-6' };   // 各来源的兜底模型
+  let selectedModel = DEFAULT_MODEL.or;
   let catalog = [], catalogMap = {};
 
   /* ---------- 主题 ---------- */
@@ -933,12 +1013,10 @@
   function setFontSize(m) { fontSize = m; localStorage.setItem('islet_fontsize', m); applyTheme(); renderThemeTabs(); }
   function setAiFont(m) { aiFont = m; localStorage.setItem('islet_aifont', m); applyTheme(); renderThemeTabs(); }
   function renderThemeTabs() {
-    const t = document.getElementById('theme-tabs');
-    if (t) t.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === themeMode));
-    const f = document.getElementById('fontsize-tabs');
-    if (f) f.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === fontSize));
-    const a = document.getElementById('aifont-tabs');
-    if (a) a.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === aiFont));
+    [['theme-tabs', themeMode], ['fontsize-tabs', fontSize], ['aifont-tabs', aiFont]].forEach(([id, cur]) => {
+      const w = document.getElementById(id);
+      if (w) w.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === cur));
+    });
   }
   applyTheme();
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (themeMode === 'auto') applyTheme(); });
@@ -1046,21 +1124,21 @@
     try { inp.value = ''; } catch (e) {}
     for (const f of files) {
       if (f.type.startsWith('image/')) {
-        if (pendingImgs.length >= 3) { alert('一条消息最多 3 张图'); continue; }
+        if (pendingImgs.length >= 3) { toast('一条消息最多 3 张图'); continue; }
         try {
           const { blob } = await compressImage(f, 1024, 0.8);
           pendingImgs.push({ id: genId(), blob, url: URL.createObjectURL(blob) });
-        } catch (e) { alert('这张图读不了：' + (e.message || e)); }
+        } catch (e) { toast('这张图读不了：' + (e.message || e)); }
       } else {
-        if (pendingDocs.length >= 3) { alert('一条消息最多 3 个文件'); continue; }
-        if (f.size > 15 * 1024 * 1024) { alert('「' + f.name + '」超过 15MB，太大了'); continue; }
+        if (pendingDocs.length >= 3) { toast('一条消息最多 3 个文件'); continue; }
+        if (f.size > 15 * 1024 * 1024) { toast('「' + f.name + '」超过 15MB，太大了'); continue; }
         try {
           let text = await extractDocText(f);
           text = text.replace(/\r\n/g, '\n');
           const trunc = text.length > MAX_DOC_CHARS;
-          if (trunc) { text = text.slice(0, MAX_DOC_CHARS); alert('「' + f.name + '」较长，已截取前 2 万字'); }
+          if (trunc) { text = text.slice(0, MAX_DOC_CHARS); toast('「' + f.name + '」较长，已截取前 2 万字'); }
           pendingDocs.push({ id: genId(), name: f.name, text, chars: text.length, trunc });
-        } catch (e) { alert('读不了「' + f.name + '」：' + ((e && e.message) || e)); }
+        } catch (e) { toast('读不了「' + f.name + '」：' + ((e && e.message) || e)); }
       }
     }
     renderImgStrip();
@@ -1122,7 +1200,7 @@
     catch (e) {
       if (!storageAlerted) {
         storageAlerted = true;
-        alert('本机存储空间已满，最新内容可能没有保存成功！\n请立刻在设置里「导出备份」，然后删除一些旧对话腾出空间。');
+        uiAlert('本机存储空间已满，最新内容可能没有保存成功！', { sub: '请立刻在设置里「导出备份」，然后删除一些旧对话腾出空间。' });
       }
       return false;
     }
@@ -1141,8 +1219,8 @@
   }
   function openHabits() { renderHabits(); show('habit-overlay'); closeDrawer(); }
   function closeHabits() { hide('habit-overlay'); }
-  function addHabit() {
-    const name = (prompt('打卡项名称（如：背单词）', '') || '').trim();
+  async function addHabit() {
+    const name = ((await uiPrompt('新建打卡项', '', { placeholder: '如：背单词', ok: '新建' })) || '').trim();
     if (!name) return;
     habits.push({ id: genId(), name, created: Date.now(), log: {} });
     saveHabits(); renderHabits();
@@ -1154,18 +1232,18 @@
     if (h.log[k]) delete h.log[k]; else h.log[k] = true;   // 点错可撤销
     saveHabits(); renderHabits();
   }
-  function editHabit(id) {
+  async function editHabit(id) {
     const h = habits.find(x => x.id === id);
     if (!h) return;
-    const name = (prompt('修改打卡项名称', h.name) || '').trim();
+    const name = ((await uiPrompt('修改打卡项名称', h.name)) || '').trim();
     if (!name || name === h.name) return;
     h.name = name;
     saveHabits(); renderHabits();
   }
-  function deleteHabit(id) {
+  async function deleteHabit(id) {
     const h = habits.find(x => x.id === id);
     if (!h) return;
-    if (!confirm('删除「' + h.name + '」及其全部记录？')) return;
+    if (!(await uiConfirm('删除「' + h.name + '」及其全部记录？', { ok: '删除', danger: true }))) return;
     habits = habits.filter(x => x.id !== id);
     saveHabits(); renderHabits();
   }
@@ -1274,14 +1352,14 @@
   if (!Array.isArray(quotePeople)) quotePeople = [];
   function saveQuotePeople() { lsSet('islet_quote_people', JSON.stringify(quotePeople)); }
   function allQuotePeople() { const seen = new Set(); return QUOTE_DEFAULT_PEOPLE.concat(quotePeople).filter(p => p && !seen.has(p) && seen.add(p)); }
-  function addQuotePerson() {
-    const name = (prompt('这句话是谁说的？', '') || '').trim().slice(0, 20);
+  async function addQuotePerson() {
+    const name = ((await uiPrompt('这句话是谁说的？', '', { placeholder: '输入人名', ok: '添加' })) || '').trim().slice(0, 20);
     if (!name) return;
     if (!allQuotePeople().includes(name)) { quotePeople.push(name); saveQuotePeople(); }
     quoteSelWho = name; renderQuoteWhoTabs();
   }
-  function removeQuotePerson(name) {
-    if (!confirm('从「谁说的」列表里移除「' + name + '」？已记录的语录不受影响。')) return;
+  async function removeQuotePerson(name) {
+    if (!(await uiConfirm('从「谁说的」列表里移除「' + name + '」？', { sub: '已记录的语录不受影响。', ok: '移除', danger: true }))) return;
     quotePeople = quotePeople.filter(p => p !== name); saveQuotePeople();
     if (quoteSelWho === name) quoteSelWho = QUOTE_DEFAULT_PEOPLE[0];
     renderQuoteWhoTabs();
@@ -1325,8 +1403,8 @@
     }
     saveQuotesData(); closeQuoteEdit(); renderQuotes();
   }
-  function deleteQuote(id) {
-    if (!confirm('删除这条语录？')) return;
+  async function deleteQuote(id) {
+    if (!(await uiConfirm('删除这条语录？', { ok: '删除', danger: true }))) return;
     quotes = quotes.filter(q => q.id !== id);
     saveQuotesData(); renderQuotes();
   }
@@ -1374,6 +1452,15 @@
   function avaChar(name) { const t = (name || '').trim(); return t ? t.charAt(0) : '✦'; };
 
   /* ---------- 备份 ---------- */
+  // 生成文件并触发下载；备份、归档、导出 .md 共用
+  function downloadFile(name, content, type) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([content], { type: type || 'application/json' }));
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+  function dateStamp(d) { d = d || new Date(); const pad = n => String(n).padStart(2, '0'); return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()); }
   async function exportBackup() {
     const sessionMsgs = {};
     sessions.forEach(s => { sessionMsgs[s.id] = loadSessionMsgs(s.id); });
@@ -1397,40 +1484,28 @@
       },
       // 刻意不包含 API Key：备份文件可能被分享或云同步，key 不应跟着走
     };
-    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-    const a = document.createElement('a');
-    const d = new Date(), pad = n => String(n).padStart(2, '0');
-    a.href = URL.createObjectURL(blob);
-    a.download = `islet-backup-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.json`;
-    document.body.appendChild(a); a.click(); a.remove();
+    downloadFile('islet-backup-' + dateStamp() + '.json', JSON.stringify(data));
     localStorage.setItem('islet_last_backup', String(Date.now()));
     updateBackupHint();
-    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
   }
   // 归档：把久未活动的对话导出成文件并从本机删除（随时可用「导入归档」找回）
   async function archiveOldSessions() {
-    const ans = prompt('把多少天没动过的对话归档？（先导出成文件，再从本机删除；当前对话不动）', '30');
+    const ans = await uiPrompt('把多少天没动过的对话归档？', '30', { sub: '先导出成文件，再从本机删除；当前对话不动。', ok: '下一步' });
     if (ans == null) return;
     const days = parseInt(ans, 10);
-    if (!(days > 0)) { alert('请输入正整数天数'); return; }
+    if (!(days > 0)) { toast('请输入正整数天数'); return; }
     const cutoff = Date.now() - days * 864e5;
     const picked = sessions.filter(s => s.id !== currentId && (s.updated || 0) < cutoff);
-    if (!picked.length) { alert('没有 ' + days + ' 天前的旧对话'); return; }
-    if (!confirm('将归档 ' + picked.length + ' 个对话：先导出成文件，再从本机删除。继续？')) return;
+    if (!picked.length) { toast('没有 ' + days + ' 天前的旧对话'); return; }
+    if (!(await uiConfirm('将归档 ' + picked.length + ' 个对话', { sub: '先导出成文件，再从本机删除。', ok: '归档' }))) return;
     const recs = picked.map(s => ({ meta: s, msgs: loadSessionMsgs(s.id) }));
     const attachments = await collectAttachments(recs.map(r => r.msgs));
     const data = { app: 'islet-archive', version: 2, exportedAt: new Date().toISOString(), sessions: recs, attachments };
-    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-    const a = document.createElement('a');
-    const d = new Date(), pad = n => String(n).padStart(2, '0');
-    a.href = URL.createObjectURL(blob);
-    a.download = `islet-archive-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.json`;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    downloadFile('islet-archive-' + dateStamp() + '.json', JSON.stringify(data));
     recs.forEach(r => { purgeAttachments(r.msgs); localStorage.removeItem('islet_s_' + r.meta.id); });
     sessions = sessions.filter(s => !picked.some(p => p.id === s.id));
     saveIndex(); renderSessions(); updateStoreMeter();
-    alert('已归档 ' + picked.length + ' 个对话。归档文件请妥善保存，想找回时在设置里「导入归档」。');
+    uiAlert('已归档 ' + picked.length + ' 个对话', { sub: '归档文件请妥善保存，想找回时在设置里「导入归档」。' });
   }
   function importArchive(input) {
     const file = input.files && input.files[0];
@@ -1440,7 +1515,7 @@
     r.onload = async () => {
       try {
         const data = JSON.parse(r.result);
-        if (!data || data.app !== 'islet-archive' || !Array.isArray(data.sessions)) { alert('这不是 islet 的归档文件'); return; }
+        if (!data || data.app !== 'islet-archive' || !Array.isArray(data.sessions)) { toast('这不是 islet 的归档文件'); return; }
         await restoreAttachments(data.attachments);
         let added = 0;
         data.sessions.forEach(rec => {
@@ -1451,8 +1526,8 @@
         });
         sessions.sort((a, b) => (b.updated || 0) - (a.updated || 0));
         saveIndex(); renderSessions(); updateStoreMeter();
-        alert(added ? ('找回 ' + added + ' 个对话 ✓') : '没有新的可导入（都已在本机）');
-      } catch (e) { alert('读取失败：' + (e && e.message || e)); }
+        toast(added ? ('找回 ' + added + ' 个对话 ✓') : '没有新的可导入（都已在本机）');
+      } catch (e) { toast('读取失败：' + (e && e.message || e)); }
     };
     r.readAsText(file);
   }
@@ -1466,10 +1541,10 @@
     r.onload = () => {
       try {
         const data = JSON.parse(r.result);
-        if (!data || data.app !== 'islet') { alert('这不是 islet 的备份文件'); return; }
+        if (!data || data.app !== 'islet') { toast('这不是 islet 的备份文件'); return; }
         const has = k => Array.isArray(data[k]) && data[k].length;
         if (!has('quotes') && !has('habits') && !has('arena')) {
-          alert('这份备份里没有名场面/打卡/活动。\n多半是旧代码导出的——先确认导出那边的版本号 ≥ 2026-08-12c，再重新导一份。');
+          uiAlert('这份备份里没有名场面 / 打卡 / 活动', { sub: '多半是旧代码导出的。先确认导出那边的版本号 ≥ 2026-08-12c，再重新导一份。' });
           return;
         }
         let nq = 0, nh = 0, na = 0;
@@ -1482,8 +1557,8 @@
           if (na) { log.sort((x, y) => (y.ts || 0) - (x.ts || 0)); saveArenaLog(log); }
         }
         if ($('quotes-overlay').classList.contains('show')) renderQuotes();
-        alert('补导完成：名场面 +' + nq + '、打卡 +' + nh + '、活动 +' + na + '。\n聊天、记忆、角色、设置：全部原封未动。');
-      } catch (e) { alert('读取失败：' + ((e && e.message) || e)); }
+        uiAlert('补导完成：名场面 +' + nq + '、打卡 +' + nh + '、活动 +' + na, { sub: '聊天、记忆、角色、设置：全部原封未动。' });
+      } catch (e) { toast('读取失败：' + ((e && e.message) || e)); }
     };
     r.readAsText(file);
   }
@@ -1494,9 +1569,9 @@
     const reader = new FileReader();
     reader.onload = async () => {
       let data;
-      try { data = JSON.parse(reader.result); } catch (e) { alert('文件无法解析，不是有效的备份'); return; }
-      if (!data || data.app !== 'islet' || !Array.isArray(data.companions) || !Array.isArray(data.sessions)) { alert('这不是 islet 的备份文件'); return; }
-      if (!confirm('导入将覆盖当前的全部角色、记忆与会话（API Key 不受影响）。确定继续？')) return;
+      try { data = JSON.parse(reader.result); } catch (e) { toast('文件无法解析，不是有效的备份'); return; }
+      if (!data || data.app !== 'islet' || !Array.isArray(data.companions) || !Array.isArray(data.sessions)) { toast('这不是 islet 的备份文件'); return; }
+      if (!(await uiConfirm('导入将覆盖当前的全部角色、记忆与会话', { sub: 'API Key 不受影响。', ok: '覆盖导入', danger: true }))) return;
       try {
         sessions.forEach(s => localStorage.removeItem('islet_s_' + s.id));   // 清掉现有会话存储
         localStorage.setItem('islet_companions', JSON.stringify(data.companions));
@@ -1522,9 +1597,9 @@
         // 附件：先清空本机的（旧对话已被覆盖，它们的图没人引用了），再把备份里的写回去
         try { await idbClear('imgs'); await idbClear('files'); } catch (e) {}
         await restoreAttachments(data.attachments);
-        alert('导入完成，即将刷新');
+        await uiAlert('导入完成，即将刷新');
         location.reload();
-      } catch (e) { alert('导入失败：' + e.message); }
+      } catch (e) { uiAlert('导入失败：' + e.message); }
     };
     reader.readAsText(file);
   }
@@ -1545,7 +1620,7 @@
     ccBase = localStorage.getItem('cc_base') || '';
     ccKey = localStorage.getItem('cc_key') || '';
     systemPrompt = localStorage.getItem('or_system') || '';
-    selectedModel = localStorage.getItem(modelStoreKey()) || (provider === 'cc' ? 'claude-sonnet-4-6' : 'anthropic/claude-sonnet-4.6');
+    selectedModel = localStorage.getItem(modelStoreKey()) || DEFAULT_MODEL[provider];
     reasoningEnabled = localStorage.getItem('or_reasoning') !== 'off';
     webOn = localStorage.getItem('islet_web') === 'on';
     const _wb = $('web-btn'); if (_wb) _wb.classList.toggle('web-on', webOn);
@@ -1572,13 +1647,13 @@
     });
 
     // 存储安全网：超 85% 时主动喊备份（每天最多提一次；平时的温和提醒在抽屉顶部）
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
         const pct = storageBytes() / (5 * 1024 * 1024) * 100;
         const last = +(localStorage.getItem('islet_quota_nag') || 0);
         if (pct > 85 && Date.now() - last > 864e5) {
           localStorage.setItem('islet_quota_nag', String(Date.now()));
-          if (confirm('本地存储已用约 ' + Math.round(pct) + '%。现在导出一份备份吗？（备份后可在设置里「归档旧对话」腾空间）')) exportBackup();
+          if (await uiConfirm('本地存储已用约 ' + Math.round(pct) + '%，现在导出一份备份吗？', { sub: '备份后可在设置里「归档旧对话」腾空间。', ok: '导出备份', cancel: '以后再说' })) exportBackup();
         }
       } catch (e) {}
     }, 1500);
@@ -1659,19 +1734,11 @@
     applyCompanionModel(cid);
     const theirs = sessions.filter(s => (s.companionId || companions[0].id) === cid).sort((a, b) => b.updated - a.updated);
     if (theirs.length) { currentId = theirs[0].id; localStorage.setItem('islet_cur', currentId); messages = loadSessionMsgs(currentId); }
-    else {
-      const nid = genId();
-      const _ho1 = makeHandoff(cid);
-      sessions.unshift({ id: nid, title: '新对话', updated: Date.now(), companionId: cid, handoff: _ho1 || undefined });
-      currentId = nid; messages = []; saveIndex(); saveSessionMsgs(nid, []); localStorage.setItem('islet_cur', nid);
-    }
+    else createSession(cid);
   }
   function switchCompanion(id) {
     if (id === activeCompanionId) { return; }
-    const prevId = currentId, snap = messages.slice();
-    if (currentAbort) currentAbort.abort();
-    maybeAutoDistill(prevId, snap);
-    isLoading = false; setLoading(false);
+    leaveCurrentSession();
     enterCompanion(id);
     renderAll(); renderSessions(); renderDrawerCompanions(); updatePill();
   }
@@ -1693,26 +1760,26 @@
     localStorage.setItem('islet_active_companion', id);
     updatePill();
   }
-  function addCompanion() {
-    const name = (prompt('给新角色起个名字', '') || '').trim();
+  async function addCompanion() {
+    const name = ((await uiPrompt('给新角色起个名字', '', { ok: '创建' })) || '').trim();
     if (!name) return;
     const c = { id: genId(), name, persona: '', mem: '', autoDistill: true };
     companions.push(c); saveCompanions();
     editingCompanionId = c.id;            // 只切编辑态，不影响正在聊的
     renderCompanionTabs(); loadMemoryForm();
   }
-  function renameCompanion(id) {
+  async function renameCompanion(id) {
     const c = companions.find(x => x.id === id);
     if (!c) return;
-    const v = prompt('重命名角色', c.name);
+    const v = await uiPrompt('重命名角色', c.name);
     if (v == null) return;
     c.name = v.trim() || c.name;
     saveCompanions(); renderCompanionTabs(); renderDrawerCompanions(); updatePill();
   }
-  function deleteCompanion(id) {
-    if (companions.length <= 1) { alert('至少保留一个角色'); return; }
+  async function deleteCompanion(id) {
+    if (companions.length <= 1) { toast('至少保留一个角色'); return; }
     const c = companions.find(x => x.id === id);
-    if (!confirm('删除角色「' + (c ? c.name : '') + '」？TA 的人设、记忆和所有对话都会一并删除，不可恢复。')) return;
+    if (!(await uiConfirm('删除角色「' + (c ? c.name : '') + '」？', { sub: 'TA 的人设、记忆和所有对话都会一并删除，不可恢复。', ok: '删除', danger: true }))) return;
     sessions.filter(s => s.companionId === id).forEach(s => { purgeAttachments(loadSessionMsgs(s.id)); localStorage.removeItem('islet_s_' + s.id); });
     sessions = sessions.filter(s => s.companionId !== id);
     companions = companions.filter(x => x.id !== id);
@@ -1745,14 +1812,26 @@
     messages = currentId ? loadSessionMsgs(currentId) : [];
   }
 
-  function ensureSession() {
-    if (currentId && sessions.find(s => s.id === currentId)) return;
+  // 新建一个属于 cid 的空会话并切过去；新建入口有三处（进入角色 / 新对话 / 兜底），都走这里
+  function createSession(cid) {
+    const ho = makeHandoff(cid);   // 先算交接棒再入列，否则会把自己当成「上一场」
     const id = genId();
-    const _ho3 = makeHandoff(activeCompanionId);
-    sessions.unshift({ id, title: '新对话', updated: Date.now(), companionId: activeCompanionId, handoff: _ho3 || undefined });
+    sessions.unshift({ id, title: '新对话', updated: Date.now(), companionId: cid, handoff: ho || undefined });
     currentId = id; messages = [];
     saveIndex(); saveSessionMsgs(id, []);
     localStorage.setItem('islet_cur', id);
+    return id;
+  }
+  function ensureSession() {
+    if (currentId && sessions.find(s => s.id === currentId)) return;
+    createSession(activeCompanionId);
+  }
+  // 离开当前会话前的收尾：停掉进行中的生成，把这场对话交给自动提炼
+  function leaveCurrentSession() {
+    const prevId = currentId, snap = messages.slice();
+    if (currentAbort) currentAbort.abort();
+    maybeAutoDistill(prevId, snap);
+    isLoading = false; setLoading(false);
   }
 
   function saveCurrent() {
@@ -1788,15 +1867,8 @@
     } catch (e) { return null; }
   }
   function newSession() {
-    const prevId = currentId, snap = messages.slice();
-    if (currentAbort) currentAbort.abort();
-    maybeAutoDistill(prevId, snap);
-    const id = genId();
-    const _ho2 = makeHandoff(activeCompanionId);
-    sessions.unshift({ id, title: '新对话', updated: Date.now(), companionId: activeCompanionId, handoff: _ho2 || undefined });
-    currentId = id; messages = [];
-    saveIndex(); saveSessionMsgs(id, []);
-    localStorage.setItem('islet_cur', id);
+    leaveCurrentSession();
+    createSession(activeCompanionId);
     renderAll(); renderSessions();
     closeDrawer();
     $('msg-input').focus();
@@ -1804,10 +1876,7 @@
 
   function switchSession(id) {
     if (id === currentId) { closeDrawer(); return; }
-    const prevId = currentId, snap = messages.slice();
-    if (currentAbort) currentAbort.abort();
-    maybeAutoDistill(prevId, snap);
-    isLoading = false; setLoading(false);
+    leaveCurrentSession();
     currentId = id;
     localStorage.setItem('islet_cur', id);
     messages = loadSessionMsgs(id);
@@ -1817,9 +1886,9 @@
     closeDrawer();
   }
 
-  function deleteSession(id) {
+  async function deleteSession(id) {
     const s = sessions.find(x => x.id === id);
-    if (!confirm('删除「' + (s ? s.title : '此对话') + '」？不可恢复。')) return;
+    if (!(await uiConfirm('删除「' + (s ? s.title : '此对话') + '」？', { sub: '不可恢复。', ok: '删除', danger: true }))) return;
     purgeAttachments(loadSessionMsgs(id));
     localStorage.removeItem('islet_s_' + id);
     sessions = sessions.filter(x => x.id !== id);
@@ -1834,10 +1903,10 @@
     renderSessions();
   }
 
-  function renameSession(id) {
+  async function renameSession(id) {
     const s = sessions.find(x => x.id === id);
     if (!s) return;
-    const v = prompt('重命名对话', s.title);
+    const v = await uiPrompt('重命名对话', s.title);
     if (v == null) return;
     s.title = v.trim() || s.title;
     saveIndex(); renderSessions();
@@ -1987,7 +2056,7 @@
     if (p !== provider) {
       localStorage.setItem(modelStoreKey(), selectedModel);   // 存走当前来源正在用的模型
       provider = p; localStorage.setItem('islet_provider', p);
-      selectedModel = localStorage.getItem(modelStoreKey()) || (p === 'cc' ? 'claude-sonnet-4-6' : 'anthropic/claude-sonnet-4.6');
+      selectedModel = localStorage.getItem(modelStoreKey()) || DEFAULT_MODEL[p];
       catalog = []; loadCatalogCache(); buildCatalogMap(); updatePill();
       fetchModels();
     }
@@ -2255,6 +2324,23 @@
   function authHeaders() {
     if (provider === 'cc') { const h = { 'Content-Type': 'application/json' }; if (ccKey) h['Authorization'] = `Bearer ${ccKey}`; return h; }
     return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'HTTP-Referer': location.href, 'X-Title': 'islet' };
+  }
+  // system + user 一问一答的消息数组；CC 通道的传话员会丢掉 system，所以并进 user 里
+  function sysUserMsgs(sys, user) { return provider === 'cc' ? [{ role: 'user', content: sys + '\n\n====\n\n' + user }] : [{ role: 'system', content: sys }, { role: 'user', content: user }]; }
+  // 角色绑定的模型（只在 OpenRouter 通道下生效），没绑就用全局当前值
+  function companionModel(c) { return (provider === 'or' && c && c.model) || selectedModel; }
+  // 非流式单次请求，返回正文；失败抛错。提炼 / 整理 / 出题这类「问一句拿结果」的都走这里
+  async function chatOnce(sys, user, model, maxTokens, opts) {
+    const body = JSON.stringify({ model, messages: sysUserMsgs(sys, user), max_tokens: maxTokens || 2048, stream: false });
+    const init = { method: 'POST', headers: authHeaders(), body };
+    // keepalive 让页面关闭后请求也能发完；但它限制 body ≤64KB，超了会直接被拒，所以按字节数判断
+    if (opts && opts.keepalive) init.keepalive = new Blob([body]).size < 60000;
+    const res = await fetch(apiUrl(), init);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const j = await res.json();
+    const out = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+    if (out == null) throw new Error('空回复');
+    return String(out);
   }
   function buildSystemContent(sid) {
     const about = sharedAbout();
@@ -2673,7 +2759,7 @@
     if (pendingImgs.length) {
       if (provider === 'cc' && !ccImgHinted) {   // 每次打开页面只提醒一次，不拦发送
         ccImgHinted = true;
-        alert('提醒：CC 通道的传话员看不到图片。这张图会保存在对话里，但不会发给模型；想让它看图，切到 OpenRouter 通道再发。');
+        toast('CC 通道的传话员看不到图片：这张图会保存在对话里，但不会发给模型。想让它看图，切到 OpenRouter 通道再发。', 5000);
       }
       const toStore = pendingImgs.slice(); pendingImgs = [];
       imgs = toStore.map(p => p.id);
@@ -3061,20 +3147,20 @@
     const text = $('card-text').value.trim().slice(0, 500);
     if (!text) { $('card-text').focus(); return; }
     if (cardEditId) { const k = memCardsOf(c).find(x => x.id === cardEditId); if (k) { k.t = text; k.c = cardEditCat; c.memUpdated = Date.now(); } }
-    else if (!addMemCard(c, text, undefined, cardEditCat)) { alert('已经有一条很相近的记忆啦'); return; }
+    else if (!addMemCard(c, text, undefined, cardEditCat)) { toast('已经有一条很相近的记忆啦'); return; }
     saveCompanions(); renderMemCards(); closeCardEdit();
   }
-  function deleteCardFromEdit() {
+  async function deleteCardFromEdit() {
     if (!cardEditId) return;
     const c = editingCompanion();
-    if (!confirm('删除这条记忆？')) return;
+    if (!(await uiConfirm('删除这条记忆？', { ok: '删除', danger: true }))) return;
     c.cards = memCardsOf(c).filter(x => x.id !== cardEditId);
     saveCompanions(); renderMemCards(); closeCardEdit();
   }
   function togglePinCard(id) { const c = editingCompanion(); const k = memCardsOf(c).find(x => x.id === id); if (!k) return; k.p = k.p ? 0 : 1; saveCompanions(); renderMemCards(); }
-  function deleteCardRow(id) {
+  async function deleteCardRow(id) {
     const c = editingCompanion(); const k = memCardsOf(c).find(x => x.id === id); if (!k) return;
-    if (!confirm('删除这条记忆？')) return;
+    if (!(await uiConfirm('删除这条记忆？', { ok: '删除', danger: true }))) return;
     c.cards = memCardsOf(c).filter(x => x.id !== id);
     saveCompanions(); renderMemCards();
   }
@@ -3150,12 +3236,7 @@
     const sys = "You are the curator of an AI companion's memory cards. Cards are numbered, NEWEST FIRST (lower number = newer). Propose ONLY clear, safe maintenance actions, one per line:\n- M: merge cards that say the same thing in different words. Format: 'M: 3,7 => merged one-line text [分类]'\n- D: drop a card that is clearly outdated (contradicted by a NEWER card) or clearly worthless. Format: 'D: 12 = short reason'. Prefer M over D; never drop unique facts.\n- T: add a category to an untagged card. Format: 'T: 5 = 分类'. Category is exactly one of 事实 / 偏好 / 事件 / 约定 (约定 = promises or plans made between the two of them).\nAt most 15 lines. If nothing needs doing, output exactly NONE. No commentary, no numbering, no code fences. Merged text stays in the cards' language, terse like an index card.";
     const user = 'MEMORY CARDS (newest first):\n' + list + '\n\nOutput actions now.';
     try {
-      const distMsgs = provider === 'cc' ? [{ role: 'user', content: sys + '\n\n====\n\n' + user }] : [{ role: 'system', content: sys }, { role: 'user', content: user }];
-      const payload = { model: (provider === 'or' && comp && comp.model) || selectedModel, messages: distMsgs, max_tokens: 2048, stream: false };
-      const res = await fetch(apiUrl(), { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) });
-      if (!res.ok) throw 0;
-      const j = await res.json();
-      const outTxt = (j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+      const outTxt = await chatOnce(sys, user, companionModel(comp), 2048);
       const items = parseTidy(outTxt, pool);
       btn.disabled = false;
       if (!items.length) { $('distill-status').textContent = '盘点完毕：暂时没有需要整理的 ✓'; return; }
@@ -3185,6 +3266,7 @@
     });
     return items;
   }
+  function closeTidy() { tidyPlan = null; hide('tidy-overlay'); }
   function tidyToggle(i) { if (tidyPlan && tidyPlan.items[i]) { tidyPlan.items[i].on = !tidyPlan.items[i].on; renderTidy(); } }
   function renderTidy() {
     const wrap = $('tidy-list'); if (!wrap || !tidyPlan) return;
@@ -3203,7 +3285,7 @@
   function applyTidy() {
     if (!tidyPlan) { hide('tidy-overlay'); return; }
     const comp = companions.find(c => c.id === tidyPlan.compId);
-    if (!comp) { tidyPlan = null; hide('tidy-overlay'); return; }
+    if (!comp) { closeTidy(); return; }
     const arr = memCardsOf(comp);
     const byId = id => arr.findIndex(k => k.id === id);
     let n = 0;
@@ -3223,7 +3305,7 @@
     }
     comp.memUpdated = Date.now();
     saveCompanions();
-    tidyPlan = null; hide('tidy-overlay');
+    closeTidy();
     renderMemCards();
     $('distill-status').textContent = '整理完成：应用了 ' + n + ' 项 ✓';
   }
@@ -3330,18 +3412,7 @@
       const existing = memCardsOf(comp).slice(0, 60).map(k => '- ' + k.t).join('\n');
       const sys = "You maintain the long-term memory of an AI companion in a companion app: memory cards, a session summary, and a relationship-state line for one specific relationship. You will see the existing cards, the current relationship state, then a recent conversation between the user and the AI companion.\n\nOUTPUT FORMAT — exactly these parts, in this order, nothing else (no bullets, no numbering, no commentary, no code fences):\n1. One line starting with 'SUMMARY: ' — a short narrative recap of THIS conversation from the companion's own perspective (what was discussed, the emotional arc, any relationship beats, how it ended). If a summary of the earlier part of this conversation is provided, fold it in and output the updated recap of the WHOLE conversation, not just the new part. 2-4 short sentences, under 120 Chinese characters. Not a chat log — an arc.\n2. 0 to 5 lines, one NEW memory card per line: only durable information not already covered by existing cards — facts about the user's life, preferences, meaningful events, emotional notes that will still matter later. When a fact carries the user's emotional stance, fold the stance into the card: not just the fact ('哥哥去世') but the posture ('提起哥哥仍会流泪'). Facts with posture beat bare facts. Each card is ONE terse line, like an index card, ending with exactly one category tag: [事实] life facts about them · [偏好] tastes/likes/dislikes · [事件] things that happened · [约定] promises or plans made between the two of you (use 约定 strictly for real commitments). Example: '答应下个月一起重读《小王子》 [约定]'. If nothing new: output exactly NONE on its own line. Never put a tag on the SUMMARY or RELATION lines.\n3. Optionally, one line starting with 'RELATION: ' — ONLY if where-you-two-are-now has meaningfully shifted from the current relationship state shown. Describe the relationship's present position (not who anyone is), under 60 Chinese characters. Omit this line entirely if nothing shifted.\n\nNEVER record in cards: meta/technical talk (which AI model, the app itself, prompts, settings, API, testing), small talk that won't matter in a week, blow-by-blow accounts (keep outcome + feeling), or anything an existing card already covers in different words.\n\nWrite everything in the language the conversation is mostly in.";
       const user = "EXISTING MEMORY CARDS:\n" + (existing || '(empty)') + "\n\nCURRENT RELATIONSHIP STATE:\n" + ((comp.rel || '').trim() || '(not set yet)') + (prevSummary ? "\n\nSUMMARY OF THE EARLIER PART OF THIS CONVERSATION (already distilled — the transcript below is only what came after):\n" + prevSummary : '') + "\n\n----\n\nRECENT CONVERSATION" + (prevSummary ? ' (newest part only)' : '') + ":\n" + transcript + "\n\n----\n\nOutput now: the SUMMARY line, then memory lines (or NONE), then optionally the RELATION line.";
-      const distMsgs = provider === 'cc'
-        ? [{ role: 'user', content: sys + '\n\n====\n\n' + user }]
-        : [{ role: 'system', content: sys }, { role: 'user', content: user }];
-      const payload = { model: (provider === 'or' && comp && comp.model) || selectedModel, messages: distMsgs, max_tokens: 4096, stream: false };
-      const body = JSON.stringify(payload);
-      // keepalive 让页面关闭后请求也能发完；但它限制 body ≤64KB，超了会直接被拒，所以按字节数判断
-      const keepalive = new Blob([body]).size < 60000;
-      const res = await fetch(apiUrl(), { method: 'POST', headers: authHeaders(), body, keepalive });
-      if (!res.ok) return null;
-      const j = await res.json();
-      const out = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-      if (out == null) return null;
+      const out = await chatOnce(sys, user, companionModel(comp), 4096, { keepalive: true });   // 失败抛错 → 外层 catch 返回 null
       let added = 0, summary = '', relation = '';
       out.split('\n').map(l => l.replace(/^[-•·*\d.、\s]+/, '').trim()).filter(Boolean).forEach(l => {
         const ms = l.match(/^summary[:：]\s*(.+)$/i);
@@ -3401,8 +3472,8 @@
   }
 
   function openArena() { closeDrawer(); show('arena-overlay'); if (!arenaBusy) arenaSetupView(); }
-  function closeArena() {
-    if (arenaBusy && !confirm('活动还在进行，关闭会停止生成。确定？')) return;
+  async function closeArena() {
+    if (arenaBusy && !(await uiConfirm('活动还在进行，关闭会停止生成', { ok: '停止并关闭', danger: true }))) return;
     arenaBusy = false;
     if (arenaAbort) arenaAbort.abort();
     hide('arena-overlay');
@@ -3432,23 +3503,17 @@
 
   // 一键出题：用当前全局模型出一个题，参赛者名单和近期玩过的题目作为上下文
   async function genArenaTheme() {
-    if (!providerReady()) { alert('请先在设置里配置接口来源'); return; }
+    if (!providerReady()) { toast('请先在设置里配置接口来源'); return; }
     const btn = $('arena-gen-btn'); btn.disabled = true; btn.textContent = '出题中…';
     try {
       const picks = companions.filter(c => arenaSel.includes(c.id)).map(c => c.name);
       const recent = loadArenaLog().slice(0, 5).map(a => a.theme);
       const sys = '你为一个多角色同题竞技的小活动出题。题目要具体、有画面感、能让不同性格的选手拉开差距；类型不限：写诗、微小说、即兴演讲、竞速或体育赛事实况解说、辩论、脱口秀、freestyle……只输出题目本身（一到两句话），不要解释，不要加引号。';
       const user = (picks.length ? '参赛者：' + picks.join('、') + '\n' : '') + (recent.length ? '最近玩过（避免雷同）：' + recent.join('；') + '\n' : '') + '出一个新题目。';
-      const oneMsgs = provider === 'cc'
-        ? [{ role: 'user', content: sys + '\n\n====\n\n' + user }]
-        : [{ role: 'system', content: sys }, { role: 'user', content: user }];
-      const payload = { model: selectedModel, messages: oneMsgs, max_tokens: 2000, stream: false };
-      const res = await fetch(apiUrl(), { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) });
-      const j = await res.json();
-      const out = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-      if (out && out.trim()) $('arena-theme-input').value = out.trim();
-      else alert('出题失败，再试一次');
-    } catch (e) { alert('出题失败：' + (e.message || e)); }
+      const out = await chatOnce(sys, user, selectedModel, 2000);
+      if (out.trim()) $('arena-theme-input').value = out.trim();
+      else toast('出题失败，再试一次');
+    } catch (e) { toast('出题失败：' + (e.message || e)); }
     btn.disabled = false; btn.textContent = '🎲 一键出题';
   }
 
@@ -3484,10 +3549,10 @@
 
   async function startArena() {
     const theme = $('arena-theme-input').value.trim();
-    if (!theme) { alert('先写活动主题'); return; }
+    if (!theme) { toast('先写活动主题'); return; }
     const picks = companions.filter(c => arenaSel.includes(c.id));
-    if (picks.length < 2) { alert('至少选两位参赛角色'); return; }
-    if (!providerReady()) { alert('请先在设置里配置接口来源'); return; }
+    if (picks.length < 2) { toast('至少选两位参赛角色'); return; }
+    if (!providerReady()) { toast('请先在设置里配置接口来源'); return; }
     arena = { ts: Date.now(), theme, parts: picks.map(c => ({ cid: c.id, name: c.name, model: c.model || selectedModel, text: '', status: 'wait' })), judge: null };
     arenaBusy = true;
     arenaRunView(false);
@@ -3502,7 +3567,7 @@
       let raf = null;
       const paint = () => { raf = null; el.innerHTML = renderMarkdown(p.text); };
       const res = await streamCompletion(p.model,
-        provider === 'cc' ? [{ role: 'user', content: arenaSystem(c) + '\n\n====\n\n' + user }] : [{ role: 'system', content: arenaSystem(c) }, { role: 'user', content: user }],
+        sysUserMsgs(arenaSystem(c), user),
         arenaAbort.signal, () => {},
         d => { p.text += d; if (!raf) raf = requestAnimationFrame(paint); },
         sm => { if (baseModelId(sm) !== baseModelId(p.model)) showRouteToast(p.model, sm); });
@@ -3555,7 +3620,7 @@
     let raf = null;
     const paint = () => { raf = null; el.innerHTML = renderMarkdown(j.text); };
     const res = await streamCompletion(j.model,
-      provider === 'cc' ? [{ role: 'user', content: spec.sys + '\n\n====\n\n' + user }] : [{ role: 'system', content: spec.sys }, { role: 'user', content: user }],
+      sysUserMsgs(spec.sys, user),
       arenaAbort.signal, () => {},
       d => { j.text += d; if (!raf) raf = requestAnimationFrame(paint); },
       sm => { if (baseModelId(sm) !== baseModelId(j.model)) showRouteToast(j.model, sm); });
@@ -3588,15 +3653,16 @@
   }
   async function shareArena() {
     if (!arena) return;
-    if (!arena.parts.some(p => p.status === 'done' && p.text)) { alert('还没有可分享的作品'); return; }
-    const blind = confirm('以盲评版分享？（隐去作者名，让朋友来当评委）\n\n点「取消」则分享完整版（含作者与评审）');
-    const text = buildArenaShareText(blind);
+    if (!arena.parts.some(p => p.status === 'done' && p.text)) { toast('还没有可分享的作品'); return; }
+    const pick = await uiChoice('分享哪个版本？', [['盲评版 · 隐去作者名，让朋友当评委', 'blind'], ['完整版 · 含作者与评审', 'full']]);
+    if (!pick) return;
+    const text = buildArenaShareText(pick === 'blind');
     if (navigator.share) {
       try { await navigator.share({ text }); return; }
       catch (e) { if (e.name === 'AbortError') return; }   // 用户取消分享面板就到此为止；其他失败落到剪贴板
     }
-    try { await navigator.clipboard.writeText(text); alert('已复制到剪贴板，去粘贴给朋友吧'); }
-    catch (e) { prompt('手动复制下面的内容：', text); }
+    try { await navigator.clipboard.writeText(text); toast('已复制到剪贴板，去粘贴给朋友吧'); }
+    catch (e) { uiPrompt('手动复制下面的内容', text, { multiline: true, ok: '好' }); }
   }
 
   // 导出 markdown 文件：盲评版给外部评审用，完整版留档
@@ -3617,16 +3683,13 @@
     }
     return L.join('\n');
   }
-  function exportArenaMd() {
+  async function exportArenaMd() {
     if (!arena) return;
-    if (!arena.parts.some(p => p.status === 'done' && p.text)) { alert('还没有可导出的作品'); return; }
-    const blind = confirm('导出盲评版？（隐去作者名，交给外部评审）\n\n点「取消」导出完整版（含作者、模型与评审）');
-    const blob = new Blob([buildArenaShareMd(blind)], { type: 'text/markdown;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'islet-活动-' + new Date(arena.ts).toISOString().slice(0, 10) + (blind ? '-盲评版' : '') + '.md';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    if (!arena.parts.some(p => p.status === 'done' && p.text)) { toast('还没有可导出的作品'); return; }
+    const pick = await uiChoice('导出哪个版本？', [['盲评版 · 隐去作者名，交给外部评审', 'blind'], ['完整版 · 含作者、模型与评审', 'full']]);
+    if (!pick) return;
+    const blind = pick === 'blind';
+    downloadFile('islet-活动-' + new Date(arena.ts).toISOString().slice(0, 10) + (blind ? '-盲评版' : '') + '.md', buildArenaShareMd(blind), 'text/markdown;charset=utf-8');
   }
 
   function viewArena(ts) {
@@ -3798,14 +3861,16 @@
   function show(id) { $(id).classList.add('show'); }
   function hide(id) { $(id).classList.remove('show'); }
 
-  $('drawer-overlay').addEventListener('click', e => { if (e.target.id === 'drawer-overlay') closeDrawer(); });
-  $('setup-overlay').addEventListener('click', e => { if (e.target.id === 'setup-overlay') closeSettings(); });
-  $('picker-overlay').addEventListener('click', e => { if (e.target.id === 'picker-overlay') closePicker(); });
-  $('memory-overlay').addEventListener('click', e => { if (e.target.id === 'memory-overlay') closeMemory(); });
-  $('arena-overlay').addEventListener('click', e => { if (e.target.id === 'arena-overlay') closeArena(); });
-  $('habit-overlay').addEventListener('click', e => { if (e.target.id === 'habit-overlay') closeHabits(); });
-  $('search-overlay').addEventListener('click', e => { if (e.target.id === 'search-overlay') closeSearch(); });
-  $('msgmenu-overlay').addEventListener('click', e => { if (e.target.id === 'msgmenu-overlay') hide('msgmenu-overlay'); });
+  // 点遮罩关闭：弹层 id → 关闭函数
+  const OVERLAY_CLOSE = {
+    'drawer-overlay': closeDrawer, 'setup-overlay': closeSettings, 'picker-overlay': closePicker, 'memory-overlay': closeMemory,
+    'arena-overlay': closeArena, 'habit-overlay': closeHabits, 'search-overlay': closeSearch,
+    'msgmenu-overlay': () => hide('msgmenu-overlay'), 'dlg-overlay': () => closeDlg(null),
+  };
+  Object.entries(OVERLAY_CLOSE).forEach(([id, fn]) => $(id).addEventListener('click', e => { if (e.target.id === id) fn(); }));
+  // 弹窗里的输入框：回车 = 第一个按钮（确定）；Esc = 取消
+  $('dlg-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); const b = $('dlg-btns').firstElementChild; if (b) b.click(); } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('dlg-overlay').classList.contains('show')) closeDlg(null); });
 
   $('mm-copy').onclick = () => {
     const m = messages[menuIdx];
@@ -3813,10 +3878,10 @@
     hide('msgmenu-overlay');
   };
   $('mm-edit').onclick = () => { hide('msgmenu-overlay'); editMessage(menuIdx); };
-  $('mm-del').onclick = () => {
+  $('mm-del').onclick = async () => {
     const m = messages[menuIdx];
     if (!m) { hide('msgmenu-overlay'); return; }
-    if (!confirm('删除这条消息？不可恢复。')) return;
+    if (!(await uiConfirm('删除这条消息？', { sub: '不可恢复。', ok: '删除', danger: true }))) return;
     if (isLoading && currentAbort) currentAbort.abort();
     purgeAttachments([m]);
     messages.splice(menuIdx, 1);
