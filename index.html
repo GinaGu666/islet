@@ -3,10 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" id="meta-theme" content="#F4F0E8">
+<meta name="theme-color" id="meta-theme" content="#ECE9E3">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="islet">
+<!-- 正文字体：思源宋体 500。你之前的字体栈里本来就写着 Source Han Serif，只是 iPhone 上没有，落到了系统宋体。
+     Google Fonts 会按 unicode-range 切成一百多片，浏览器只下载页面里出现过的那几片，首次几百 KB，之后走缓存。
+     国内网络访问不到 googleapis 的话，换成镜像域名，或者把子集文件放到自己的服务器上。 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&display=swap">
 <link rel="apple-touch-icon" href="islet-icon.png">
 <title>islet</title>
 <style>
@@ -14,35 +20,39 @@
 
   /* 西文单独立一族：只接管拉丁字母/数字/西文标点，并把字号顶大一档去够中文的字面。
      中英同号时英文总显小，是因为汉字几乎占满字身框、拉丁字母只占七成左右。
-     嫌英文太大就把 105% 调回 100%；size-adjust 老浏览器不认，忽略即可，不影响别的。 */
+     嫌英文太大就把 105% 调回 100%；size-adjust 老浏览器不认，忽略即可，不影响别的。
+     西文首选 Iowan Old Style：苹果自家 Books 的正文字体，iOS / macOS 都自带，能用 local() 点到名。
+     不要用 ui-serif（New York）：它是"系统字体"，自带整套中文回落，会把汉字一起接管成苹方，宋体永远轮不到。 */
   @font-face {
     font-family: "IsletLatin";
-    src: local("Georgia"), local("Iowan Old Style"), local("Times New Roman");
+    src: local("Iowan Old Style"), local("Georgia"), local("Times New Roman");
     unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+2000-206F, U+2122, U+2212;
     size-adjust: 105%;
   }
 
   :root {
-    --bg:        #F4F0E8;
-    --card:      #FCFAF5;
-    --user:      #FFFFFF;
-    --ink:       #3A332B;
-    --ink-2:     #837868;
-    --ink-3:     #ABA08E;
-    --accent:    #C0683F;
-    --accent-weak: rgba(192,104,63,0.10);
-    --accent-line: rgba(192,104,63,0.30);
-    --line:      rgba(58,51,43,0.09);
-    --code-bg:   #EEE7DA;
-    --code-head: rgba(58,51,43,0.04);
-    --scrim:     rgba(36,31,25,0.32);
+    --bg:        #ECE9E3;   /* 米灰：一堵素墙，暖不过头、灰不发冷 */
+    --card:      #F6F4F0;   /* 抽屉、弹层、输入框：比墙亮半档的同一种灰 */
+    --user:      #FFFFFF;   /* 你的气泡：整个界面里唯一一张白纸 */
+    --ink:       #2B2A28;   /* 墨：接近黑，但不是 #000，和石墨同宗 */
+    --ink-2:     #6E6B66;
+    --ink-3:     #9E9A93;
+    --accent:    #3B3A37;   /* 石墨：所有按钮、开关、链接只有这一种颜色 */
+    --on-accent: #FFFFFF;   /* 石墨上的字 */
+    --accent-weak: rgba(59,58,55,0.08);
+    --accent-line: rgba(59,58,55,0.30);
+    --line:      rgba(43,42,40,0.10);
+    --code-bg:   #E2DFD8;
+    --code-head: rgba(43,42,40,0.04);
+    --scrim:     rgba(43,42,40,0.36);
+    --user-ink:  var(--ink);
     --radius:    20px;
     --radius-sm: 12px;
     --safe-top:    env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
     /* 字体栈是逐字回落的：中文字体排在前面，英文也会被它接管（宋体的西文又细又小）。
        所以西文族在前、中文族在后，各自命中各自的字。 */
-    --serif:     "IsletLatin", Georgia, "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Source Han Serif CN", "Noto Serif SC", STSong, SimSun, serif;
+    --serif:     "IsletLatin", Georgia, "Noto Serif SC", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "Source Han Serif CN", "Noto Serif SC", STSong, SimSun, serif;
     --sans:      -apple-system, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
     --mono:      ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     /* 阅读字号：默认「标准」，可在设置里调大。
@@ -59,236 +69,52 @@
   :root[data-fontsize="xl"] { --fs-bubble: 20px;   --fs-ai: 20px;   --fs-think: 16.5px; --fs-input: 20px; }
   /* 正文字体切到黑体（宋体在部分设备上回退效果不佳时用） */
   :root[data-aifont="sans"] .ai-text,
+  :root[data-aifont="sans"] .bubble,
   :root[data-aifont="sans"] .think-body-inner { font-family: var(--sans) !important; }
   /* 等宽：终端味。中文没有真正的等宽字体，会自动回退到系统黑体，英文数字是等宽的——和终端里看到的一样 */
   :root[data-aifont="mono"] .ai-text,
+  :root[data-aifont="mono"] .bubble,
   :root[data-aifont="mono"] .think-body-inner { font-family: var(--mono) !important; }
 
-  /* 夜晚的同一个房间：暖深棕，不是冷灰；赭石提亮一档保证对比度 */
+  /* 深色是同一间屋子关了灯：墙变石墨，石墨变浅灰——按钮和你的字互换材质，其余关系不变 */
   :root[data-theme="dark"] {
-    --bg:        #221E1A;
-    --card:      #2C2722;
-    --user:      #342E27;
-    --ink:       #EAE3D7;
-    --ink-2:     #A99D8B;
-    --ink-3:     #7D7263;
-    --accent:    #DB8B5B;
-    --accent-weak: rgba(219,139,91,0.13);
-    --accent-line: rgba(219,139,91,0.38);
-    --line:      rgba(234,227,215,0.10);
-    --code-bg:   #2B2620;
-    --code-head: rgba(234,227,215,0.05);
+    --bg:        #1F1E1C;
+    --card:      #292825;
+    --user:      #34322F;
+    --user-ink:  #E8E5DF;
+    --ink:       #E8E5DF;
+    --ink-2:     #A5A29B;
+    --ink-3:     #726F69;
+    --accent:    #DAD7D0;
+    --on-accent: #1F1E1C;
+    --accent-weak: rgba(218,215,208,0.10);
+    --accent-line: rgba(218,215,208,0.30);
+    --line:      rgba(232,229,223,0.10);
+    --code-bg:   #161514;
+    --code-head: rgba(232,229,223,0.05);
     --scrim:     rgba(0,0,0,0.5);
     color-scheme: dark;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg:        #221E1A;
-      --card:      #2C2722;
-      --user:      #342E27;
-      --ink:       #EAE3D7;
-      --ink-2:     #A99D8B;
-      --ink-3:     #7D7263;
-      --accent:    #DB8B5B;
-      --accent-weak: rgba(219,139,91,0.13);
-      --accent-line: rgba(219,139,91,0.38);
-      --line:      rgba(234,227,215,0.10);
-      --code-bg:   #2B2620;
-      --code-head: rgba(234,227,215,0.05);
+      --bg:        #1F1E1C;
+      --card:      #292825;
+      --user:      #34322F;
+      --user-ink:  #E8E5DF;
+      --ink:       #E8E5DF;
+      --ink-2:     #A5A29B;
+      --ink-3:     #726F69;
+      --accent:    #DAD7D0;
+      --on-accent: #1F1E1C;
+      --accent-weak: rgba(218,215,208,0.10);
+      --accent-line: rgba(218,215,208,0.30);
+      --line:      rgba(232,229,223,0.10);
+      --code-bg:   #161514;
+      --code-head: rgba(232,229,223,0.05);
       --scrim:     rgba(0,0,0,0.5);
       color-scheme: dark;
     }
   }
-
-  /* 冰蓝色调 · 按土卫二照片实采重调：冰壳本体是几乎无色的冰白（照片实测饱和度仅 3%），
-     蓝绿只留给"裂隙"——强调色取自虎纹裂缝里新鲜冰的灰青（色相同旧版，饱和度 90→68）；
-     文字换成冰层阴影的冷石墨，不再是偏蓝的墨色 */
-  :root[data-palette="cool"] {
-    --bg:        #EBF1F2;
-    --card:      #FBFDFD;
-    --user:      #DFE8EA;
-    --ink:       #242C30;
-    --ink-2:     #5A6C74;
-    --ink-3:     #8FA0A6;
-    --accent:    #2B7085;
-    --accent-weak: rgba(43,112,133,0.10);
-    --accent-line: rgba(43,112,133,0.32);
-    --line:      rgba(36,44,48,0.10);
-    --code-bg:   #E2E9EA;
-    --code-head: rgba(36,44,48,0.045);
-    --scrim:     rgba(13,22,26,0.38);
-    color-scheme: light;
-  }
-  :root[data-palette="cool"][data-theme="dark"] {
-    --bg:        #171B20;
-    --card:      #1F252B;
-    --user:      #262D34;
-    --ink:       #DEE5EB;
-    --ink-2:     #8D99A5;
-    --ink-3:     #66717C;
-    --accent:    #7FB5D6;
-    --accent-weak: rgba(127,181,214,0.13);
-    --accent-line: rgba(127,181,214,0.38);
-    --line:      rgba(222,229,235,0.10);
-    --code-bg:   #20262C;
-    --code-head: rgba(222,229,235,0.05);
-    --scrim:     rgba(0,0,0,0.5);
-    color-scheme: dark;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root[data-palette="cool"]:not([data-theme="light"]) {
-      --bg:        #171B20;
-      --card:      #1F252B;
-      --user:      #262D34;
-      --ink:       #DEE5EB;
-      --ink-2:     #8D99A5;
-      --ink-3:     #66717C;
-      --accent:    #7FB5D6;
-      --accent-weak: rgba(127,181,214,0.13);
-      --accent-line: rgba(127,181,214,0.38);
-      --line:      rgba(222,229,235,0.10);
-      --code-bg:   #20262C;
-      --code-head: rgba(222,229,235,0.05);
-      --scrim:     rgba(0,0,0,0.5);
-      color-scheme: dark;
-    }
-  }
-
-  /* 冰蓝浅色专属：对话区顶部一层同色系的冰面亮光（只提亮度、不带色温），往下自然沉回底色；
-     此前试过照片里向阳冰缘的暖玫瑰白，但固定在左上角不随内容滚动，实机上像一块暖色污渍，已回退；
-     深色与其他配色不受影响 */
-  :root[data-palette="cool"]:not([data-theme="dark"]) .chat {
-    background: radial-gradient(115% 52% at 22% 3%, #F7FAFA 0%, var(--bg) 62%);
-  }
-  :root[data-palette="cool"][data-theme="dark"] .chat { background: none; }
-  @media (prefers-color-scheme: dark) {
-    :root[data-palette="cool"]:not([data-theme="light"]) .chat { background: none; }
-  }
-
-  /* 冰蓝专属：卡片投影从默认的暖棕换成冰层阴影的冷灰蓝，避免暖色渗进冷色主题 */
-  :root[data-palette="cool"] .model-pill { box-shadow: 0 1px 3px rgba(32,46,53,0.05); }
-  :root[data-palette="cool"] .bubble { box-shadow: 0 1px 2px rgba(32,46,53,0.05), 0 3px 12px rgba(32,46,53,0.06); }
-
-  /* 藕荷 · 按你终端截图实采重调：底色就是那张图的贝壳粉 #FEF7FC——几乎是白，只透一口粉的呼吸；
-     强调色也从截图里取，是「accept edits」那档紫水晶（色相 280），比旧版兰紫更紫一点；
-     墨色跟着换成截图里的堇灰，冷一度，反而衬得底色更粉。
-     你的气泡做撞色：淡豆绿——藕荷配豆绿是老配方，粉绿同净度相遇，撞而不吵 */
-  :root[data-palette="lilac"] {
-    --bg:        #F3F2F0;
-    --card:      #FAFAF9;
-    --user:      #F0E0E2;
-    --ink:       #3A3A3C;
-    --ink-2:     #7A7A7E;
-    --ink-3:     #A8A8AC;
-    --accent:    #C8949B;
-    --accent-weak: rgba(200,148,155,0.10);
-    --accent-line: rgba(200,148,155,0.32);
-    --line:      rgba(58,58,60,0.09);
-    --code-bg:   #ECEAE8;
-    --code-head: rgba(58,58,60,0.04);
-    --scrim:     rgba(36,36,38,0.32);
-    color-scheme: light;
-  }
-  /* 深色：深灰夜色，pale pink 强调色变柔变暖 */
-  :root[data-palette="lilac"][data-theme="dark"] {
-    --bg:        #1E1E20;
-    --card:      #28282A;
-    --user:      #352A2E;
-    --ink:       #E8E6E3;
-    --ink-2:     #A09DA0;
-    --ink-3:     #706D70;
-    --accent:    #D4A0A7;
-    --accent-weak: rgba(212,160,167,0.13);
-    --accent-line: rgba(212,160,167,0.38);
-    --line:      rgba(232,230,227,0.10);
-    --code-bg:   #252526;
-    --code-head: rgba(232,230,227,0.05);
-    --scrim:     rgba(0,0,0,0.5);
-    color-scheme: dark;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root[data-palette="lilac"]:not([data-theme="light"]) {
-      --bg:        #1E1E20;
-      --card:      #28282A;
-      --user:      #352A2E;
-      --ink:       #E8E6E3;
-      --ink-2:     #A09DA0;
-      --ink-3:     #706D70;
-      --accent:    #D4A0A7;
-      --accent-weak: rgba(212,160,167,0.13);
-      --accent-line: rgba(212,160,167,0.38);
-      --line:      rgba(232,230,227,0.10);
-      --code-bg:   #252526;
-      --code-head: rgba(232,230,227,0.05);
-      --scrim:     rgba(0,0,0,0.5);
-      color-scheme: dark;
-    }
-  }
-
-  /* 浅灰粉浅色专属：顶部微白柔光 */
-  :root[data-palette="lilac"]:not([data-theme="dark"]) .chat {
-    background: radial-gradient(115% 52% at 22% 3%, #FAFAFA 0%, var(--bg) 62%);
-  }
-  :root[data-palette="lilac"][data-theme="dark"] .chat { background: none; }
-  @media (prefers-color-scheme: dark) {
-    :root[data-palette="lilac"]:not([data-theme="light"]) .chat { background: none; }
-  }
-
-  /* 浅灰粉专属：投影用中性灰 */
-  :root[data-palette="lilac"] .model-pill { box-shadow: 0 1px 3px rgba(58,58,60,0.05); }
-  :root[data-palette="lilac"] .bubble { box-shadow: 0 1px 2px rgba(58,58,60,0.05), 0 3px 12px rgba(58,58,60,0.06); }
-
-  /* 终端 · 按你那张 Claude Code 终端截图实采：底色是那种发蓝的墨黑 #141729——不是纯黑，是深夜里亮着的一块屏；
-     正文取截图里那口发光的淡蓝 #A8D0F8，收一点饱和度当长文阅读色；强调色就是那抹终端绿 #20B068，
-     光标、按钮、链接、你的名字全用它；你的气泡是提示符那条灰蓝带 #1E202D 稍稍提亮；
-     圆角收小一档，字号不动。这个色调天生是夜里的：浅色 / 深色 / 跟随系统三档下都长一个样，是故意的。
-     想更像终端，正文字体那栏还有个「等宽」可以配着用 */
-  :root[data-palette="term"],
-  :root[data-palette="term"][data-theme="dark"],
-  :root[data-palette="term"][data-theme="light"] {
-    --bg:        #141729;
-    --card:      #1B1F33;
-    --user:      #21253A;
-    --ink:       #BCD3F0;
-    --ink-2:     #7D8DAB;
-    --ink-3:     #566079;
-    --accent:    #22B36B;
-    --accent-weak: rgba(34,179,107,0.13);
-    --accent-line: rgba(34,179,107,0.42);
-    --line:      rgba(168,208,248,0.10);
-    --code-bg:   #0E1120;
-    --code-head: rgba(168,208,248,0.05);
-    --scrim:     rgba(0,0,0,0.55);
-    --radius:    12px;
-    --radius-sm: 8px;
-    color-scheme: dark;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root[data-palette="term"]:not([data-theme="light"]) {
-      --bg:        #141729;
-      --card:      #1B1F33;
-      --user:      #21253A;
-      --ink:       #BCD3F0;
-      --ink-2:     #7D8DAB;
-      --ink-3:     #566079;
-      --accent:    #22B36B;
-      --accent-weak: rgba(34,179,107,0.13);
-      --accent-line: rgba(34,179,107,0.42);
-      --line:      rgba(168,208,248,0.10);
-      --code-bg:   #0E1120;
-      --code-head: rgba(168,208,248,0.05);
-      --scrim:     rgba(0,0,0,0.55);
-      --radius:    12px;
-      --radius-sm: 8px;
-      color-scheme: dark;
-    }
-  }
-  /* 终端专属：投影改用真正的黑；光标换成方块；对方名字亮绿，像提示符 */
-  :root[data-palette="term"] .chat { background: none; }
-  :root[data-palette="term"] .model-pill { box-shadow: 0 1px 3px rgba(0,0,0,0.30); }
-  :root[data-palette="term"] .bubble { box-shadow: 0 1px 2px rgba(0,0,0,0.25); }
-  :root[data-palette="term"] .cursor::after { width: .55em; border-radius: 1px; }
-  :root[data-palette="term"] .ai-eyebrow .name { color: var(--accent); }
 
   body {
     font-family: var(--sans);
@@ -309,11 +135,13 @@
   .icon-btn { background: none; border: none; cursor: pointer; color: var(--ink-2); width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background .15s, color .15s; }
   .icon-btn:active { background: var(--accent-weak); color: var(--accent); }
   .icon-btn svg { width: 20px; height: 20px; }
-  .model-pill { flex: 1; min-width: 0; margin: 0 auto; max-width: 320px; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; display: flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; color: var(--ink); font-size: 14px; box-shadow: 0 1px 3px rgba(58,51,43,0.04); transition: border-color .15s; }
+  /* 顶栏胶囊：角色是主角，模型名只是脚注。头像在左，名字用衬线，模型名压成一行小字 */
+  .model-pill { flex: 1; min-width: 0; margin: 0 auto; max-width: 320px; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px 5px 6px; display: flex; align-items: center; justify-content: center; gap: 9px; cursor: pointer; color: var(--ink); font-size: 14px; text-align: left; box-shadow: 0 1px 3px rgba(43,42,40,0.04); transition: border-color .15s; }
   .model-pill:active { border-color: var(--accent-line); }
-  .pill-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
-  .pill-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pill-sub { color: var(--ink-3); font-size: 12px; flex-shrink: 0; }
+  .pill-ava { width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; font-family: var(--serif); font-size: 15px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .pill-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+  .pill-name { font-size: 15.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .01em; }
+  .pill-sub { color: var(--ink-3); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pill-chev { color: var(--ink-3); flex-shrink: 0; display: flex; }
 
   /* 对话区 */
@@ -323,7 +151,7 @@
   @keyframes msg-in { from { opacity: 0; transform: translateY(4px); } }
   .msg.user { align-self: flex-end; align-items: flex-end; }
   .msg.ai { align-self: flex-start; align-items: flex-start; width: 100%; max-width: 100%; }
-  .bubble { background: var(--user); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 15px; font-size: var(--fs-bubble); line-height: 1.7; letter-spacing: .01em; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; box-shadow: 0 1px 2px rgba(58,51,43,0.04), 0 3px 12px rgba(58,51,43,0.05); }
+  .bubble { background: var(--user); color: var(--user-ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 15px; font-family: var(--serif); font-weight: 500; font-size: var(--fs-bubble); line-height: 1.7; letter-spacing: .01em; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; box-shadow: 0 1px 2px rgba(43,42,40,0.04), 0 3px 12px rgba(43,42,40,0.05); }
   .time { font-size: 11px; color: var(--ink-3); padding: 4px 4px 0; }
   .to-bottom { position: fixed; right: 16px; bottom: calc(86px + var(--safe-bottom)); z-index: 20; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 10px rgba(0,0,0,0.10); opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .18s, transform .18s; }
   .to-bottom.show { opacity: 1; pointer-events: auto; transform: none; }
@@ -372,18 +200,19 @@
   .cal-day { width: 34px; height: 34px; border-radius: 50%; border: none; background: none; font-size: 13px; color: var(--ink-2); display: flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; cursor: pointer; transition: background .12s; }
   .cal-day:not(.future):active { background: var(--accent-weak); }
   .cal-day.today { box-shadow: inset 0 0 0 1.5px var(--accent-line); color: var(--accent); font-weight: 600; }
-  .cal-day.logged { background: var(--accent); color: #fff; font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,.14); }
+  .cal-day.logged { background: var(--accent); color: var(--on-accent); font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,.14); }
   .cal-day.logged.today { box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.55), 0 1px 4px rgba(0,0,0,.14); }
   .cal-day.future { opacity: .3; pointer-events: none; }
   .cal-foot { text-align: center; font-size: 11.5px; color: var(--ink-3); padding-top: 10px; }
   .habit-check { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--accent-line); background: none; color: var(--accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background .15s, transform .1s; }
   .habit-check:active { transform: scale(.92); }
-  .habit-check.done { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .habit-check.done { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
   .habit-del { background: none; border: none; color: var(--ink-3); padding: 6px 2px; flex-shrink: 0; }
   .habit-empty { text-align: center; color: var(--ink-3); padding: 30px 0 22px; font-size: 13.5px; }
   .habit-add { margin: 14px 0 6px; align-self: flex-start; }
-  .ai-eyebrow .name { font-weight: 600; color: var(--ink); }
-  .ai-eyebrow .t { color: var(--ink-3); font-size: 11.5px; }
+  .ai-eyebrow .name { font-family: var(--serif); font-weight: 600; font-size: 14.5px; color: var(--ink); }
+  .ai-eyebrow .model { font-size: 10.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .ai-eyebrow .t { color: var(--ink-3); font-size: 11.5px; flex-shrink: 0; }
 
   /* 思考块 */
   .think { margin-bottom: 10px; width: 100%; }
@@ -398,7 +227,7 @@
   .think-body-inner { font-family: var(--serif) !important; margin-top: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); font-size: var(--fs-think); line-height: 1.75; letter-spacing: .01em; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; }
 
   /* AI 正文 + Markdown */
-  .ai-text { font-family: var(--serif) !important; font-size: var(--fs-ai); line-height: 1.75; letter-spacing: .01em; color: var(--ink); overflow-wrap: break-word; word-break: normal; text-wrap: pretty; }
+  .ai-text { font-family: var(--serif) !important; font-weight: 500; font-size: var(--fs-ai); line-height: 1.75; letter-spacing: .01em; color: var(--ink); overflow-wrap: break-word; word-break: normal; text-wrap: pretty; }
   .ai-text.err { color: var(--accent); white-space: pre-wrap; }
   /* 段距原来是死值 10px，比行距还小，整段会糊成一坨。
      改成跟着字号走的 1.1em，段与段之间的空当明显宽过行与行，眼睛才有落脚点。 */
@@ -431,20 +260,26 @@
   .broke { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding: 8px 12px; background: var(--accent-weak); border-radius: var(--radius-sm); font-size: 12.5px; color: var(--ink-2); }
   .broke b { color: var(--accent); font-weight: 600; }
   .broke button { background: var(--card); border: 1px solid var(--accent-line); color: var(--accent); font-size: 12.5px; padding: 5px 12px; border-radius: 999px; cursor: pointer; }
-  .broke button:active { background: var(--accent); color: #fff; }
+  .broke button:active { background: var(--accent); color: var(--on-accent); }
 
   /* 空状态 */
   .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--ink-3); text-align: center; padding: 40px; }
   .empty .glyph { font-size: 30px; color: var(--accent); opacity: .55; }
   .empty .line1 { font-size: 15px; color: var(--ink-2); }
-  .empty .line2 { font-size: 12.5px; color: var(--ink-3); }
+  .empty .line2 { font-size: 13px; color: var(--ink-3); }
+  .empty-ava { width: 52px; height: 52px; border-radius: 50%; color: #fff; font-family: var(--serif); font-size: 24px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,0,0,.10); }
+  .empty-name { font-size: 21px; font-weight: 600; color: var(--ink); letter-spacing: .02em; margin-top: -2px; }
+  .empty-mem { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; margin-top: 18px; max-width: 320px; background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; }
+  .empty-mem-lbl { font-size: 11.5px; color: var(--ink-3); margin-right: 2px; }
+  .empty-chip { font-size: 12px; color: var(--ink-2); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .empty-mem:active .empty-chip { border-color: var(--accent-line); }
 
   /* 输入栏 */
   .input-bar { display: flex; align-items: flex-end; gap: 9px; padding: 8px 14px calc(12px + var(--safe-bottom)); background: var(--bg); flex-shrink: 0; border-top: 1px solid var(--line); }
   .input-wrap { flex: 1; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 9px 16px; display: flex; align-items: flex-end; transition: border-color .15s; }
   .input-wrap:focus-within { border-color: var(--accent-line); }
-  #web-btn { font-size: 17px; line-height: 1; filter: grayscale(1); opacity: .45; }
-  #web-btn.web-on { filter: none; opacity: 1; }
+  #web-btn { transition: color .15s; }
+  #web-btn.web-on { color: var(--accent); }
   .img-strip .doc-chip { display: flex; align-items: center; gap: 6px; height: 56px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--accent) 7%, transparent); max-width: 170px; }
   .doc-chip .doc-name { font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .msg-docs { display: flex; flex-direction: column; gap: 5px; margin-bottom: 6px; }
@@ -453,7 +288,7 @@
   .msg-doc .doc-sub { color: var(--ink-3); font-size: 11px; flex: none; }
   #msg-input { flex: 1; background: none; border: none; outline: none; color: var(--ink); font-size: var(--fs-input); font-family: inherit; resize: none; line-height: 1.5; max-height: 130px; min-height: 22px; }
   #msg-input::placeholder { color: var(--ink-3); }
-  .send-btn { width: 40px; height: 40px; background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, #fff) 0%, var(--accent) 100%); border: none; border-radius: 50%; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: opacity .15s, transform .1s; box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent); }
+  .send-btn { width: 40px; height: 40px; background: var(--accent); color: var(--on-accent); border: none; border-radius: 50%; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: opacity .15s, transform .1s; box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
   .send-btn:active { transform: scale(.92); }
   .send-btn:disabled { opacity: .35; }
   .send-btn svg { width: 19px; height: 19px; }
@@ -461,7 +296,7 @@
   /* 覆盖层 / 底部抽屉 */
   .overlay { position: fixed; inset: 0; z-index: 50; background: var(--scrim); backdrop-filter: blur(2px); display: flex; align-items: flex-end; opacity: 0; pointer-events: none; transition: opacity .2s; }
   .overlay.show { opacity: 1; pointer-events: auto; }
-  .sheet { width: 100%; background: var(--bg); border-radius: 22px 22px 0 0; padding: 8px 0 calc(16px + var(--safe-bottom)); max-height: 88dvh; display: flex; flex-direction: column; transform: translateY(100%); transition: transform .26s cubic-bezier(.22,.61,.36,1); box-shadow: 0 -8px 40px rgba(36,31,25,0.16); }
+  .sheet { width: 100%; background: var(--bg); border-radius: 22px 22px 0 0; padding: 8px 0 calc(16px + var(--safe-bottom)); max-height: 88dvh; display: flex; flex-direction: column; transform: translateY(100%); transition: transform .26s cubic-bezier(.22,.61,.36,1); box-shadow: 0 -8px 40px rgba(31,30,28,0.16); }
   .overlay.show .sheet { transform: translateY(0); }
   .grabber { width: 38px; height: 4px; border-radius: 2px; background: var(--line); margin: 8px auto 6px; flex-shrink: 0; }
   .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 20px 12px; flex-shrink: 0; }
@@ -470,7 +305,7 @@
 
   /* 左侧会话抽屉 */
   .drawer-overlay { align-items: stretch; justify-content: flex-start; }
-  .drawer { width: 82%; max-width: 340px; height: 100%; background: var(--bg); display: flex; flex-direction: column; transform: translateX(-100%); transition: transform .26s cubic-bezier(.22,.61,.36,1); box-shadow: 8px 0 40px rgba(36,31,25,0.16); padding-top: var(--safe-top); }
+  .drawer { width: 82%; max-width: 340px; height: 100%; background: var(--bg); display: flex; flex-direction: column; transform: translateX(-100%); transition: transform .26s cubic-bezier(.22,.61,.36,1); box-shadow: 8px 0 40px rgba(31,30,28,0.16); padding-top: var(--safe-top); }
   .drawer-overlay.show .drawer { transform: translateX(0); }
   .drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 12px 12px 20px; flex-shrink: 0; }
   .drawer-title { font-size: 19px; }
@@ -510,7 +345,7 @@
   .slider::before { content: ''; position: absolute; height: 21px; width: 21px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
   .switch input:checked + .slider { background: var(--accent); }
   .switch input:checked + .slider::before { transform: translateX(19px); }
-  .btn-primary { background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); font-size: 15px; font-weight: 600; padding: 13px; cursor: pointer; margin-top: 18px; transition: opacity .15s, transform .1s; }
+  .btn-primary { background: var(--accent); color: var(--on-accent); border: none; border-radius: var(--radius-sm); font-size: 15px; font-weight: 600; padding: 13px; cursor: pointer; margin-top: 18px; transition: opacity .15s, transform .1s; }
   .btn-primary:active { transform: scale(.99); opacity: .92; }
   .form-note { font-size: 11.5px; color: var(--ink-3); line-height: 1.5; margin-top: 12px; text-align: center; }
 
@@ -548,7 +383,7 @@
   .comp-tabs { display: flex; gap: 6px; padding: 0 20px 10px; overflow-x: auto; flex-shrink: 0; }
   .comp-tabs::-webkit-scrollbar { display: none; }
   .comp-tab { flex-shrink: 0; background: var(--card); border: 1px solid var(--line); color: var(--ink-2); font-size: 13.5px; padding: 7px 14px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
-  .comp-tab.sel { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .comp-tab.sel { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
   .comp-tab.comp-add { color: var(--accent); font-weight: 700; padding: 7px 12px; }
   .lock-tag { font-size: 10px; color: var(--accent); background: var(--accent-weak); border-radius: 5px; padding: 1px 6px; margin-left: 6px; letter-spacing: .02em; text-transform: none; }
   textarea.field.tall { height: 160px; }
@@ -652,9 +487,11 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
   </button>
   <button class="model-pill" id="model-pill" onclick="openPicker()" aria-label="切换模型">
-    <span class="pill-dot"></span>
-    <span class="pill-name" id="pill-name">模型</span>
-    <span class="pill-sub" id="pill-sub">· OpenRouter</span>
+    <span class="pill-ava" id="pill-ava">✦</span>
+    <span class="pill-text">
+      <span class="pill-name serif" id="pill-name">模型</span>
+      <span class="pill-sub" id="pill-sub">OpenRouter</span>
+    </span>
     <span class="pill-chev"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
   </button>
   <button class="icon-btn" title="新对话" onclick="newSession()" aria-label="新对话">
@@ -670,7 +507,9 @@
 <div class="edit-bar hidden" id="edit-bar"><span>✎ 编辑消息 · 发送后将从这里重新生成</span><button class="x" type="button" onclick="cancelEdit()">取消</button></div>
 <div class="img-strip" id="img-strip"></div>
 <div class="input-bar" id="input-bar" style="display:none">
-  <button class="attach-btn" id="web-btn" type="button" aria-label="联网搜索" onclick="toggleWeb()">🌐</button>
+  <button class="attach-btn" id="web-btn" type="button" aria-label="联网搜索" onclick="toggleWeb()">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg>
+  </button>
   <button class="attach-btn" type="button" aria-label="发图片或文件" onclick="document.getElementById('img-file').click()">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
   </button>
@@ -679,7 +518,7 @@
     <textarea id="msg-input" rows="1" placeholder="说点什么…" oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
   </div>
   <button class="send-btn" id="send-btn" onclick="onSend()" aria-label="发送">
-    <svg id="send-ic" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+    <svg id="send-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
   </button>
 </div>
 <div class="img-viewer" id="img-viewer" onclick="this.classList.remove('show')"><img id="img-viewer-img" alt=""></div>
@@ -765,13 +604,6 @@
         <button type="button" class="comp-tab" data-mode="auto" onclick="setTheme('auto')">跟随系统</button>
         <button type="button" class="comp-tab" data-mode="light" onclick="setTheme('light')">浅色</button>
         <button type="button" class="comp-tab" data-mode="dark" onclick="setTheme('dark')">深色</button>
-      </div>
-      <div class="field-label">色调</div>
-      <div class="comp-tabs" id="palette-tabs" style="padding:6px 0 0">
-        <button type="button" class="comp-tab" data-mode="warm" onclick="setPalette('warm')">暖砂</button>
-        <button type="button" class="comp-tab" data-mode="cool" onclick="setPalette('cool')">冰蓝</button>
-        <button type="button" class="comp-tab" data-mode="lilac" onclick="setPalette('lilac')">灰粉</button>
-        <button type="button" class="comp-tab" data-mode="term" onclick="setPalette('term')">终端</button>
       </div>
       <div class="field-label">字号</div>
       <div class="comp-tabs" id="fontsize-tabs" style="padding:6px 0 0">
@@ -1073,7 +905,6 @@
 
   /* ---------- 主题 ---------- */
   let themeMode = localStorage.getItem('islet_theme') || 'auto';       // auto | light | dark
-  let paletteMode = localStorage.getItem('islet_palette') || 'warm';   // warm | cool | lilac
   let fontSize = localStorage.getItem('islet_fontsize') || 'std';      // std | lg | xl
   let aiFont = localStorage.getItem('islet_aifont') || 'serif';        // serif | sans
   function effectiveTheme() { return themeMode !== 'auto' ? themeMode : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); }
@@ -1081,25 +912,19 @@
     const el = document.documentElement;
     if (themeMode === 'auto') el.removeAttribute('data-theme');
     else el.setAttribute('data-theme', themeMode);
-    if (paletteMode === 'warm') el.removeAttribute('data-palette');
-    else el.setAttribute('data-palette', paletteMode);
     if (fontSize === 'std') el.removeAttribute('data-fontsize');
     else el.setAttribute('data-fontsize', fontSize);
     if (aiFont === 'serif') el.removeAttribute('data-aifont');
     else el.setAttribute('data-aifont', aiFont);
     const meta = document.getElementById('meta-theme');
-    const barColor = { 'warm-light': '#F4F0E8', 'warm-dark': '#221E1A', 'cool-light': '#EBF1F2', 'cool-dark': '#171B20', 'lilac-light': '#F3F2F0', 'lilac-dark': '#1E1E20', 'term-light': '#141729', 'term-dark': '#141729' };
-    if (meta) meta.content = barColor[paletteMode + '-' + effectiveTheme()];
+    if (meta) meta.content = effectiveTheme() === 'dark' ? '#1F1E1C' : '#ECE9E3';
   }
   function setTheme(m) { themeMode = m; localStorage.setItem('islet_theme', m); applyTheme(); renderThemeTabs(); }
-  function setPalette(m) { paletteMode = m; localStorage.setItem('islet_palette', m); applyTheme(); renderThemeTabs(); }
   function setFontSize(m) { fontSize = m; localStorage.setItem('islet_fontsize', m); applyTheme(); renderThemeTabs(); }
   function setAiFont(m) { aiFont = m; localStorage.setItem('islet_aifont', m); applyTheme(); renderThemeTabs(); }
   function renderThemeTabs() {
     const t = document.getElementById('theme-tabs');
     if (t) t.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === themeMode));
-    const p = document.getElementById('palette-tabs');
-    if (p) p.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === paletteMode));
     const f = document.getElementById('fontsize-tabs');
     if (f) f.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === fontSize));
     const a = document.getElementById('aifont-tabs');
@@ -1497,7 +1322,6 @@
         model: localStorage.getItem('or_model') || '',
         reasoning: localStorage.getItem('or_reasoning') || '',
         theme: localStorage.getItem('islet_theme') || 'auto',
-        palette: localStorage.getItem('islet_palette') || 'warm',
         fontsize: localStorage.getItem('islet_fontsize') || 'std',
         aifont: localStorage.getItem('islet_aifont') || 'serif',
         provider: localStorage.getItem('islet_provider') || 'or',
@@ -1615,7 +1439,6 @@
         if (st.model) localStorage.setItem('or_model', st.model);
         if (st.reasoning) localStorage.setItem('or_reasoning', st.reasoning);
         if (st.theme) localStorage.setItem('islet_theme', st.theme);
-        if (st.palette) localStorage.setItem('islet_palette', st.palette);
         if (st.fontsize) localStorage.setItem('islet_fontsize', st.fontsize);
         if (st.aifont) localStorage.setItem('islet_aifont', st.aifont);
         if (st.provider) localStorage.setItem('islet_provider', st.provider);
@@ -2010,9 +1833,16 @@
     return /(opus|sonnet|o1|o3|o4|gpt-5|deepseek-r|glm-[5-9]|glm-4\.[6-9]|gemini-3|gemini-2\.5|kimi|minimax|seed-1\.6|qwen.*think|think|reason)/i.test(id);
   }
   function updatePill() {
-    $('pill-name').textContent = prettyName(selectedModel);
-    const sub = document.getElementById('pill-sub');
-    if (sub && companions.length) sub.textContent = '· ' + activeCompanion().name;
+    const c = companions.length ? activeCompanion() : null;
+    const sub = $('pill-sub'), ava = $('pill-ava');
+    if (c) {
+      $('pill-name').textContent = c.name;
+      if (sub) sub.textContent = prettyName(selectedModel);
+      if (ava) { ava.textContent = avaChar(c.name); ava.style.background = avaColor(c.id); }
+    } else {
+      $('pill-name').textContent = prettyName(selectedModel);
+      if (sub) sub.textContent = provider === 'cc' ? '自建接口' : 'OpenRouter';
+    }
   }
 
   let pickerCb = null;   // 临时回调模式：选完只执行回调（外部评审等场景），不绑定角色、不改全局
@@ -2119,7 +1949,21 @@
 
   /* ---------- 渲染 ---------- */
   function emptyHtml() {
-    return '<div class="empty" id="empty"><div class="glyph serif">✦</div><div class="line1">这里很安静</div><div class="line2">说点什么，开始一段对话</div></div>';
+    const c = sessionCompanion(currentId);
+    if (!c) return '<div class="empty" id="empty"><div class="glyph serif">✦</div><div class="line1">这里很安静</div><div class="line2">说点什么，开始一段对话</div></div>';
+    const h = new Date().getHours();
+    const hi = h < 5 ? '夜深了' : h < 11 ? '早' : h < 14 ? '中午好' : h < 18 ? '下午好' : h < 23 ? '晚上好' : '夜深了';
+    // 记忆卡预览：置顶优先，其次最近；最多三张，一行放不下就截。让 TA 一开场就像认识你
+    const cards = (c.cards || []).slice().sort((a, b) => (b.p || 0) - (a.p || 0) || (b.d || 0) - (a.d || 0)).slice(0, 3);
+    const chips = cards.length
+      ? `<button class="empty-mem" type="button" onclick="openMemory()"><span class="empty-mem-lbl">TA 记得</span>${cards.map(k => `<span class="empty-chip">${esc(k.t.length > 22 ? k.t.slice(0, 22) + '…' : k.t)}</span>`).join('')}</button>`
+      : '';
+    return `<div class="empty" id="empty">
+      <span class="empty-ava" style="background:${avaColor(c.id)}">${esc(avaChar(c.name))}</span>
+      <div class="empty-name serif">${esc(c.name)}</div>
+      <div class="line2">${hi}。这里很安静，说点什么。</div>
+      ${chips}
+    </div>`;
   }
   function renderAll() {
     cancelEdit();   // 切换会话等场景下退出编辑态（未在编辑时是空操作，不影响草稿）
@@ -2179,7 +2023,7 @@
     const _ava = _c ? `<span class="ava" style="background:${avaColor(_c.id)}">${esc(avaChar(_c.name))}</span>` : '<span class="dot"></span>';
     const _routed = reqModel ? `<span class="routed" title="${esc('请求 ' + reqModel + ' → 实际 ' + model)}">已路由</span>` : '';
     row.innerHTML = `
-      <div class="ai-eyebrow">${_ava}<span class="name">${esc(label)}</span>${_routed}<span class="t">${esc(time || '')}</span></div>
+      <div class="ai-eyebrow">${_ava}<span class="name">${esc(_c ? _c.name : label)}</span><span class="model">${esc(label)}</span>${_routed}<span class="t">${esc(time || '')}</span></div>
       <div class="think hidden open">
         <button class="think-head" type="button">
           <span class="spark"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.6L18 9l-4.4 1.4L12 15l-1.6-4.6L6 9l4.4-1.4z"/></svg></span>
@@ -2597,7 +2441,7 @@
   function markRouted(h, requested, served) {
     if (!h || !h.row) return;
     const eyebrow = h.row.querySelector('.ai-eyebrow'); if (!eyebrow) return;
-    const nameEl = eyebrow.querySelector('.name'); if (nameEl) nameEl.textContent = prettyName(served);
+    const modelEl = eyebrow.querySelector('.model') || eyebrow.querySelector('.name'); if (modelEl) modelEl.textContent = prettyName(served);
     if (!eyebrow.querySelector('.routed')) {
       const tag = document.createElement('span');
       tag.className = 'routed'; tag.textContent = '已路由';
@@ -2815,8 +2659,8 @@
   function setLoading(v) {
     isLoading = v;
     const btn = $('send-btn'), ic = $('send-ic');
-    if (v) { btn.setAttribute('aria-label', '停止'); ic.outerHTML = '<svg id="send-ic" viewBox="0 0 24 24" fill="#fff"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>'; }
-    else { btn.setAttribute('aria-label', '发送'); ic.outerHTML = '<svg id="send-ic" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'; }
+    if (v) { btn.setAttribute('aria-label', '停止'); ic.outerHTML = '<svg id="send-ic" viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>'; }
+    else { btn.setAttribute('aria-label', '发送'); ic.outerHTML = '<svg id="send-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'; }
   }
 
   /* ---------- token 底栏 ---------- */
