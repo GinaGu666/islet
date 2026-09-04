@@ -935,6 +935,7 @@
           <button type="button" class="comp-tab" onclick="runHistDistill(5)">提炼下 5 段</button>
           <button type="button" class="comp-tab" onclick="runHistDistill(20)">下 20 段</button>
           <button type="button" class="comp-tab" id="hist-model-btn" onclick="pickHistModel()">模型</button>
+          <button type="button" class="comp-tab" id="hist-skip-btn" style="display:none" onclick="skipHistSegment()">跳过这段</button>
           <button type="button" class="comp-tab" onclick="rollbackHist()">回退几段</button>
           <button type="button" class="comp-tab" onclick="clearHistRaw()">清掉原文</button>
         </div>
@@ -3803,11 +3804,20 @@
     $('hist-actions').style.display = (h.cleared || histBusy) ? 'none' : '';
     $('hist-running').style.display = histBusy ? '' : 'none';
     const mb = $('hist-model-btn'); if (mb) mb.textContent = '模型：' + prettyName(h.model || companionModel(c));
+    const sk = $('hist-skip-btn'); if (sk) sk.style.display = (h.failedAt != null && h.failedAt === done && done < total) ? '' : 'none';   // 刚在这一段上失败过才给「跳过」
     if (!histBusy && !h.cleared && done >= total) $('hist-status').textContent = '全部提炼完成 ✓ 可以清掉原文了';
   }
   function pickHistModel() {
     const c = editingCompanion(); if (!c || !c.hist) return;
     openPickerFor(id => { c.hist.model = id; saveCompanions(); renderHistBlock(); }, ' · 用于历史提炼');
+  }
+  // 跳过：某一段反复提炼不出（模型每次都入戏），手动放弃这一段往下走
+  async function skipHistSegment() {
+    const c = editingCompanion(); const h = c && c.hist;
+    if (!h || h.failedAt == null || h.failedAt !== h.done) return;
+    if (!(await uiConfirm(`跳过第 ${h.done + 1} 段？`, { sub: '这一段不会产出记忆卡和大事记。之后可以用「回退几段」再回来试。', ok: '跳过' }))) return;
+    h.done++; h.failedAt = null; saveCompanions(); renderHistBlock();
+    $('hist-status').textContent = `已跳过第 ${h.done} 段，点「提炼下 5 段」继续。`;
   }
   // 回退：把最近标记为完成的几段退回去重跑（比如额度用完后被空跳过的那几段）
   async function rollbackHist() {
@@ -3823,7 +3833,7 @@
       const startTs = (rec.msgs[startIdx] && rec.msgs[startIdx].ts) || 0;
       c.epis = epiOf(c).filter(e => !(e.h && e.d >= startTs));   // 只删历史提炼产出的、落在回退区间内的小结
     }
-    h.done = newDone; h.lastSummary = '';
+    h.done = newDone; h.lastSummary = ''; h.failedAt = null;
     saveCompanions(); renderEpiList(); renderHistBlock();
     $('hist-status').textContent = `已回退到第 ${newDone} 段，点「提炼下 5 段」从这里重跑。`;
   }
@@ -3835,6 +3845,17 @@
     c.hist.cleared = true; saveCompanions(); renderHistBlock();
   }
   const HIST_SYS = "You maintain the long-term memory of an AI companion in a companion app: memory cards and an episode log for one specific relationship. You will see the existing cards, the current relationship state, the summary of the PREVIOUS segment (for context only), then ONE segment of a long chat history between the user and the companion.\n\nOUTPUT FORMAT — exactly these parts, in this order, nothing else (no bullets, no numbering, no commentary, no code fences):\n1. One line starting with 'SUMMARY: ' — a short narrative recap of THIS segment only, from the companion's own perspective (what was discussed, the emotional arc, any relationship beats). Do not repeat the previous segment. 2-4 short sentences, under 120 Chinese characters. Not a chat log — an arc.\n2. 0 to 6 lines, one NEW memory card per line: only durable information not already covered by existing cards — facts about the user's life, preferences, meaningful events, emotional notes that will still matter later. When a fact carries the user's emotional stance, fold the stance into the card: not just the fact but the posture. Each card is ONE terse line, like an index card, ending with exactly one category tag: [事实] life facts · [偏好] tastes/likes/dislikes · [事件] things that happened · [约定] promises or plans made between the two of you (strictly real commitments). If nothing new: output exactly NONE on its own line. Never put a tag on the SUMMARY or RELATION lines.\n3. Optionally, one line starting with 'RELATION: ' — ONLY if where-you-two-are-now has meaningfully shifted from the current relationship state shown. Under 60 Chinese characters. Omit if nothing shifted.\n\nNEVER record in cards: meta/technical talk (which AI model, the app, prompts, settings, API, quotas), small talk that won't matter in a week, blow-by-blow accounts (keep outcome + feeling), or anything an existing card already covers in different words.\n\nWrite everything in the language the conversation is mostly in.";
+  function parseHistOut(out) {
+    let summary = '', relation = ''; const cardLines = [];
+    String(out || '').split('\n').map(l => l.replace(/^[-•·*\d.、\s]+/, '').trim()).filter(Boolean).forEach(l => {
+      const ms = l.match(/^summary[:：]\s*(.+)$/i), mr = l.match(/^relation[:：]\s*(.+)$/i);
+      if (ms) { summary = ms[1].slice(0, 300); return; }
+      if (mr) { relation = mr[1].slice(0, 120); return; }
+      if (/^none$/i.test(l)) return;
+      cardLines.push(l);
+    });
+    return { summary, relation, cardLines };
+  }
   async function runHistDistill(n) {
     const c = editingCompanion(); if (!c || !c.hist || histBusy) return;
     if (!providerReady()) { toast('请先在设置里配置接口来源'); return; }
@@ -3855,25 +3876,29 @@
         $('hist-status').textContent = `正在提炼第 ${i + 1} / ${total} 段（${d0}${d1 !== d0 ? ' → ' + d1 : ''}）…`;
         const transcript = seg.map(m => (m.role === 'user' ? 'User: ' : 'AI: ') + m.content).join('\n\n');
         const existing = memCardsOf(c).slice(0, 60).map(k => '- ' + k.t).join('\n') || '(empty)';
-        const user = 'EXISTING MEMORY CARDS:\n' + existing + '\n\nCURRENT RELATIONSHIP STATE:\n' + ((c.rel || '').trim() || '(not set yet)') + '\n\nSUMMARY OF THE PREVIOUS SEGMENT (context only, do not repeat):\n' + (h.lastSummary || '(none — this is the first segment)') + '\n\n----\n\nTHIS SEGMENT (' + d0 + ' → ' + d1 + ', ' + seg.length + ' messages):\n' + transcript + '\n\n----\n\nOutput now: the SUMMARY line, then memory lines (or NONE), then optionally the RELATION line.';
-        let out;
-        try { out = await chatOnce(HIST_SYS, user, model, 2000); }
-        catch (e) { $('hist-status').textContent = `第 ${i + 1} 段请求失败：${(e && e.message) || e}。进度已保存，稍后再点继续。`; break; }
+        const head = 'EXISTING MEMORY CARDS:\n' + existing + '\n\nCURRENT RELATIONSHIP STATE:\n' + ((c.rel || '').trim() || '(not set yet)') + '\n\nSUMMARY OF THE PREVIOUS SEGMENT (context only, do not repeat):\n' + (h.lastSummary || '(none — this is the first segment)') + '\n\n----\n\nTHIS SEGMENT (' + d0 + ' → ' + d1 + ', ' + seg.length + ' messages):\n';
+        // 第一次按常规提示；模型若「入戏」接着聊而不按格式输出，换严格版重试一次：原文包进标签，提醒放在原文之后（两万字读完，开头的指令早被冲淡了）
+        const userPlain = head + transcript + '\n\n----\n\nOutput now: the SUMMARY line, then memory lines (or NONE), then optionally the RELATION line.';
+        const userStrict = head + '<transcript>\n' + transcript + '\n</transcript>\n\n----\n\nREMINDER — you are the memory CURATOR reading this transcript, NOT a participant in it. Do not reply to anyone in it, do not continue the roleplay, no emoji, no actions. Output ONLY the format described: the very first line must start with "SUMMARY: ", then card lines (or NONE), then optionally RELATION.';
         const endTs = seg[seg.length - 1].ts || seg[0].ts || Date.now();
-        let summary = '', relation = '', added = 0; const cardLines = [];
-        out.split('\n').map(l => l.replace(/^[-•·*\d.、\s]+/, '').trim()).filter(Boolean).forEach(l => {
-          const ms = l.match(/^summary[:：]\s*(.+)$/i), mr = l.match(/^relation[:：]\s*(.+)$/i);
-          if (ms) { summary = ms[1].slice(0, 300); return; }
-          if (mr) { relation = mr[1].slice(0, 120); return; }
-          if (/^none$/i.test(l)) return;
-          cardLines.push(l);
-        });
-        // 没有 SUMMARY 行就不是有效结果：多半是额度用完 / 被拒，模型回了一句人话。
-        // 这种回复一个字都不能进记忆（否则「额度已用完」会变成一张卡），进度也不能往前走
-        if (!summary) {
-          $('hist-status').textContent = `第 ${i + 1} 段没拿到有效结果，进度停在这里。模型回复：「${out.trim().replace(/\s+/g, ' ').slice(0, 90)}」多半是额度用完或被拒绝，处理好后再点继续。`;
+        let out = '', parsed = null, netErr = null;
+        for (let attempt = 0; attempt < 2 && !(parsed && parsed.summary); attempt++) {
+          if (attempt) $('hist-status').textContent = `第 ${i + 1} 段模型没按格式回答，换更严格的提示重试…`;
+          try { out = await chatOnce(HIST_SYS, attempt ? userStrict : userPlain, model, 2000); }
+          catch (e) { netErr = (e && e.message) || String(e); break; }
+          parsed = parseHistOut(out);
+        }
+        if (netErr) { $('hist-status').textContent = `第 ${i + 1} 段请求失败：${netErr}。进度已保存，稍后再点继续。`; break; }
+        // 两次都没有 SUMMARY 行：不是有效结果。一个字都不能进记忆（否则「额度已用完」会变成一张卡），进度停住
+        if (!parsed.summary) {
+          const snippet = out.trim().replace(/\s+/g, ' ').slice(0, 90);
+          const quota = /limit|quota|额度|unable to provide|credits|insufficient/i.test(out);
+          h.failedAt = i; saveCompanions(); renderHistBlock();
+          $('hist-status').textContent = `第 ${i + 1} 段没拿到有效结果，进度停在这里。模型回复：「${snippet}」` + (quota ? '看起来是额度用完或被拒绝，处理好后再点继续。' : '模型两次都跑去接着聊天了、没按格式输出。可以换个模型再点，或点「跳过这段」。');
           break;
         }
+        const { summary, relation, cardLines } = parsed; let added = 0;
+        h.failedAt = null;
         cardLines.forEach(l => { if (added < 6 && addMemCard(c, l)) { memCardsOf(c)[0].d = endTs; added++; } });   // 卡片的日期用这一段的时间，不是今天
         if (summary) { epiOf(c).push({ id: genId(), sid: '', d: endTs, t: summary, h: 1 }); epiOf(c).sort((a, b) => b.d - a.d); if (epiOf(c).length > EPI_MAX) epiOf(c).length = EPI_MAX; }
         if (relation) { c.rel = relation; c.relUpdated = Date.now(); const ri = $('rel-input'); if (ri) ri.value = relation; }
