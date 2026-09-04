@@ -628,7 +628,7 @@
       <div class="toggle-row">
         <div>
           <div class="tg-main">让角色使用小工具</div>
-          <div class="tg-sub">记忆卡、翻旧对话、打卡、名场面；自建接口要看传话员是否支持</div>
+          <div class="tg-sub">记忆卡、翻旧对话、打卡、名场面；目前仅 OpenRouter 通道（传话员不认工具字段）</div>
         </div>
         <label class="switch"><input type="checkbox" id="tools-toggle" checked><span class="slider"></span></label>
       </div>
@@ -2349,7 +2349,8 @@
   /* ---------- 本地工具：让角色能「做」而不只是「说」 ----------
    * 走 OpenAI 风格的 function calling：请求带 tools，模型在流里回 tool_calls，前端执行后以 role:tool 回填再发一轮。
    * 五个工具全在浏览器本地完成，零后端：记忆卡、翻记忆、搜旧对话、打卡、名场面。
-   * 两个通道都开：CC 传话员若忽略 tools 字段，模型只是不会调用；若校验报错，下面有去掉 tools 重发的降级。 */
+   * 原生 function calling 只在 OpenRouter 通道发：实测传话员收到 tools 字段后会以 200 返回一句
+   * "I'm unable to provide a response at the moment"，不是 4xx，降级逻辑接不住。CC 通道要用工具得走文本协议（待做）。 */
   const TOOL_DEFS = [
     { type: 'function', function: { name: 'remember', description: '把一条值得长期记住的信息存成记忆卡：用户的事实、偏好、发生的事、你们之间的约定。用户明确说「记住」时必须调用；聊到重要信息时也可以主动记。一次一条，一句话，像索引卡那样短。',
       parameters: { type: 'object', properties: { text: { type: 'string', description: '要记住的内容，一句话' }, category: { type: 'string', enum: ['事实', '偏好', '事件', '约定'], description: '分类；约定只用于你们真正说好的事' } }, required: ['text'] } } },
@@ -2365,7 +2366,7 @@
   const TOOLS_GUIDE = '你手边有几件小工具（记忆卡、翻旧对话、打卡、名场面）。用户要求记住、打卡、收藏时就用；不确定过去是否聊过什么时，先查再答，别凭空编。不要为了用而用；用完把结果自然地融进回复，不要提工具名或调用过程本身。';
   const MAX_TOOL_ROUNDS = 5;   // 一次回复里最多几轮工具往返，防止模型绕圈
   let toolsEnabled = localStorage.getItem('islet_tools') !== 'off';
-  function toolsActive() { return toolsEnabled; }
+  function toolsActive() { return provider === 'or' && toolsEnabled; }
   function logTool(h, label) {
     if (!h || !h.toolLog || !label) return;
     h.toolLog.classList.remove('hidden');
