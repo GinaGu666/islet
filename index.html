@@ -493,6 +493,7 @@
 
   /* 应用内弹窗（替代系统 alert / confirm / prompt）与轻提示 */
   #dlg-overlay { z-index: 60; }   /* 压在其他抽屉、面板之上 */
+  #picker-overlay { z-index: 55; } /* 模型选择可能从记忆面板里被叫出来，要压在它上面 */
   .dlg-msg { font-size: 15.5px; line-height: 1.6; color: var(--ink); padding: 6px 4px 2px; white-space: pre-wrap; word-break: break-word; }
   .dlg-sub { font-size: 12.5px; line-height: 1.55; color: var(--ink-3); padding: 4px 4px 4px; white-space: pre-wrap; }
   #dlg-input, #dlg-textarea { margin-top: 10px; }
@@ -660,6 +661,10 @@
         <button type="button" class="comp-tab" onclick="document.getElementById('archive-file').click()">导入归档</button>
       </div>
       <input type="file" id="archive-file" accept=".json,application/json" style="display:none" onchange="importArchive(this)">
+      <div class="comp-tabs" style="padding:6px 0 0">
+        <button type="button" class="comp-tab" onclick="document.getElementById('charimport-file').click()">导入角色（从 Claude.ai 等搬来）</button>
+      </div>
+      <input type="file" id="charimport-file" accept=".json,application/json" style="display:none" onchange="importCharacterFile(this)">
       <div class="comp-tabs" style="padding:6px 0 0">
         <button type="button" class="comp-tab" onclick="document.getElementById('extras-file').click()">补导名场面·打卡·活动</button>
       </div>
@@ -841,6 +846,30 @@
     </div>
   </div>
 </div>
+<!-- 导入角色（tools/split_claude_export.py 生成的 islet-import 文件） -->
+<div class="overlay" id="charimport-overlay">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">导入角色</div>
+      <button class="sheet-x" onclick="hide('charimport-overlay')">×</button>
+    </div>
+    <div class="form" style="padding-top:0">
+      <div class="mem-hint" id="ci-info" style="margin:0 0 4px"></div>
+      <div class="field-label">角色名称</div>
+      <input class="field" id="ci-name" spellcheck="false">
+      <div class="field-label">这个角色是谁（可以先空着，导入后在记忆面板补）</div>
+      <textarea class="field persona" id="ci-persona" spellcheck="false"></textarea>
+      <div class="field-label">你们现在的关系状态</div>
+      <input class="field" id="ci-rel" spellcheck="false">
+      <div class="field-label">原文保留在对话里</div>
+      <div class="comp-tabs" id="ci-keep-tabs" style="padding:6px 0 0"></div>
+      <div class="mem-hint" id="ci-keep-hint"></div>
+      <div class="mem-hint" style="margin-top:8px">全部原文都会另存进本机数据库，导入后在记忆面板里分批提炼成记忆卡和大事记；提炼完可以清掉。</div>
+      <button class="btn-primary" onclick="runCharacterImport()">导入</button>
+    </div>
+  </div>
+</div>
 <!-- 记忆（按角色分开） -->
 <div class="overlay" id="memory-overlay">
   <div class="sheet">
@@ -894,6 +923,25 @@
       </div>
       <div id="epi-list"></div>
       <div class="mem-hint">每场对话的小结自动落在这里，攒成你们的编年史；最近几条和「去年今天」会带进对话，给 TA 时间纵深。</div>
+
+      <div id="hist-block" style="display:none">
+        <div class="field-head">
+          <div class="field-label">历史提炼</div>
+          <span class="count" id="hist-count"></span>
+        </div>
+        <div class="store-bar" style="margin-top:4px"><div class="store-fill" id="hist-fill" style="width:0%"></div></div>
+        <div class="mem-hint" id="hist-hint"></div>
+        <div class="comp-tabs" id="hist-actions" style="padding:8px 0 0">
+          <button type="button" class="comp-tab" onclick="runHistDistill(5)">提炼下 5 段</button>
+          <button type="button" class="comp-tab" onclick="runHistDistill(20)">下 20 段</button>
+          <button type="button" class="comp-tab" id="hist-model-btn" onclick="pickHistModel()">模型</button>
+          <button type="button" class="comp-tab" onclick="clearHistRaw()">清掉原文</button>
+        </div>
+        <div class="comp-tabs" id="hist-running" style="padding:8px 0 0;display:none">
+          <button type="button" class="comp-tab" onclick="histStop=true">停止</button>
+        </div>
+        <div class="distill-status" id="hist-status" style="text-align:left"></div>
+      </div>
 
       <div class="toggle-row">
         <div>
@@ -1039,11 +1087,12 @@
   let _dbP = null;
   function idb() {
     if (!_dbP) _dbP = new Promise((res, rej) => {
-      const req = indexedDB.open('islet', 2);
+      const req = indexedDB.open('islet', 3);
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains('imgs')) db.createObjectStore('imgs', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('imports')) db.createObjectStore('imports', { keyPath: 'id' });   // 导入角色时的整段原文，供分批提炼
       };
       req.onsuccess = () => res(req.result);
       req.onerror = () => rej(req.error);
@@ -1054,6 +1103,8 @@
   function imgGet(id) { return idb().then(db => new Promise((res, rej) => { const r = db.transaction('imgs').objectStore('imgs').get(id); r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error); })); }
   function filePut(rec) { return idb().then(db => new Promise((res, rej) => { const tx = db.transaction('files', 'readwrite'); tx.objectStore('files').put(rec); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
   function fileGet(id) { return idb().then(db => new Promise((res, rej) => { const r = db.transaction('files').objectStore('files').get(id); r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error); })); }
+  function idbPut(store, rec) { return idb().then(db => new Promise((res, rej) => { const tx = db.transaction(store, 'readwrite'); tx.objectStore(store).put(rec); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
+  function idbGet(store, id) { return idb().then(db => new Promise((res, rej) => { const r = db.transaction(store).objectStore(store).get(id); r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error); })); }
   function idbDel(store, id) { return idb().then(db => new Promise((res, rej) => { const tx = db.transaction(store, 'readwrite'); tx.objectStore(store).delete(id); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
   function idbClear(store) { return idb().then(db => new Promise((res, rej) => { const tx = db.transaction(store, 'readwrite'); tx.objectStore(store).clear(); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
   // 消息被删时连带清掉 IndexedDB 里的图片与文件；不清的话附件只涨不降，删对话也腾不出空间
@@ -1795,6 +1846,7 @@
     const c = companions.find(x => x.id === id);
     if (!(await uiConfirm('删除角色「' + (c ? c.name : '') + '」？', { sub: 'TA 的人设、记忆和所有对话都会一并删除，不可恢复。', ok: '删除', danger: true }))) return;
     sessions.filter(s => s.companionId === id).forEach(s => { purgeAttachments(loadSessionMsgs(s.id)); localStorage.removeItem('islet_s_' + s.id); });
+    if (c && c.hist && c.hist.fileId) idbDel('imports', c.hist.fileId).catch(() => {});
     sessions = sessions.filter(s => s.companionId !== id);
     companions = companions.filter(x => x.id !== id);
     saveCompanions(); saveIndex();
@@ -3135,12 +3187,12 @@
    *            热度（被想起过的卡更容易再被想起）、遗忘坡度（久未想起的旧卡略微退后——只降序，不删卡）
    * L3 沉睡层：其余卡片平时不打扰模型，被话题勾起时经 L2 浮现，或在面板里搜索
    * 写入端：提炼是增量式的——只把上次提炼之后的对话发给模型，长会话不再整场重发 */
-  const MAX_CARDS = 200;           // 每角色卡片上限，超出自动清最旧的未置顶
+  const MAX_CARDS = 500;           // 每角色卡片上限，超出自动清最旧的未置顶（常驻注入另有字数预算，卡多不涨成本）
   const MEM_CORE_BUDGET = 900;     // L0 常驻注入字数：置顶 → 约定 → 新→旧
   const MEM_RECALL_BUDGET = 600;   // L2 每回合按话题召回的字数
   const MEM_RECALL_MAX = 8;        // L2 每回合最多召回几条
   const EPI_BUDGET = 400;          // L1 大事记注入字数
-  const EPI_MAX = 120;             // 大事记条数上限
+  const EPI_MAX = 300;             // 大事记条数上限
   const MEM_CATS = ['事实', '偏好', '事件', '约定'];   // 分类；约定类保证常驻注入
   function memCardsOf(c) { if (!Array.isArray(c.cards)) c.cards = []; return c.cards; }
   function normMem(s) { return String(s || '').toLowerCase().replace(/[\s，。！？!?.、,'"“”「」『』（）()\-—·…:：;；~～]/g, ''); }
@@ -3533,6 +3585,7 @@
     const _ms = $('mem-search'); if (_ms) _ms.value = '';
     renderMemCards();
     renderEpiList();
+    renderHistBlock();
     $('autodistill-toggle').checked = c.autoDistill !== false;
     $('distill-status').textContent = '';
     updateMemCount();
@@ -3641,6 +3694,171 @@
       if ($('memory-overlay').classList.contains('show') && editingCompanionId === c.id) renderMemCards();
     } else {
       setDistillState(c.id, 'fail');
+    }
+  }
+
+  /* ---------- 导入角色：从 Claude.ai 等搬一个已有角色进来 ----------
+   * 输入是 tools/split_claude_export.py 生成的 islet-import 文件。两步走，都在手机上：
+   *  1. 导入：建角色；最近 N 条原文按 600 条一段进普通会话（受 localStorage 限制）；全部原文另存 IndexedDB（不受限）
+   *  2. 分批提炼：记忆面板里按段跑，每段约两万字一次请求，提炼成记忆卡和大事记；进度存在角色对象里，随时停、随时续 */
+  const HIST_CHUNK = 20000;   // 每段字数
+  let ciData = null, ciKeep = 3000;
+  function importCharacterFile(inp) {
+    const file = inp.files && inp.files[0]; inp.value = '';
+    if (!file) return;
+    const r = new FileReader();
+    r.onload = () => {
+      let d; try { d = JSON.parse(r.result); } catch (e) { toast('文件无法解析'); return; }
+      if (!d || d.app !== 'islet-import' || !Array.isArray(d.conversations)) { toast('这不是 islet 的角色导入文件（需由 split_claude_export.py 生成）'); return; }
+      ciData = d;
+      const ch = d.character || {}, all = ciAllMsgs();
+      if (!all.length) { toast('文件里没有可导入的消息'); ciData = null; return; }
+      $('ci-name').value = ch.name || '';
+      $('ci-persona').value = ch.persona || '';
+      $('ci-rel').value = ch.rel || '';
+      const chars = all.reduce((n, m) => n + m.content.length, 0);
+      $('ci-info').textContent = `${d.conversations.length} 段对话 · ${all.length} 条消息 · 约 ${(chars / 1e4).toFixed(1)} 万字 · ${fmtEpiDay(all[0].ts || Date.now())} → ${fmtEpiDay(all[all.length - 1].ts || Date.now())}` + ((ch.cards || []).length ? ` · 自带记忆卡 ${ch.cards.length} 条` : '') + ((ch.epis || []).length + (ch.summaries || []).length ? ` · 自带大事记 ${(ch.epis || []).length + (ch.summaries || []).length} 条` : '');
+      ciKeep = 3000;
+      renderCiKeepTabs();
+      hide('setup-overlay'); show('charimport-overlay');
+    };
+    r.readAsText(file);
+  }
+  function ciAllMsgs() {
+    const out = [];
+    (ciData.conversations || []).forEach(c => (c.messages || []).forEach(m => { if (m && (m.role === 'user' || m.role === 'assistant') && m.content) out.push({ role: m.role, content: String(m.content), ts: +m.ts || 0 }); }));
+    out.sort((a, b) => a.ts - b.ts);
+    return out;
+  }
+  function ciMsg(m) { const d = m.ts ? new Date(m.ts) : null; const o = { role: m.role, content: m.content }; if (d) { o.ts = m.ts; o.time = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); } return o; }
+  function ciBytes(msgs) { return JSON.stringify(msgs.map(ciMsg)).length * 2; }
+  function fmtBytes(n) { return n < 1048576 ? Math.round(n / 1024) + 'K' : (n / 1048576).toFixed(2) + 'M'; }
+  function renderCiKeepTabs() {
+    const all = ciAllMsgs(), free = Math.max(0, 5 * 1048576 - storageBytes());
+    const opts = [300, 1000, 3000, 6000, all.length].filter((v, i, a) => v <= all.length && a.indexOf(v) === i);
+    if (!opts.includes(ciKeep)) ciKeep = opts.filter(v => v <= 3000).pop() || opts[0];
+    $('ci-keep-tabs').innerHTML = opts.map(n => `<button type="button" class="comp-tab ${n === ciKeep ? 'sel' : ''}" onclick="ciKeep=${n};renderCiKeepTabs()">${n === all.length ? '全部 ' + n + ' 条' : '最近 ' + n + ' 条'}</button>`).join('');
+    const bytes = ciBytes(all.slice(-ciKeep)), over = bytes > free * 0.85;
+    $('ci-keep-hint').textContent = `这部分约占 ${fmtBytes(bytes)}，本机对话存储还剩约 ${fmtBytes(free)}` + (over ? '，装不下，请少留一些。' : '。') + '模型每次只看当前会话最近 120 条，留多留少不影响 TA 的记忆。';
+    $('ci-keep-hint').style.color = over ? 'var(--danger)' : '';
+  }
+  // 按字数切段，只在消息边界切；返回每段的结束下标（不含）
+  function histBounds(msgs) {
+    const b = []; let n = 0;
+    for (let i = 0; i < msgs.length; i++) { n += msgs[i].content.length; if (n >= HIST_CHUNK) { b.push(i + 1); n = 0; } }
+    if (!b.length || b[b.length - 1] < msgs.length) { if (b.length && n < HIST_CHUNK * 0.25) b[b.length - 1] = msgs.length; else b.push(msgs.length); }   // 太短的尾巴并进上一段
+    return b;
+  }
+  async function runCharacterImport() {
+    if (!ciData) return;
+    const name = $('ci-name').value.trim();
+    if (!name) { $('ci-name').focus(); return; }
+    const all = ciAllMsgs();
+    const keep = all.slice(-ciKeep), dropped = all.length - keep.length;
+    if (ciBytes(keep) > Math.max(0, 5 * 1048576 - storageBytes()) * 0.9) { toast('原文保留太多，装不下，请少留一些'); return; }
+    const ch = ciData.character || {};
+    const c = { id: genId(), name, persona: $('ci-persona').value.trim(), rel: $('ci-rel').value.trim(), cards: [], epis: [], autoDistill: true, memUpdated: Date.now() };
+    if (c.rel) c.relUpdated = Date.now();
+    // 文件自带的记忆卡（电脑上先提炼过的）与大事记（摘要、小结）
+    (ch.cards || []).forEach(k => { if (!k || !k.t) return; const st = splitCatTag(k.t); const t = st.t.slice(0, 500); const cat = MEM_CATS.includes(k.c) ? k.c : st.c; if (t && !memDup(c, t)) c.cards.push({ id: genId(), t, d: +k.d || Date.now(), p: 0, c: cat || '' }); });
+    c.cards.sort((a, b) => b.d - a.d); trimMemCards(c);
+    [].concat(ch.summaries || [], ch.epis || []).forEach(e => { const t = e && (e.text || e.t); if (t) c.epis.push({ id: genId(), sid: '', d: +(e.date || e.d) || Date.now(), t: String(t).slice(0, 600) }); });
+    c.epis.sort((a, b) => b.d - a.d); if (c.epis.length > EPI_MAX) c.epis.length = EPI_MAX;
+    // 整段原文进 IndexedDB，供分批提炼
+    const fileId = 'imp_' + c.id;
+    try { await idbPut('imports', { id: fileId, name, msgs: all, created: Date.now() }); }
+    catch (e) { toast('原文存不进本机数据库：' + ((e && e.message) || e)); return; }
+    const bounds = histBounds(all);
+    c.hist = { fileId, total: all.length, chars: all.reduce((n, m) => n + m.content.length, 0), bounds, done: 0, lastSummary: '', model: '' };
+    companions.push(c); saveCompanions();
+    // 最近的原文按 600 条一段进普通会话；标记为已提炼，免得离开时自动提炼又跑一遍
+    const groups = []; for (let i = 0; i < keep.length; i += 600) groups.push(keep.slice(i, i + 600));
+    let added = 0;
+    for (const g of groups) {
+      const first = g[0], last = g[g.length - 1];
+      const d0 = fmtEpiDay(first.ts || Date.now()), d1 = fmtEpiDay(last.ts || Date.now());
+      const meta = { id: genId(), title: name + ' · ' + d0 + (d1 !== d0 ? '–' + d1 : ''), updated: last.ts || Date.now(), companionId: c.id, count: g.length, distilled: g.filter(m => m.role === 'user').length, imported: 1 };
+      if (!lsSet('islet_s_' + meta.id, JSON.stringify(g.map(ciMsg)))) break;
+      sessions.push(meta); added++;
+    }
+    sessions.sort((a, b) => (b.updated || 0) - (a.updated || 0)); saveIndex();
+    ciData = null; hide('charimport-overlay');
+    enterCompanion(c.id);
+    renderAll(); renderSessions(); renderDrawerCompanions(); updatePill(); updateStoreMeter();
+    await uiAlert(`已导入「${name}」`, { sub: `记忆卡 ${c.cards.length} 条 · 大事记 ${c.epis.length} 条 · 原文 ${added} 段会话（${keep.length} 条）` + (dropped ? `，更早的 ${dropped} 条只存进本机数据库` : '') + `\n\n全部 ${all.length} 条原文已存好，切成 ${bounds.length} 段。去记忆面板的「历史提炼」里分批跑，跑完 TA 就有完整的记忆和编年史了。` });
+  }
+
+  /* 分批提炼：每段一次请求，结果直接进角色的记忆卡与大事记；进度存在 c.hist 里 */
+  let histStop = false, histBusy = false;
+  function renderHistBlock() {
+    const c = editingCompanion(), blk = $('hist-block'); if (!blk) return;
+    const h = c && c.hist;
+    if (!h || !h.bounds || !h.bounds.length) { blk.style.display = 'none'; return; }
+    blk.style.display = '';
+    const total = h.bounds.length, done = Math.min(h.done || 0, total), pct = total ? done / total * 100 : 0;
+    $('hist-count').textContent = h.cleared ? `已完成 ${done} / ${total} 段 · 原文已清` : `已完成 ${done} / ${total} 段`;
+    $('hist-fill').style.width = pct.toFixed(1) + '%';
+    $('hist-hint').textContent = h.cleared ? '原文已从本机清掉，提炼到此为止。' : `${h.total} 条 · 约 ${(h.chars / 1e4).toFixed(1)} 万字，按约两万字一段。每段一次请求，模型：${prettyName(h.model || companionModel(c))}。跑的时候别锁屏、别切后台；中断了随时接着点。`;
+    $('hist-actions').style.display = (h.cleared || histBusy) ? 'none' : '';
+    $('hist-running').style.display = histBusy ? '' : 'none';
+    const mb = $('hist-model-btn'); if (mb) mb.textContent = '模型：' + prettyName(h.model || companionModel(c));
+    if (!histBusy && !h.cleared && done >= total) $('hist-status').textContent = '全部提炼完成 ✓ 可以清掉原文了';
+  }
+  function pickHistModel() {
+    const c = editingCompanion(); if (!c || !c.hist) return;
+    openPickerFor(id => { c.hist.model = id; saveCompanions(); renderHistBlock(); }, ' · 用于历史提炼');
+  }
+  async function clearHistRaw() {
+    const c = editingCompanion(); if (!c || !c.hist) return;
+    const total = c.hist.bounds.length, done = c.hist.done || 0;
+    if (!(await uiConfirm(done < total ? `还有 ${total - done} 段没提炼，确定清掉原文？` : '清掉存在本机数据库里的原文？', { sub: '对话里保留的那部分不受影响；清掉后不能再继续提炼。', ok: '清掉', danger: true }))) return;
+    await idbDel('imports', c.hist.fileId).catch(() => {});
+    c.hist.cleared = true; saveCompanions(); renderHistBlock();
+  }
+  const HIST_SYS = "You maintain the long-term memory of an AI companion in a companion app: memory cards and an episode log for one specific relationship. You will see the existing cards, the current relationship state, the summary of the PREVIOUS segment (for context only), then ONE segment of a long chat history between the user and the companion.\n\nOUTPUT FORMAT — exactly these parts, in this order, nothing else (no bullets, no numbering, no commentary, no code fences):\n1. One line starting with 'SUMMARY: ' — a short narrative recap of THIS segment only, from the companion's own perspective (what was discussed, the emotional arc, any relationship beats). Do not repeat the previous segment. 2-4 short sentences, under 120 Chinese characters. Not a chat log — an arc.\n2. 0 to 6 lines, one NEW memory card per line: only durable information not already covered by existing cards — facts about the user's life, preferences, meaningful events, emotional notes that will still matter later. When a fact carries the user's emotional stance, fold the stance into the card: not just the fact but the posture. Each card is ONE terse line, like an index card, ending with exactly one category tag: [事实] life facts · [偏好] tastes/likes/dislikes · [事件] things that happened · [约定] promises or plans made between the two of you (strictly real commitments). If nothing new: output exactly NONE on its own line. Never put a tag on the SUMMARY or RELATION lines.\n3. Optionally, one line starting with 'RELATION: ' — ONLY if where-you-two-are-now has meaningfully shifted from the current relationship state shown. Under 60 Chinese characters. Omit if nothing shifted.\n\nNEVER record in cards: meta/technical talk (which AI model, the app, prompts, settings, API, quotas), small talk that won't matter in a week, blow-by-blow accounts (keep outcome + feeling), or anything an existing card already covers in different words.\n\nWrite everything in the language the conversation is mostly in.";
+  async function runHistDistill(n) {
+    const c = editingCompanion(); if (!c || !c.hist || histBusy) return;
+    if (!providerReady()) { toast('请先在设置里配置接口来源'); return; }
+    const h = c.hist, total = h.bounds.length;
+    if ((h.done || 0) >= total) { toast('已经全部提炼完了'); return; }
+    const rec = await idbGet('imports', h.fileId).catch(() => null);
+    if (!rec || !Array.isArray(rec.msgs)) { $('hist-status').textContent = '原文不在本机（换了设备或被清掉），无法继续提炼'; return; }
+    histBusy = true; histStop = false; renderHistBlock();
+    const model = h.model || companionModel(c);
+    const stopAt = Math.min(total, (h.done || 0) + n);
+    let addedAll = 0, t0 = performance.now();
+    try {
+      for (let i = h.done || 0; i < stopAt; i++) {
+        if (histStop) break;
+        const seg = rec.msgs.slice(i ? h.bounds[i - 1] : 0, h.bounds[i]);
+        if (!seg.length) { h.done = i + 1; continue; }
+        const d0 = fmtEpiDay(seg[0].ts || Date.now()), d1 = fmtEpiDay(seg[seg.length - 1].ts || Date.now());
+        $('hist-status').textContent = `正在提炼第 ${i + 1} / ${total} 段（${d0}${d1 !== d0 ? ' → ' + d1 : ''}）…`;
+        const transcript = seg.map(m => (m.role === 'user' ? 'User: ' : 'AI: ') + m.content).join('\n\n');
+        const existing = memCardsOf(c).slice(0, 60).map(k => '- ' + k.t).join('\n') || '(empty)';
+        const user = 'EXISTING MEMORY CARDS:\n' + existing + '\n\nCURRENT RELATIONSHIP STATE:\n' + ((c.rel || '').trim() || '(not set yet)') + '\n\nSUMMARY OF THE PREVIOUS SEGMENT (context only, do not repeat):\n' + (h.lastSummary || '(none — this is the first segment)') + '\n\n----\n\nTHIS SEGMENT (' + d0 + ' → ' + d1 + ', ' + seg.length + ' messages):\n' + transcript + '\n\n----\n\nOutput now: the SUMMARY line, then memory lines (or NONE), then optionally the RELATION line.';
+        let out;
+        try { out = await chatOnce(HIST_SYS, user, model, 2000); }
+        catch (e) { $('hist-status').textContent = `第 ${i + 1} 段请求失败：${(e && e.message) || e}。进度已保存，稍后再点继续。`; break; }
+        const endTs = seg[seg.length - 1].ts || seg[0].ts || Date.now();
+        let summary = '', relation = '', added = 0;
+        out.split('\n').map(l => l.replace(/^[-•·*\d.、\s]+/, '').trim()).filter(Boolean).forEach(l => {
+          const ms = l.match(/^summary[:：]\s*(.+)$/i), mr = l.match(/^relation[:：]\s*(.+)$/i);
+          if (ms) { summary = ms[1].slice(0, 300); return; }
+          if (mr) { relation = mr[1].slice(0, 120); return; }
+          if (/^none$/i.test(l)) return;
+          if (added < 6 && addMemCard(c, l)) { memCardsOf(c)[0].d = endTs; added++; }   // 卡片的日期用这一段的时间，不是今天
+        });
+        if (summary) { epiOf(c).push({ id: genId(), sid: '', d: endTs, t: summary }); epiOf(c).sort((a, b) => b.d - a.d); if (epiOf(c).length > EPI_MAX) epiOf(c).length = EPI_MAX; }
+        if (relation) { c.rel = relation; c.relUpdated = Date.now(); const ri = $('rel-input'); if (ri) ri.value = relation; }
+        h.lastSummary = summary || h.lastSummary; h.done = i + 1; addedAll += added;
+        saveCompanions(); renderMemCards(); renderEpiList(); renderHistBlock();
+      }
+    } finally {
+      histBusy = false; saveCompanions(); renderHistBlock();
+      const secs = Math.round((performance.now() - t0) / 1000);
+      const st = $('hist-status');
+      if (!/失败|不在本机/.test(st.textContent)) st.textContent = (histStop ? '已停止。' : '这一批跑完了。') + `新增记忆卡 ${addedAll} 条，用时 ${secs}s` + (h.done >= total ? ' · 全部提炼完成 ✓ 可以清掉原文了' : `，还剩 ${total - h.done} 段`);
     }
   }
 
@@ -4055,7 +4273,7 @@
   const OVERLAY_CLOSE = {
     'drawer-overlay': closeDrawer, 'setup-overlay': closeSettings, 'picker-overlay': closePicker, 'memory-overlay': closeMemory,
     'arena-overlay': closeArena, 'habit-overlay': closeHabits, 'search-overlay': closeSearch,
-    'msgmenu-overlay': () => hide('msgmenu-overlay'), 'dlg-overlay': () => closeDlg(null),
+    'msgmenu-overlay': () => hide('msgmenu-overlay'), 'dlg-overlay': () => closeDlg(null), 'charimport-overlay': () => hide('charimport-overlay'),
   };
   Object.entries(OVERLAY_CLOSE).forEach(([id, fn]) => $(id).addEventListener('click', e => { if (e.target.id === id) fn(); }));
   // 弹窗里的输入框：回车 = 第一个按钮（确定）；Esc = 取消
