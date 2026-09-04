@@ -221,6 +221,11 @@
   .ai-eyebrow .model { font-size: 10.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .ai-eyebrow .t { color: var(--ink-3); font-size: 11.5px; flex-shrink: 0; }
 
+  /* 工具调用记录：一行小字，像旁白 */
+  .tool-log { display: flex; flex-direction: column; gap: 3px; margin: 0 0 8px; }
+  .tool-line { font-size: 12.5px; color: var(--ink-3); line-height: 1.5; padding-left: 15px; position: relative; overflow-wrap: break-word; }
+  .tool-line::before { content: '✦'; position: absolute; left: 0; top: 0; font-size: 10px; color: var(--accent); opacity: .7; }
+
   /* 思考块 */
   .think { margin-bottom: 10px; width: 100%; }
   .think-head { display: flex; align-items: center; gap: 7px; background: none; border: none; cursor: pointer; color: var(--ink-2); font-size: 13px; padding: 2px 0; width: 100%; }
@@ -619,6 +624,13 @@
           <div class="tg-sub">支持的模型会请求并展示推理</div>
         </div>
         <label class="switch"><input type="checkbox" id="reason-toggle" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div>
+          <div class="tg-main">让角色使用小工具</div>
+          <div class="tg-sub">记忆卡、翻旧对话、打卡、名场面；仅 OpenRouter 通道</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="tools-toggle" checked><span class="slider"></span></label>
       </div>
       <div class="field-label">外观</div>
       <div class="comp-tabs" id="theme-tabs" style="padding:6px 0 0">
@@ -1476,6 +1488,7 @@
         system: localStorage.getItem('or_system') || '',
         model: localStorage.getItem('or_model') || '',
         reasoning: localStorage.getItem('or_reasoning') || '',
+        tools: localStorage.getItem('islet_tools') || '',
         theme: localStorage.getItem('islet_theme') || 'auto',
         fontsize: localStorage.getItem('islet_fontsize') || 'std',
         aifont: localStorage.getItem('islet_aifont') || 'serif',
@@ -1585,6 +1598,7 @@
         if (st.system != null) localStorage.setItem('or_system', st.system);
         if (st.model) localStorage.setItem('or_model', st.model);
         if (st.reasoning) localStorage.setItem('or_reasoning', st.reasoning);
+        if (st.tools) localStorage.setItem('islet_tools', st.tools);
         if (st.theme) localStorage.setItem('islet_theme', st.theme);
         if (st.fontsize) localStorage.setItem('islet_fontsize', st.fontsize);
         if (st.aifont) localStorage.setItem('islet_aifont', st.aifont);
@@ -1958,6 +1972,7 @@
       catalog = j.data.map(m => ({
         id: m.id, name: cleanName(m.name || m.id),
         reason: (m.supported_parameters || []).some(pp => pp === 'reasoning' || pp === 'include_reasoning'),
+        tools: (m.supported_parameters || []).includes('tools'),
         ctx: m.context_length || 0,
       })).sort((a, b) => a.id.localeCompare(b.id));
       buildCatalogMap(); saveCatalogCache(); updatePill();
@@ -1977,16 +1992,18 @@
   function buildCatalogMap() {
     catalogMap = {};
     if (provider === 'or') FALLBACK_MODELS.forEach(m => catalogMap[m.id] = { name: m.name, reason: m.reason });
-    effectiveCatalog().forEach(m => catalogMap[m.id] = { name: m.name, reason: m.reason });
+    effectiveCatalog().forEach(m => catalogMap[m.id] = { name: m.name, reason: m.reason, tools: m.tools });
   }
-  function saveCatalogCache() { try { localStorage.setItem(provider === 'cc' ? 'cc_models' : 'or_models', JSON.stringify(catalog.map(m => ({ i: m.id, n: m.name, r: m.reason ? 1 : 0, c: m.ctx })))); } catch (e) {} }
-  function loadCatalogCache() { try { const r = localStorage.getItem(provider === 'cc' ? 'cc_models' : 'or_models'); catalog = r ? JSON.parse(r).map(m => ({ id: m.i, name: m.n, reason: !!m.r, ctx: m.c || 0 })) : []; } catch (e) { catalog = []; } }
+  function saveCatalogCache() { try { localStorage.setItem(provider === 'cc' ? 'cc_models' : 'or_models', JSON.stringify(catalog.map(m => ({ i: m.id, n: m.name, r: m.reason ? 1 : 0, t: m.tools == null ? undefined : (m.tools ? 1 : 0), c: m.ctx })))); } catch (e) {} }
+  function loadCatalogCache() { try { const r = localStorage.getItem(provider === 'cc' ? 'cc_models' : 'or_models'); catalog = r ? JSON.parse(r).map(m => ({ id: m.i, name: m.n, reason: !!m.r, tools: m.t == null ? undefined : !!m.t, ctx: m.c || 0 })) : []; } catch (e) { catalog = []; } }
   function cleanName(n) { return n.replace(/^[^:]+:\s*/, '').trim(); }
   function prettyName(id) { return (catalogMap[id] && catalogMap[id].name) ? catalogMap[id].name : (id.split('/').pop() || id); }
   function modelSupportsReasoning(id) {
     if (catalogMap[id] && typeof catalogMap[id].reason === 'boolean') return catalogMap[id].reason;
     return /(opus|sonnet|o1|o3|o4|gpt-5|deepseek-r|glm-[5-9]|glm-4\.[6-9]|gemini-3|gemini-2\.5|kimi|minimax|seed-1\.6|qwen.*think|think|reason)/i.test(id);
   }
+  // 目录里明确说不支持 tools 才判否；旧缓存 / 内置列表没这一项时按支持处理，真不支持还有请求失败后的降级兜底
+  function modelSupportsTools(id) { const e = catalogMap[id]; return e && typeof e.tools === 'boolean' ? e.tools : true; }
   function updatePill() {
     const c = companions.length ? activeCompanion() : null;
     const sub = $('pill-sub'), ava = $('pill-ava');
@@ -2069,6 +2086,7 @@
     $('cc-key-input').value = ccKey;
     $('system-input').value = systemPrompt;
     $('reason-toggle').checked = reasoningEnabled;
+    $('tools-toggle').checked = toolsEnabled;
     renderProviderTabs();
     renderThemeTabs();
     updateStoreMeter();
@@ -2101,6 +2119,8 @@
     }
     systemPrompt = $('system-input').value.trim();
     reasoningEnabled = $('reason-toggle').checked;
+    toolsEnabled = $('tools-toggle').checked;
+    localStorage.setItem('islet_tools', toolsEnabled ? 'on' : 'off');
     localStorage.setItem('or_system', systemPrompt);
     localStorage.setItem('or_reasoning', reasoningEnabled ? 'on' : 'off');
     hide('setup-overlay');
@@ -2149,7 +2169,7 @@
       const m = messages[i];
       if (m.ts) { const dk = dayKey(new Date(m.ts)); if (dk !== prevDay) { appendDaySep(m.ts, target); prevDay = dk; } }
       if (m.role === 'user') addUser(m.content, m.time, i, m.imgs, m.files, target);
-      else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true, m.reqModel, target);
+      else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true, m.reqModel, target, m.tools);
       const last = target.lastElementChild; if (last) last.dataset.midx = i;
     }
     return prevDay;
@@ -2216,7 +2236,7 @@
     scrollToBottom();
   }
 
-  function addAi(content, thinking, thinkSec, model, time, done, reqModel, target) {
+  function addAi(content, thinking, thinkSec, model, time, done, reqModel, target, tools) {
     dropEmpty();
     const row = document.createElement('div');
     row.className = 'msg ai';
@@ -2234,8 +2254,14 @@
         </button>
         <div class="think-body"><div class="think-body-inner"></div></div>
       </div>
+      <div class="tool-log hidden"></div>
       <div class="ai-text"></div>`;
     const thinkEl = row.querySelector('.think');
+    if (tools && tools.length) {   // 回看历史：把当时的工具动作重新列出来
+      const tl = row.querySelector('.tool-log');
+      tools.forEach(t => { if (t.label) { const d = document.createElement('div'); d.className = 'tool-line'; d.textContent = t.label; tl.appendChild(d); } });
+      if (tl.childElementCount) tl.classList.remove('hidden');
+    }
     thinkEl.querySelector('.think-head').onclick = () => thinkEl.classList.toggle('open');
     (target || $('chat')).appendChild(row);
 
@@ -2251,7 +2277,7 @@
       return null;
     }
     scrollToBottom();
-    return { row, thinkEl, thinkBody: thinkEl.querySelector('.think-body-inner'), thinkLbl: thinkEl.querySelector('.lbl'), textEl: row.querySelector('.ai-text'), _raf: null };
+    return { row, thinkEl, thinkBody: thinkEl.querySelector('.think-body-inner'), thinkLbl: thinkEl.querySelector('.lbl'), textEl: row.querySelector('.ai-text'), toolLog: row.querySelector('.tool-log'), _raf: null };
   }
 
   /* ---------- Markdown ---------- */
@@ -2320,6 +2346,131 @@
     return html;
   }
 
+  /* ---------- 本地工具：让角色能「做」而不只是「说」 ----------
+   * 走 OpenAI 风格的 function calling：请求带 tools，模型在流里回 tool_calls，前端执行后以 role:tool 回填再发一轮。
+   * 五个工具全在浏览器本地完成，零后端：记忆卡、翻记忆、搜旧对话、打卡、名场面。
+   * 只在 OpenRouter 通道启用——CC 传话员把消息拼成纯文本，tools 字段大概率会被丢掉。 */
+  const TOOL_DEFS = [
+    { type: 'function', function: { name: 'remember', description: '把一条值得长期记住的信息存成记忆卡：用户的事实、偏好、发生的事、你们之间的约定。用户明确说「记住」时必须调用；聊到重要信息时也可以主动记。一次一条，一句话，像索引卡那样短。',
+      parameters: { type: 'object', properties: { text: { type: 'string', description: '要记住的内容，一句话' }, category: { type: 'string', enum: ['事实', '偏好', '事件', '约定'], description: '分类；约定只用于你们真正说好的事' } }, required: ['text'] } } },
+    { type: 'function', function: { name: 'recall', description: '在你们的记忆卡里查找。用户问「你还记得…」、提到过去的人和事、或你不确定是否聊过某件事时调用。query 留空则返回最近的记忆。',
+      parameters: { type: 'object', properties: { query: { type: 'string', description: '关键词或一句话' } } } } },
+    { type: 'function', function: { name: 'search_history', description: '在你们过去的所有对话记录里按关键词搜索原文，返回出处和片段。用户问「我们上次 / 之前聊过…」「我什么时候说过…」时调用。',
+      parameters: { type: 'object', properties: { query: { type: 'string', description: '关键词，越具体越好' }, limit: { type: 'integer', description: '最多返回几条，默认 6' } }, required: ['query'] } } },
+    { type: 'function', function: { name: 'habits', description: '查看或操作用户的打卡项。status 查看全部进度；log 为某项打今天的卡；undo 撤销今天的卡。用户说「帮我打卡」时调用 log。',
+      parameters: { type: 'object', properties: { action: { type: 'string', enum: ['status', 'log', 'undo'] }, habit: { type: 'string', description: '打卡项名称（log / undo 必填）' } }, required: ['action'] } } },
+    { type: 'function', function: { name: 'save_quote', description: '把一句话收进「名场面」语录本。用户说「这句记下来」「收进名场面」时调用；不要主动把自己的话收进去。',
+      parameters: { type: 'object', properties: { who: { type: 'string', description: '谁说的，默认是你自己' }, text: { type: 'string', description: '原话' }, note: { type: 'string', description: '场景或备注，可选' } }, required: ['text'] } } },
+  ];
+  const TOOLS_GUIDE = '你手边有几件小工具（记忆卡、翻旧对话、打卡、名场面）。用户要求记住、打卡、收藏时就用；不确定过去是否聊过什么时，先查再答，别凭空编。不要为了用而用；用完把结果自然地融进回复，不要提工具名或调用过程本身。';
+  const MAX_TOOL_ROUNDS = 5;   // 一次回复里最多几轮工具往返，防止模型绕圈
+  let toolsEnabled = localStorage.getItem('islet_tools') !== 'off';
+  function toolsActive() { return provider === 'or' && toolsEnabled; }
+  function logTool(h, label) {
+    if (!h || !h.toolLog || !label) return;
+    h.toolLog.classList.remove('hidden');
+    const d = document.createElement('div'); d.className = 'tool-line'; d.textContent = label;
+    h.toolLog.appendChild(d); maybeScroll();
+  }
+  // 执行一次工具调用，返回 { args, result, label }：result 回给模型，label 是给人看的一行小字
+  async function runTool(call, sid, h) {
+    let args = {};
+    try { args = call.args ? JSON.parse(call.args) : {}; } catch (e) { args = {}; }
+    if (!args || typeof args !== 'object') args = {};
+    const c = sessionCompanion(sid);
+    let result = '', label = null;
+    try {
+      switch (call.name) {
+        case 'remember': {
+          const text = String(args.text || '').trim();
+          if (!text) { result = '没有要记的内容'; break; }
+          const cat = MEM_CATS.includes(args.category) ? args.category : '';
+          const ok = addMemCard(c, text, undefined, cat);
+          if (ok) { saveCompanions(); if ($('memory-overlay').classList.contains('show') && editingCompanionId === c.id) renderMemCards(); }
+          result = ok ? '已记下' + (cat ? '（' + cat + '）' : '') + '：' + text : '已经有一条很相近的记忆，没有重复记：' + text;
+          label = (ok ? '记下了：' : '早就记得：') + text;
+          break;
+        }
+        case 'recall': {
+          const arr = memCardsOf(c);
+          const q = String(args.query || '').trim();
+          if (!arr.length) { result = '还没有任何记忆卡片'; label = '翻了翻记忆，还是空的'; break; }
+          let picked;
+          if (!q) picked = arr.slice().sort((a, b) => (b.p || 0) - (a.p || 0) || (b.d || 0) - (a.d || 0)).slice(0, 10);
+          else {
+            const qt = memTokens(q), df = memDF(c);
+            picked = arr.map(k => { let sc = 0; for (const t of cardTokens(k)) if (qt.has(t)) sc += tokenWeight(df.get(t) || 1); return { k, sc }; })
+              .filter(x => x.sc > 0).sort((a, b) => b.sc - a.sc || b.k.d - a.k.d).slice(0, 10).map(x => x.k);
+          }
+          if (!picked.length) result = '没有和「' + q + '」相关的记忆（共 ' + arr.length + ' 条）';
+          else {
+            picked.forEach(k => { k.u = Date.now(); k.n = (k.n || 0) + 1; }); saveCompanions();
+            result = picked.map(k => '- ' + (k.c ? '[' + k.c + '] ' : '') + k.t + '（' + fmtYM(k.d) + '）').join('\n');
+          }
+          label = q ? '翻了翻关于「' + q + '」的记忆' : '翻了翻记忆';
+          break;
+        }
+        case 'search_history': {
+          const q = String(args.query || '').trim().toLowerCase();
+          if (!q) { result = '缺少关键词'; break; }
+          const limit = Math.min(Math.max(parseInt(args.limit, 10) || 6, 1), 12);
+          const mine = sessions.filter(x => (x.companionId || companions[0].id) === c.id).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+          const hits = [];
+          for (const sess of mine) {
+            const msgs = sess.id === currentId ? messages : loadSessionMsgs(sess.id);
+            const end = sess.id === currentId ? msgs.length - 1 : msgs.length;   // 用户刚发的这一条本身不算命中
+            for (let i = end - 1; i >= 0 && hits.length < limit; i--) {
+              const m = msgs[i]; const txt = String(m.content || '');
+              const pos = txt.toLowerCase().indexOf(q); if (pos < 0) continue;
+              const from = Math.max(0, pos - 30), to = pos + q.length + 60;
+              hits.push('- ' + (m.ts ? fmtEpiDay(m.ts) : fmtWhen(sess.updated)) + '「' + sess.title + '」' + (m.role === 'user' ? '用户' : '你') + '：' + (from > 0 ? '…' : '') + txt.slice(from, to).replace(/\s+/g, ' ') + (to < txt.length ? '…' : ''));
+            }
+            if (hits.length >= limit) break;
+          }
+          result = hits.length ? hits.join('\n') : '过去的对话里没有找到「' + q + '」';
+          label = '搜了搜过去聊过的「' + q + '」';
+          break;
+        }
+        case 'habits': {
+          const action = args.action || 'status', today = dayKey();
+          const fmt = hb => hb.name + '：连续 ' + habitStreak(hb) + ' 天，共 ' + Object.keys(hb.log).length + ' 次，今天' + (hb.log[today] ? '已' : '未') + '打卡';
+          if (action === 'status') { result = habits.length ? habits.map(fmt).join('\n') : '还没有打卡项'; label = '看了看打卡'; break; }
+          const name = String(args.habit || '').trim();
+          const hb = habits.find(x => x.name === name) || habits.find(x => name && (x.name.includes(name) || name.includes(x.name)));
+          if (!hb) { result = '没有叫「' + name + '」的打卡项' + (habits.length ? '，现有：' + habits.map(x => x.name).join('、') : ''); break; }
+          if (action === 'log') {
+            if (hb.log[today]) result = hb.name + ' 今天已经打过卡了。' + fmt(hb);
+            else { hb.log[today] = true; saveHabits(); result = '已为「' + hb.name + '」打卡。' + fmt(hb); }
+            label = '打卡：' + hb.name;
+          } else if (action === 'undo') {
+            if (!hb.log[today]) result = hb.name + ' 今天本来就没打卡';
+            else { delete hb.log[today]; saveHabits(); result = '已撤销「' + hb.name + '」今天的打卡'; }
+            label = '撤销打卡：' + hb.name;
+          } else result = '未知操作：' + action;
+          if ($('habit-overlay').classList.contains('show')) renderHabits();
+          break;
+        }
+        case 'save_quote': {
+          const text = String(args.text || '').trim();
+          if (!text) { result = '缺少内容'; break; }
+          const who = String(args.who || '').trim().slice(0, 20) || c.name;
+          const note = String(args.note || '').trim();
+          const now = new Date();
+          quotes.unshift({ id: 'q_' + Date.now(), who, text, note, date: now.getFullYear() + '.' + (now.getMonth() + 1) + '.' + now.getDate() });
+          saveQuotesData();
+          if (!allQuotePeople().includes(who)) { quotePeople.push(who); saveQuotePeople(); }
+          if ($('quotes-overlay').classList.contains('show')) renderQuotes();
+          result = '已收进名场面：' + who + '：「' + text + '」';
+          label = '收进名场面：「' + (text.length > 30 ? text.slice(0, 30) + '…' : text) + '」';
+          break;
+        }
+        default: result = '未知工具：' + call.name;
+      }
+    } catch (e) { result = '工具执行出错：' + ((e && e.message) || e); }
+    logTool(h, label);
+    return { args, result: String(result), label };
+  }
+
   /* ---------- 流式核心 ---------- */
   function authHeaders() {
     if (provider === 'cc') { const h = { 'Content-Type': 'application/json' }; if (ccKey) h['Authorization'] = `Bearer ${ccKey}`; return h; }
@@ -2362,6 +2513,7 @@
     if (systemPrompt) parts.push(systemPrompt);
     const hb = habitBrief();
     if (hb) parts.push(hb);
+    if (toolsActive()) parts.push(TOOLS_GUIDE);
     // 交接棒：新对话带着上一场的结尾开场（只作衔接参考，模型可见、界面不可见）
     const _sess = sessions.find(s => s.id === sid);
     if (_sess && _sess.handoff && _sess.handoff.text) {
@@ -2410,7 +2562,7 @@
       { role: 'assistant', content: '收到。我只以角色身份输出我自己的单条回复——绝不代写用户的话，绝不虚构对话记录或时间戳，说完自己这条就停。' },
     ];
   }
-  async function buildApiMessages(msgList, sid) {
+  async function buildApiMessages(msgList, sid, extra) {   // extra：本轮回复里已发生的工具往返（assistant.tool_calls + tool 结果），追加在最后
     const list = msgList || messages;
     const sys = buildSystemContent(sid);
     const _all = list.filter(m => m.role !== 'system');
@@ -2483,6 +2635,7 @@
     return [
       ...packSystem(sys),
       ...out,
+      ...(extra || []),
     ];
   }
   function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -2554,7 +2707,7 @@
   // ⚠️ 此判断依赖 OpenRouter 的模型 id 格式（anthropic/claude-...）；若换直连官方 API 需同步修改
   function withCacheBreakpoints(model, msgs) {
     if (!model.startsWith('anthropic/')) return flattenTails(msgs);
-    const ok = m => typeof m.content === 'string' && m.content;
+    const ok = m => m.role !== 'tool' && !m.tool_calls && typeof m.content === 'string' && m.content;   // 工具往返不做断点，断点留在最后一条用户消息上
     let lastIdx = -1;
     for (let i = msgs.length - 1; i >= 0; i--) { if (ok(msgs[i])) { lastIdx = i; break; } }
     return msgs.map((m, i) => {
@@ -2573,7 +2726,8 @@
   // onServed（可选）：第一次拿到响应里的 model 字段时回调一次，用于「请求 A 实际是 B」的路由检测
   // opts.ghostGuard：是否启用代笔拦截（只有正式聊天开，活动/评审等自由创作不开，免得误伤）
   async function streamCompletion(model, msgs, signal, onReason, onContent, onServed, opts) {
-    let gotContent = false, sawDone = false, usage = null, finish = null, served = null;
+    let gotContent = false, sawDone = false, usage = null, finish = null, served = null, toolsDropped = false;
+    const toolCalls = [];   // 流里分片到达的 tool_calls，按 index 拼装：{id, name, args}
     const guard = (provider === 'cc' && opts && opts.ghostGuard) ? makeGhostGuard(onContent) : null;   // 代笔拦截：只在 CC 通道 + 正式聊天启用
     try {
       // max_tokens：OpenRouter 会按此值预扣余额，不设则按模型最大输出预估，余额少时会被拒
@@ -2588,19 +2742,20 @@
         else if (/fable|mythos/i.test(model)) payload.reasoning = { exclude: true };
         else payload.reasoning = { enabled: false, exclude: true };
       }
+      if (provider === 'or' && opts && opts.tools && opts.tools.length) { payload.tools = opts.tools; payload.tool_choice = 'auto'; }
       let res = await fetch(apiUrl(), { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
-      if (!res.ok) {
+      // 请求被拒时按原因降级重发，最多两次：
+      //  - 个别模型（如 Fable）强制思考、拒绝任何禁用尝试——完全不提 reasoning，按端点默认重发
+      //  - 模型不支持工具（"No endpoints found that support tool use"）——去掉 tools 重发，这一轮就当没有工具
+      for (let tries = 0; !res.ok && tries < 2; tries++) {
         const e = await res.json().catch(() => ({}));
         const msg = (e && e.error && e.error.message) || ('HTTP ' + res.status);
-        // 个别模型（如 Fable）强制思考、拒绝任何禁用尝试——降级为完全不提 reasoning，按端点默认重发
-        if (/reasoning/i.test(msg) && payload.reasoning && payload.reasoning.enabled !== true) {
-          delete payload.reasoning;
-          res = await fetch(apiUrl(), { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
-          if (!res.ok) { const e2 = await res.json().catch(() => ({})); return { ended: 'http', error: (e2 && e2.error && e2.error.message) || ('HTTP ' + res.status) }; }
-        } else {
-          return { ended: 'http', error: msg };
-        }
+        if (/reasoning/i.test(msg) && payload.reasoning && payload.reasoning.enabled !== true) delete payload.reasoning;
+        else if (payload.tools && /tool/i.test(msg)) { delete payload.tools; delete payload.tool_choice; toolsDropped = true; }
+        else return { ended: 'http', error: msg };
+        res = await fetch(apiUrl(), { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
       }
+      if (!res.ok) { const e2 = await res.json().catch(() => ({})); return { ended: 'http', error: (e2 && e2.error && e2.error.message) || ('HTTP ' + res.status) }; }
       const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
       while (true) {
         const { done, value } = await reader.read();
@@ -2624,6 +2779,16 @@
           if (r == null && delta.reasoning_content) r = delta.reasoning_content;
           if (r == null && Array.isArray(delta.reasoning_details)) r = delta.reasoning_details.map(x => x.text || x.summary || '').join('');
           if (r) onReason(r);
+          if (Array.isArray(delta.tool_calls)) {
+            for (const tc of delta.tool_calls) {
+              const i = tc.index != null ? tc.index : toolCalls.length;
+              const cur = toolCalls[i] || (toolCalls[i] = { id: '', name: '', args: '' });
+              if (tc.id) cur.id = tc.id;
+              const n = tc.function && tc.function.name;
+              if (n) cur.name = n.startsWith(cur.name) ? n : cur.name + n;   // 名字通常一次到齐；个别端点分片发或每片重发，两种都兼容
+              if (tc.function && tc.function.arguments) cur.args += tc.function.arguments;
+            }
+          }
           if (delta.content) {
             gotContent = true;
             if (!guard) onContent(delta.content);
@@ -2633,7 +2798,8 @@
         if (sawDone) break;
       }
       if (guard) { if (guard.cut) reader.cancel().catch(() => {}); else guard.flush(); }
-      return (sawDone || gotContent) ? { ended: 'done', usage, finish, served, cut: !!(guard && guard.cut) } : { ended: 'network', usage, served };
+      const calls = toolCalls.filter(Boolean).map((t, i) => ({ id: t.id || ('call_' + Date.now().toString(36) + i), name: t.name, args: t.args }));
+      return (sawDone || gotContent || calls.length) ? { ended: 'done', usage, finish, served, cut: !!(guard && guard.cut), toolCalls: calls, toolsDropped } : { ended: 'network', usage, served };
     } catch (e) {
       if (guard) guard.flush();   // 中断/断流：把扣着的那点尾巴也交出去，别丢
       if (e.name === 'AbortError') return { ended: 'aborted', usage, served };
@@ -2816,13 +2982,33 @@
 
     let attempt = 0, lastUsage = null, myAbort = null, servedModel = null;
     const onServed = makeServedHandler(h, model, sm => { servedModel = sm; });
+    // 工具往返：extra 是发给模型的往返消息（不进存储，每轮重建）；toolLog 存进消息供回看；roundStart 标记本轮正文起点
+    let tools = (toolsActive() && modelSupportsTools(model)) ? TOOL_DEFS : null;
+    const extra = [], toolLog = [];
+    let rounds = 0, roundStart = 0;
     while (true) {
       myAbort = currentAbort = new AbortController();
-      const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid), myAbort.signal, onReason, onContent, onServed, { ghostGuard: true });
+      const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid, extra), myAbort.signal, onReason, onContent, onServed, { ghostGuard: true, tools });
       if (res.usage) lastUsage = res.usage;
+      if (res.toolsDropped) tools = null;   // 这个模型不吃工具，后面几轮别再带
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { stopTimer(); h.textEl.classList.remove('cursor'); h.textEl.classList.add('err'); h.textEl.textContent = `请求失败：${res.error}。检查 API Key、余额，或换个模型再试。`; break; }
       if (res.ended === 'done') {
+        if (res.toolCalls && res.toolCalls.length && rounds < MAX_TOOL_ROUNDS) {
+          rounds++;
+          const roundText = contentText.slice(roundStart);
+          extra.push({ role: 'assistant', content: roundText || null, tool_calls: res.toolCalls.map(t => ({ id: t.id, type: 'function', function: { name: t.name, arguments: t.args || '{}' } })) });
+          for (const t of res.toolCalls) {
+            if (myAbort.signal.aborted) break;
+            const r = await runTool(t, sid, h);
+            toolLog.push({ name: t.name, args: r.args, result: r.result.slice(0, 300), label: r.label });
+            extra.push({ role: 'tool', tool_call_id: t.id, content: r.result });
+          }
+          if (myAbort.signal.aborted || currentAbort !== myAbort) break;
+          if (contentText && !/\n\n$/.test(contentText)) contentText += '\n\n';   // 工具前后的文字各成一段
+          roundStart = contentText.length;
+          continue;
+        }
         if (res.finish === 'length' && contentText) showBroken(h, () => continueGen(h, model), () => retryGen(h), '达到长度上限');
         else if (res.finish && res.finish !== 'stop' && contentText) showBroken(h, () => continueGen(h, model), () => retryGen(h), '被上游终止（' + res.finish + '）');
         break;
@@ -2847,11 +3033,13 @@
     if (currentAbort === myAbort) { setLoading(false); currentAbort = null; }   // 若已有新一轮生成，别覆盖它的状态
     if (lastUsage && sid === currentId) updateTokenBar(lastUsage);
 
-    if (contentText || reasoningText) {
+    contentText = contentText.replace(/\s+$/, '');
+    if (contentText || reasoningText || toolLog.length) {
       // 被路由时把实际模型存进消息，reqModel 留档原始请求；历史里看到的就是真正回答的模型
       const routedTo = (servedModel && baseModelId(servedModel) !== baseModelId(model)) ? servedModel : null;
       const msg = { role: 'assistant', content: contentText, thinking: reasoningText || null, thinkSec: finalSec, model: routedTo || model, time: h.row.querySelector('.t').textContent, ts: Date.now() };
       if (routedTo) msg.reqModel = model;
+      if (toolLog.length) msg.tools = toolLog;
       if (sid === currentId) { messages.push(msg); saveCurrent(); }
       else if (sessions.find(s => s.id === sid)) { const old = loadSessionMsgs(sid); old.push(msg); saveSessionMsgs(sid, old); }   // 已切走也别丢；会话已删除则不写回
     }
