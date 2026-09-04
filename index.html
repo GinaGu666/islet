@@ -935,6 +935,7 @@
           <button type="button" class="comp-tab" onclick="runHistDistill(5)">提炼下 5 段</button>
           <button type="button" class="comp-tab" onclick="runHistDistill(20)">下 20 段</button>
           <button type="button" class="comp-tab" id="hist-model-btn" onclick="pickHistModel()">模型</button>
+          <button type="button" class="comp-tab" onclick="rollbackHist()">回退几段</button>
           <button type="button" class="comp-tab" onclick="clearHistRaw()">清掉原文</button>
         </div>
         <div class="comp-tabs" id="hist-running" style="padding:8px 0 0;display:none">
@@ -3808,6 +3809,24 @@
     const c = editingCompanion(); if (!c || !c.hist) return;
     openPickerFor(id => { c.hist.model = id; saveCompanions(); renderHistBlock(); }, ' · 用于历史提炼');
   }
+  // 回退：把最近标记为完成的几段退回去重跑（比如额度用完后被空跳过的那几段）
+  async function rollbackHist() {
+    const c = editingCompanion(); const h = c && c.hist;
+    if (!h || !h.done) { toast('还没有已完成的段'); return; }
+    const v = await uiPrompt('回退几段？', String(Math.min(h.done, 10)), { sub: `当前已完成 ${h.done} 段。退回去的段会重新提炼；这些段产出的大事记一并删掉，记忆卡保留（重跑时自动去重）。`, ok: '回退' });
+    const n = parseInt(v, 10);
+    if (!(n > 0)) return;
+    const newDone = Math.max(0, h.done - n);
+    const rec = await idbGet('imports', h.fileId).catch(() => null);
+    if (rec && Array.isArray(rec.msgs)) {
+      const startIdx = newDone ? h.bounds[newDone - 1] : 0;
+      const startTs = (rec.msgs[startIdx] && rec.msgs[startIdx].ts) || 0;
+      c.epis = epiOf(c).filter(e => !(e.h && e.d >= startTs));   // 只删历史提炼产出的、落在回退区间内的小结
+    }
+    h.done = newDone; h.lastSummary = '';
+    saveCompanions(); renderEpiList(); renderHistBlock();
+    $('hist-status').textContent = `已回退到第 ${newDone} 段，点「提炼下 5 段」从这里重跑。`;
+  }
   async function clearHistRaw() {
     const c = editingCompanion(); if (!c || !c.hist) return;
     const total = c.hist.bounds.length, done = c.hist.done || 0;
@@ -3841,15 +3860,22 @@
         try { out = await chatOnce(HIST_SYS, user, model, 2000); }
         catch (e) { $('hist-status').textContent = `第 ${i + 1} 段请求失败：${(e && e.message) || e}。进度已保存，稍后再点继续。`; break; }
         const endTs = seg[seg.length - 1].ts || seg[0].ts || Date.now();
-        let summary = '', relation = '', added = 0;
+        let summary = '', relation = '', added = 0; const cardLines = [];
         out.split('\n').map(l => l.replace(/^[-•·*\d.、\s]+/, '').trim()).filter(Boolean).forEach(l => {
           const ms = l.match(/^summary[:：]\s*(.+)$/i), mr = l.match(/^relation[:：]\s*(.+)$/i);
           if (ms) { summary = ms[1].slice(0, 300); return; }
           if (mr) { relation = mr[1].slice(0, 120); return; }
           if (/^none$/i.test(l)) return;
-          if (added < 6 && addMemCard(c, l)) { memCardsOf(c)[0].d = endTs; added++; }   // 卡片的日期用这一段的时间，不是今天
+          cardLines.push(l);
         });
-        if (summary) { epiOf(c).push({ id: genId(), sid: '', d: endTs, t: summary }); epiOf(c).sort((a, b) => b.d - a.d); if (epiOf(c).length > EPI_MAX) epiOf(c).length = EPI_MAX; }
+        // 没有 SUMMARY 行就不是有效结果：多半是额度用完 / 被拒，模型回了一句人话。
+        // 这种回复一个字都不能进记忆（否则「额度已用完」会变成一张卡），进度也不能往前走
+        if (!summary) {
+          $('hist-status').textContent = `第 ${i + 1} 段没拿到有效结果，进度停在这里。模型回复：「${out.trim().replace(/\s+/g, ' ').slice(0, 90)}」多半是额度用完或被拒绝，处理好后再点继续。`;
+          break;
+        }
+        cardLines.forEach(l => { if (added < 6 && addMemCard(c, l)) { memCardsOf(c)[0].d = endTs; added++; } });   // 卡片的日期用这一段的时间，不是今天
+        if (summary) { epiOf(c).push({ id: genId(), sid: '', d: endTs, t: summary, h: 1 }); epiOf(c).sort((a, b) => b.d - a.d); if (epiOf(c).length > EPI_MAX) epiOf(c).length = EPI_MAX; }
         if (relation) { c.rel = relation; c.relUpdated = Date.now(); const ri = $('rel-input'); if (ri) ri.value = relation; }
         h.lastSummary = summary || h.lastSummary; h.done = i + 1; addedAll += added;
         saveCompanions(); renderMemCards(); renderEpiList(); renderHistBlock();
@@ -3858,7 +3884,7 @@
       histBusy = false; saveCompanions(); renderHistBlock();
       const secs = Math.round((performance.now() - t0) / 1000);
       const st = $('hist-status');
-      if (!/失败|不在本机/.test(st.textContent)) st.textContent = (histStop ? '已停止。' : '这一批跑完了。') + `新增记忆卡 ${addedAll} 条，用时 ${secs}s` + (h.done >= total ? ' · 全部提炼完成 ✓ 可以清掉原文了' : `，还剩 ${total - h.done} 段`);
+      if (!/失败|不在本机|没拿到有效结果/.test(st.textContent)) st.textContent = (histStop ? '已停止。' : '这一批跑完了。') + `新增记忆卡 ${addedAll} 条，用时 ${secs}s` + (h.done >= total ? ' · 全部提炼完成 ✓ 可以清掉原文了' : `，还剩 ${total - h.done} 段`);
     }
   }
 
