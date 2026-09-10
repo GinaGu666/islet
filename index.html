@@ -2621,9 +2621,16 @@
   function renderCtxTabs() { const w = $('ctx-tabs'); if (w) w.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', +b.dataset.mode === ctxMsgs)); }
   // 当前块太短时（刚换块），从河的上游接着取，窗口跨块无缝；上游块不会变，按块 id+条数缓存
   let _tailCache = { key: '', msgs: [] };
+  function riverCid(x) { return x.companionId || (companions[0] && companions[0].id); }   // 与 riverChunks 的归属判断一致（旧会话没有 companionId）
+  function riverUpstream(sid) {   // 这一块之前，同一条河里已有多少条消息（按索引里的 count 算，不用把块读出来）
+    const x = sessions.find(y => y.id === sid); if (!x) return 0;
+    let n = 0;
+    for (const y of riverChunks(riverCid(x))) { if (y.id === sid) break; n += y.count || 0; }
+    return n;
+  }
   async function riverTail(sid, n) {
     const x = sessions.find(y => y.id === sid); if (!x || n <= 0) return [];
-    const chunks = riverChunks(x.companionId), pos = chunks.findIndex(y => y.id === sid);
+    const chunks = riverChunks(riverCid(x)), pos = chunks.findIndex(y => y.id === sid);
     if (pos <= 0) return [];
     const key = chunks.slice(0, pos).map(y => y.id + ':' + (y.count || 0)).join('|') + '#' + n;
     if (_tailCache.key === key) return _tailCache.msgs;
@@ -2656,8 +2663,13 @@
     const list = msgList || messages;
     const sys = buildSystemContent(sid);
     let _all = list.filter(m => m.role !== 'system');
-    if (_all.length < ctxMsgs + CTX_STEP) _all = (await riverTail(sid, ctxMsgs + CTX_STEP - _all.length)).concat(_all);
-    const win = _all.slice(ctxStart(_all.length));
+    // 阶梯窗口按整条河算起点，而不是按当前块：刚换块时上游补进来的那段，起点也只每 CTX_STEP 条动一次。
+    // 之前是"补到凑满 N+20 条"，当前块每长 2 条上游就从最前面掉 2 条，窗口首条每轮都变，
+    // 对按前缀缓存的模型（OpenAI 系等）整段历史全失配，能命中的只剩 system。
+    const _up = riverUpstream(sid == null ? currentId : sid);
+    const _start = ctxStart(_up + _all.length);
+    if (_start < _up) _all = (await riverTail(sid, _up - _start)).concat(_all);
+    const win = _start < _up ? _all : _all.slice(_start - _up);
     let budget = IMG_CTX, fileBudget = FILE_CTX;
     const out = [];
     for (let i = win.length - 1; i >= 0; i--) {
