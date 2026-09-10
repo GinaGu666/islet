@@ -1291,6 +1291,10 @@
   let habits = [];
   try { habits = JSON.parse(localStorage.getItem('islet_habits') || '[]'); } catch (e) { habits = []; }
   function saveHabits() { lsSet('islet_habits', JSON.stringify(habits)); }
+  function fmtStampDay(ts) {   // 时间戳里的日期：同年只写月日，跨年带年份
+    const d = new Date(ts), n = new Date();
+    return (d.getFullYear() !== n.getFullYear() ? d.getFullYear() + '年' : '') + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  }
   function dayKey(d) { const x = d || new Date(); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); }
   function habitStreak(h) {
     let n = 0; const d = new Date();
@@ -2609,7 +2613,7 @@
     }
     const d = new Date(), wd = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-    parts.push(`今天是 ${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日，星期${wd}${tz ? '，用户设备时区 ' + tz : ''}。用户消息开头的 [时:分] 是那条消息按此时区的发送时刻，仅供你感知时间和间隔，回复时不要模仿这个格式。`);
+    parts.push(`今天是 ${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日，星期${wd}${tz ? '，用户设备时区 ' + tz : ''}。用户消息开头的 [时:分] 是那条消息按此时区的发送时刻，跨天的那条会带上日期——间隔了几小时还是几天，以此为准。仅供你感知时间和间隔，回复时不要模仿这个格式。`);
     return parts.join("\n\n");
   }
   let companionsDirty = false;   // 构建请求途中对角色对象的零碎改动（lastSeen、记忆热度）先记着，buildApiMessages 末尾一次写盘
@@ -2671,10 +2675,21 @@
     if (_start < _up) _all = (await riverTail(sid, _up - _start)).concat(_all);
     const win = _start < _up ? _all : _all.slice(_start - _up);
     let budget = IMG_CTX, fileBudget = FILE_CTX;
+    // 时间戳：窗口里第一条用户消息、以及和上一条用户消息不在同一天的，带上日期；其余只带时分。
+    // 否则历史里全是 [13:42]，隔了三天和隔了三小时在模型眼里没区别。日期从存好的 ts 算，每轮不变，不扰动前缀缓存。
+    const _stamp = new Array(win.length);
+    let _lastDay = '';
+    for (let i = 0; i < win.length; i++) {
+      const m = win[i];
+      if (m.role !== 'user' || !m.time) continue;
+      const dk = m.ts ? dayKey(new Date(m.ts)) : '';
+      _stamp[i] = (dk && dk !== _lastDay) ? '[' + fmtStampDay(m.ts) + ' ' + m.time + ']' : '[' + m.time + ']';
+      if (dk) _lastDay = dk;
+    }
     const out = [];
     for (let i = win.length - 1; i >= 0; i--) {
       const m = win[i];
-      let content = (m.role === 'user' && m.time) ? `[${m.time}] ${m.content}` : m.content;
+      let content = _stamp[i] ? `${_stamp[i]} ${m.content}` : m.content;
       if (m.role === 'user' && m.files && m.files.length) {
         if (fileBudget > 0) {
           const blocks = [];
