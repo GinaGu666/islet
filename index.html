@@ -335,6 +335,7 @@
   .session-row .ava { width: 30px; height: 30px; font-size: 14px; margin-right: 4px; }
   .sr-btn:active { background: var(--accent-weak); color: var(--accent); }
   .sr-btn svg { width: 16px; height: 16px; }
+  .sr-btn.pin-on { opacity: 1; color: var(--accent); }
   .list-empty-mini { padding: 30px 12px; text-align: center; color: var(--ink-3); font-size: 13px; }
   .drawer-foot { flex-shrink: 0; border-top: 1px solid var(--line); padding: 8px 12px calc(8px + var(--safe-bottom)); }
   .foot-row { width: 100%; display: flex; align-items: center; gap: 10px; background: none; border: none; cursor: pointer; color: var(--ink-2); font-size: 14.5px; padding: 12px 8px; border-radius: 12px; }
@@ -1875,21 +1876,34 @@
     enterCompanion(id);
     renderAll(); renderDrawerCompanions(); updatePill();
   }
+  function togglePinCompanion(id) {
+    const c = companions.find(x => x.id === id);
+    if (!c) return;
+    c.pinned = !c.pinned;
+    saveCompanions(); renderDrawerCompanions();
+  }
   function renderDrawerCompanions() {
     const wrap = $('drawer-companions');
     if (!wrap) return;
-    wrap.innerHTML = companions.map(c => {
+    const rows = companions.map(c => {
+      const chunks = riverChunks(c.id);
+      const last = chunks.length ? chunks[chunks.length - 1].updated : 0;
+      return { c, chunks, last };
+    }).sort((a, b) => (!!b.c.pinned - !!a.c.pinned) || (b.last - a.last));
+    wrap.innerHTML = rows.map(({ c, chunks, last }) => {
       const st = distillState[c.id];
       const mark = st && st.st === 'running' ? ' <span style="opacity:.6">…</span>'
                  : st && st.st === 'fail'    ? ' <span style="color:var(--danger);font-weight:700">!</span>' : '';
-      const chunks = riverChunks(c.id), total = chunks.reduce((n, x) => n + (x.count || 0), 0);
-      const last = chunks.length ? chunks[chunks.length - 1].updated : 0;
+      const total = chunks.reduce((n, x) => n + (x.count || 0), 0);
       return `<div class="session-row ${c.id === activeCompanionId ? 'sel' : ''}" onclick="switchCompanion('${c.id}');closeDrawer()">
         <span class="ava" style="background:${avaColor(c.id)}">${esc(avaChar(c.name))}</span>
         <div class="sr-main">
           <div class="sr-title">${esc(c.name)}${mark}</div>
           <div class="sr-time">${total ? (last ? fmtWhen(last) + ' · ' : '') + total + ' 条' : '还没聊过'}</div>
         </div>
+        <button class="sr-btn ${c.pinned ? 'pin-on' : ''}" onclick="event.stopPropagation();togglePinCompanion('${c.id}')" aria-label="${c.pinned ? '取消置顶' : '置顶'}">
+          <svg viewBox="0 0 24 24" fill="${c.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3l5 5-4 2-1 5-3-3-5 5-1-1 5-5-3-3 5-1 2-4z"/></svg>
+        </button>
       </div>`;
     }).join('');
   }
