@@ -2469,9 +2469,12 @@
       parameters: { type: 'object', properties: { query: { type: 'string', description: '关键词' } }, required: ['query'] } } },
     { type: 'function', function: { name: 'notion_read_page', description: '读取某个 Notion 页面的正文全文（不只是标题）。传入页面的链接或 ID——可以是 notion_search 结果里的链接，也可以是用户直接给的、或人设里记着的固定页面。',
       parameters: { type: 'object', properties: { page: { type: 'string', description: 'Notion 页面的网址或 ID' } }, required: ['page'] } } },
+    { type: 'function', function: { name: 'notion_append', description: '往某个 Notion 页面末尾追加新内容，不改写已有内容。用户要求把内容写进 / 记录到某个固定 Notion 页面时调用。text 支持简单的 markdown 风格：#/##/### 标题，- 列表，[ ]/[x] 待办，> 引用，其余当普通段落。',
+      parameters: { type: 'object', properties: { page: { type: 'string', description: 'Notion 页面的网址或 ID' }, text: { type: 'string', description: '要追加的内容，每行一段' } }, required: ['page', 'text'] } } },
   ];
   const NOTION_TOOL_URL = 'https://149-248-9-202.sslip.io/notion/search';
   const NOTION_PAGE_URL = 'https://149-248-9-202.sslip.io/notion/page';
+  const NOTION_APPEND_URL = 'https://149-248-9-202.sslip.io/notion/append';
   const NOTION_TOOL_KEY = '0544b1a388a71056250b928220f5a78b70ff0a86537f032e';
   const TOOLS_GUIDE = '你手边有几件小工具（记忆卡、翻旧对话、打卡、名场面）。用户要求记住、打卡、收藏时就用；不确定过去是否聊过什么时，先查再答，别凭空编。不要为了用而用；用完把结果自然地融进回复，不要提工具名或调用过程本身。';
   const MAX_TOOL_ROUNDS = 5;   // 一次回复里最多几轮工具往返，防止模型绕圈
@@ -2591,6 +2594,20 @@
           const data = await res.json();
           result = data.result || '读取出错';
           label = '读了个 Notion 页面';
+          break;
+        }
+        case 'notion_append': {
+          const page = String(args.page || '').trim();
+          const text = String(args.text || '').trim();
+          if (!page || !text) { result = '缺少页面链接/ID 或要写的内容'; break; }
+          const res = await fetch(NOTION_APPEND_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Islet-Key': NOTION_TOOL_KEY },
+            body: JSON.stringify({ id: page, text }),
+          });
+          const data = await res.json();
+          result = data.result || '写入出错';
+          label = '往 Notion 页面写了点东西';
           break;
         }
         default: result = '未知工具：' + call.name;
