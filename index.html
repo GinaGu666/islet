@@ -2465,7 +2465,10 @@
       parameters: { type: 'object', properties: { action: { type: 'string', enum: ['status', 'log', 'undo'] }, habit: { type: 'string', description: '打卡项名称（log / undo 必填）' } }, required: ['action'] } } },
     { type: 'function', function: { name: 'save_quote', description: '把一句话收进「名场面」语录本。用户说「这句记下来」「收进名场面」时调用；不要主动把自己的话收进去。',
       parameters: { type: 'object', properties: { who: { type: 'string', description: '谁说的，默认是你自己' }, text: { type: 'string', description: '原话' }, note: { type: 'string', description: '场景或备注，可选' } }, required: ['text'] } } },
+    { type: 'function', function: { name: 'notion_search', description: '在用户的 Notion 里按关键词搜索页面，返回标题和链接。用户问起 Notion 里记的东西、想找某篇笔记时调用。',
+      parameters: { type: 'object', properties: { query: { type: 'string', description: '关键词' } }, required: ['query'] } } },
   ];
+  const NOTION_TOOL_URL = 'https://149-248-9-202.sslip.io/notion/search';
   const TOOLS_GUIDE = '你手边有几件小工具（记忆卡、翻旧对话、打卡、名场面）。用户要求记住、打卡、收藏时就用；不确定过去是否聊过什么时，先查再答，别凭空编。不要为了用而用；用完把结果自然地融进回复，不要提工具名或调用过程本身。';
   const MAX_TOOL_ROUNDS = 5;   // 一次回复里最多几轮工具往返，防止模型绕圈
   let toolsEnabled = localStorage.getItem('islet_tools') !== 'off';
@@ -2566,6 +2569,15 @@
           if ($('quotes-overlay').classList.contains('show')) renderQuotes();
           result = '已收进名场面：' + who + '：「' + text + '」';
           label = '收进名场面：「' + (text.length > 30 ? text.slice(0, 30) + '…' : text) + '」';
+          break;
+        }
+        case 'notion_search': {
+          const q = String(args.query || '').trim();
+          if (!q) { result = '缺少关键词'; break; }
+          const res = await fetch(NOTION_TOOL_URL + '?q=' + encodeURIComponent(q));
+          const data = await res.json();
+          result = data.result || '查询出错';
+          label = '查了 Notion：「' + q + '」';
           break;
         }
         default: result = '未知工具：' + call.name;
