@@ -23,6 +23,8 @@
      加 --txt 会同时为每段生成一个可读的 .txt，方便自己翻。
      加 --summary-msgs 5021,9870 可以把指定编号的消息标记为压缩摘要（编号来自 longest / msg）。
      加 --with-attachments 会把附件里提取出的文字也带上（默认只留一句「[附件：文件名]」占位）。
+     只选中一段对话时，可以加 --from-msg / --to-msg 只截取这段内部的一段消息（编号来自 longest / msg，前闭后开）：
+       python3 split_claude_export.py conversations.json extract 178 --name Nico --out nico.json --from-msg 5021
 
 输出的 nico.json 是 islet 的导入格式（app = "islet-import"），里面只有你选中的对话，
 外加每段开头的第一条用户消息（通常就是上一段的压缩摘要）单独列出来，方便导入时直接进大事记。
@@ -164,10 +166,16 @@ def cmd_extract(data, args):
         idx += [i for i, c in enumerate(data) if matches(summarize(c, i), args.grep)]
     idx = sorted(set(idx))
     if not idx: sys.exit("没有选中任何对话：给编号，或用 --grep 关键词")
+    if (args.from_msg is not None or args.to_msg is not None) and len(idx) != 1:
+        sys.exit("--from-msg / --to-msg 只能在只选中一段对话时使用（消息编号是这一段内部的序号）")
     convs, summaries = [], []
     for i in idx:
         c = data[i]; s = summarize(c, i)
         msgs = conv_messages(c, args.with_attachments)
+        if args.from_msg is not None or args.to_msg is not None:
+            before = len(msgs)
+            msgs = msgs[args.from_msg or 0 : args.to_msg]
+            print(f"按消息编号截取：{before} 条 → {len(msgs)} 条（[{args.from_msg or 0}, {args.to_msg if args.to_msg is not None else before})）", file=sys.stderr)
         if not msgs: continue
         convs.append({'title': s['title'], 'uuid': s['uuid'], 'created': s['created'] or msgs[0]['ts'], 'updated': s['updated'] or msgs[-1]['ts'], 'messages': msgs})
         first_user = next((m for m in msgs if m['role'] == 'user'), None)
@@ -212,6 +220,8 @@ def main():
     p = sub.add_parser('longest', help='列出某段对话里最长的几条消息（找压缩摘要用）'); p.add_argument('index', type=int); p.add_argument('--n', type=int, default=15)
     p = sub.add_parser('msg', help='按消息编号看全文'); p.add_argument('index', type=int); p.add_argument('msg_indices', type=int, nargs='+')
     p = sub.add_parser('extract', help='抽出选中的对话'); p.add_argument('indices', type=int, nargs='*', help='list 里的 # 编号'); p.add_argument('--grep', help='选中标题或开头含此关键词的全部对话'); p.add_argument('--name', help='角色名字，写进导入文件'); p.add_argument('--out', default='islet-import.json'); p.add_argument('--txt', action='store_true', help='同时输出每段的 .txt'); p.add_argument('--with-attachments', action='store_true', help='带上附件里提取的文字'); p.add_argument('--summary-min', type=int, default=800, help='开头第一条用户消息至少多长才算压缩摘要（字数）'); p.add_argument('--summary-msgs', type=lambda v: [int(x) for x in v.split(',') if x.strip()], help='手动标记为压缩摘要的消息编号，逗号分隔')
+    p.add_argument('--from-msg', type=int, help='只在单选一段对话时可用：从这个消息编号开始（含），编号来自 longest/msg 命令')
+    p.add_argument('--to-msg', type=int, help='只在单选一段对话时可用：到这个消息编号为止（不含）')
     args = ap.parse_args()
     data = load(args.file)
     {'list': cmd_list, 'show': cmd_show, 'longest': cmd_longest, 'msg': cmd_msg, 'extract': cmd_extract}[args.cmd](data, args)
