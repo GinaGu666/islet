@@ -25,6 +25,8 @@
      加 --with-attachments 会把附件里提取出的文字也带上（默认只留一句「[附件：文件名]」占位）。
      只选中一段对话时，可以加 --from-msg / --to-msg 只截取这段内部的一段消息（编号来自 longest / msg，前闭后开）：
        python3 split_claude_export.py conversations.json extract 178 --name Nico --out nico.json --from-msg 5021
+     想找「开头到某个固定节点」的那个节点编号，按顺序把整段消息列出来自己找：
+       python3 split_claude_export.py conversations.json outline 178 --chars 40
 
 输出的 nico.json 是 islet 的导入格式（app = "islet-import"），里面只有你选中的对话，
 外加每段开头的第一条用户消息（通常就是上一段的压缩摘要）单独列出来，方便导入时直接进大事记。
@@ -152,6 +154,14 @@ def cmd_longest(data, args):
         m = msgs[i]
         print(f"{i:>6}  {fmt_day(m['ts']):<10}  {'用户' if m['role']=='user' else 'AI':<3}  {len(m['content']):>7}  {re.sub(chr(10)+'|'+chr(13), ' ', m['content'])[:70]}")
 
+def cmd_outline(data, args):
+    c = data[args.index]
+    msgs = conv_messages(c)
+    print(f"# {summarize(c, args.index)['title']}：全部 {len(msgs)} 条消息（编号用于 --from-msg / --to-msg）\n")
+    print(f"{'编号':>6}  {'日期':<10}  {'谁':<3}  {'字数':>7}  开头")
+    for i, m in enumerate(msgs):
+        print(f"{i:>6}  {fmt_day(m['ts']):<10}  {'用户' if m['role']=='user' else 'AI':<3}  {len(m['content']):>7}  {re.sub(chr(10)+'|'+chr(13), ' ', m['content'])[:args.chars]}")
+
 def cmd_msg(data, args):
     c = data[args.index]
     msgs = conv_messages(c)
@@ -218,13 +228,14 @@ def main():
     p = sub.add_parser('list', help='列出所有对话'); p.add_argument('--grep', help='只列标题或开头含此关键词的'); p.add_argument('--min-msgs', type=int, default=1, help='只列至少这么多条消息的')
     p = sub.add_parser('show', help='看某段对话的开头'); p.add_argument('index', type=int); p.add_argument('--head', type=int, default=3, help='显示前几条'); p.add_argument('--chars', type=int, default=1200, help='每条最多显示多少字')
     p = sub.add_parser('longest', help='列出某段对话里最长的几条消息（找压缩摘要用）'); p.add_argument('index', type=int); p.add_argument('--n', type=int, default=15)
+    p = sub.add_parser('outline', help='按顺序列出某段对话的全部消息（找切点用）'); p.add_argument('index', type=int); p.add_argument('--chars', type=int, default=60, help='每条预览多少字')
     p = sub.add_parser('msg', help='按消息编号看全文'); p.add_argument('index', type=int); p.add_argument('msg_indices', type=int, nargs='+')
     p = sub.add_parser('extract', help='抽出选中的对话'); p.add_argument('indices', type=int, nargs='*', help='list 里的 # 编号'); p.add_argument('--grep', help='选中标题或开头含此关键词的全部对话'); p.add_argument('--name', help='角色名字，写进导入文件'); p.add_argument('--out', default='islet-import.json'); p.add_argument('--txt', action='store_true', help='同时输出每段的 .txt'); p.add_argument('--with-attachments', action='store_true', help='带上附件里提取的文字'); p.add_argument('--summary-min', type=int, default=800, help='开头第一条用户消息至少多长才算压缩摘要（字数）'); p.add_argument('--summary-msgs', type=lambda v: [int(x) for x in v.split(',') if x.strip()], help='手动标记为压缩摘要的消息编号，逗号分隔')
     p.add_argument('--from-msg', type=int, help='只在单选一段对话时可用：从这个消息编号开始（含），编号来自 longest/msg 命令')
     p.add_argument('--to-msg', type=int, help='只在单选一段对话时可用：到这个消息编号为止（不含）')
     args = ap.parse_args()
     data = load(args.file)
-    {'list': cmd_list, 'show': cmd_show, 'longest': cmd_longest, 'msg': cmd_msg, 'extract': cmd_extract}[args.cmd](data, args)
+    {'list': cmd_list, 'show': cmd_show, 'longest': cmd_longest, 'outline': cmd_outline, 'msg': cmd_msg, 'extract': cmd_extract}[args.cmd](data, args)
 
 if __name__ == '__main__':
     main()
