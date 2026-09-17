@@ -841,6 +841,7 @@
     <div class="form" style="padding-bottom:6px">
       <div class="mm-preview" id="mm-preview"></div>
       <button class="mm-btn" id="mm-copy" type="button">复制全文</button>
+      <button class="mm-btn" id="mm-note" type="button">传纸条给别的角色</button>
       <button class="mm-btn" id="mm-edit" type="button">编辑并从这里重发</button>
       <button class="mm-btn danger" id="mm-del" type="button">删除这条消息</button>
       <button class="mm-btn" type="button" onclick="hide('msgmenu-overlay')">取消</button>
@@ -1894,11 +1895,12 @@
       const st = distillState[c.id];
       const mark = st && st.st === 'running' ? ' <span style="opacity:.6">…</span>'
                  : st && st.st === 'fail'    ? ' <span style="color:var(--danger);font-weight:700">!</span>' : '';
+      const noteMark = (Array.isArray(c.notes) && c.notes.length) ? ' <span title="有纸条">📝</span>' : '';
       const total = chunks.reduce((n, x) => n + (x.count || 0), 0);
       return `<div class="session-row ${c.id === activeCompanionId ? 'sel' : ''}" onclick="switchCompanion('${c.id}');closeDrawer()">
         <span class="ava" style="background:${avaColor(c.id)}">${esc(avaChar(c.name))}</span>
         <div class="sr-main">
-          <div class="sr-title">${esc(c.name)}${mark}</div>
+          <div class="sr-title">${esc(c.name)}${mark}${noteMark}</div>
           <div class="sr-time">${total ? (last ? fmtWhen(last) + ' · ' : '') + total + ' 条' : '还没聊过'}</div>
         </div>
         <button class="sr-btn ${c.pinned ? 'pin-on' : ''}" onclick="event.stopPropagation();togglePinCompanion('${c.id}')" aria-label="${c.pinned ? '取消置顶' : '置顶'}">
@@ -2666,6 +2668,10 @@
       const _now = Date.now(), _gapH = tc.lastSeen ? (_now - tc.lastSeen) / 3600e3 : 0;
       if (_gapH >= 6) parts.push('距离你们上次对话已过去' + (_gapH < 48 ? '约 ' + Math.round(_gapH) + ' 小时' : '约 ' + Math.round(_gapH / 24) + ' 天') + '。如果自然的话可以提一句，不必刻意。');
       if (!tc.lastSeen || _now - tc.lastSeen > 60e3) { tc.lastSeen = _now; companionsDirty = true; }   // 一分钟内不反复写
+      if (Array.isArray(tc.notes) && tc.notes.length) {
+        parts.push('## 刚收到的纸条\n' + tc.notes.map(n => '- 来自「' + n.from + '」：' + n.text).join('\n') + '\n\n这是别的角色让你转达、你刚刚收到的内容。这次回复里自然地主动提一句，用你自己的口吻说，不用照读、不用生硬地宣布"我收到一张纸条"。');
+        tc.notes = []; companionsDirty = true;
+      }
     }
     const d = new Date(), wd = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
@@ -4518,6 +4524,22 @@
     const _ms = menuRef && chunkMsgsSync(menuRef.sid), m = _ms && _ms[menuRef.idx];
     if (m && m.content) navigator.clipboard.writeText(m.content).catch(() => {});
     hide('msgmenu-overlay');
+  };
+  $('mm-note').onclick = async () => {
+    const ref = menuRef, msgs = ref && chunkMsgsSync(ref.sid), m = msgs && msgs[ref.idx];
+    if (!m || !m.content) { hide('msgmenu-overlay'); return; }
+    hide('msgmenu-overlay');
+    const from = sessionCompanion(ref.sid);
+    const others = companions.filter(x => x.id !== (from && from.id));
+    if (!others.length) { toast('没有别的角色可以传'); return; }
+    const targetId = await uiChoice('传给哪个角色？', others.map(x => [x.name, x.id]));
+    if (!targetId) return;
+    const target = companions.find(x => x.id === targetId);
+    if (!target) return;
+    if (!Array.isArray(target.notes)) target.notes = [];
+    target.notes.push({ from: (from && from.name) || '', text: m.content, ts: Date.now() });
+    saveCompanions();
+    toast('已经传给「' + target.name + '」了');
   };
   $('mm-edit').onclick = () => { hide('msgmenu-overlay'); if (menuRef && menuRef.sid === currentId) editMessage(menuRef.idx); };
   $('mm-del').onclick = async () => {
