@@ -643,7 +643,8 @@
       </div>
       <div class="field-label">模型每次看到的对话</div>
       <div class="comp-tabs" id="ctx-tabs" style="padding:6px 0 0">
-        <button type="button" class="comp-tab" data-mode="120" onclick="setCtx(120)">最近 120 条</button>
+        <button type="button" class="comp-tab" data-mode="60" onclick="setCtx(60)">最近 60 条</button>
+        <button type="button" class="comp-tab" data-mode="120" onclick="setCtx(120)">120 条</button>
         <button type="button" class="comp-tab" data-mode="240" onclick="setCtx(240)">240 条</button>
         <button type="button" class="comp-tab" data-mode="400" onclick="setCtx(400)">400 条</button>
       </div>
@@ -2679,7 +2680,7 @@
     return parts.join("\n\n");
   }
   let companionsDirty = false;   // 构建请求途中对角色对象的零碎改动（lastSeen、记忆热度）先记着，buildApiMessages 末尾一次写盘
-  const CTX_OPTIONS = [120, 240, 400];
+  const CTX_OPTIONS = [60, 120, 240, 400];
   let ctxMsgs = CTX_OPTIONS.includes(+localStorage.getItem('islet_ctx')) ? +localStorage.getItem('islet_ctx') : 120;   // 发给模型的最近消息条数（设置里可调）；界面和存储始终保留完整记录
   const CTX_STEP = 20;    // 阶梯窗口步长：起点每 20 条才前移一次，窗口在 N~N+20 条间浮动，保住缓存命中
   function ctxStart(len) { return len <= ctxMsgs + CTX_STEP ? 0 : Math.ceil((len - (ctxMsgs + CTX_STEP)) / CTX_STEP) * CTX_STEP; }
