@@ -871,12 +871,16 @@
     </div>
     <div class="form" style="padding-top:0">
       <div class="mem-hint" id="ci-info" style="margin:0 0 4px"></div>
-      <div class="field-label">角色名称</div>
-      <input class="field" id="ci-name" spellcheck="false">
-      <div class="field-label">这个角色是谁（可以先空着，导入后在记忆面板补）</div>
-      <textarea class="field persona" id="ci-persona" spellcheck="false"></textarea>
-      <div class="field-label">你们现在的关系状态</div>
-      <input class="field" id="ci-rel" spellcheck="false">
+      <div class="field-label">导入到</div>
+      <select class="field" id="ci-target" onchange="ciToggleTarget()"><option value="">新建角色</option></select>
+      <div id="ci-new-fields">
+        <div class="field-label">角色名称</div>
+        <input class="field" id="ci-name" spellcheck="false">
+        <div class="field-label">这个角色是谁（可以先空着，导入后在记忆面板补）</div>
+        <textarea class="field persona" id="ci-persona" spellcheck="false"></textarea>
+        <div class="field-label">你们现在的关系状态</div>
+        <input class="field" id="ci-rel" spellcheck="false">
+      </div>
       <div class="mem-hint" style="margin-top:12px">全部原文都会接成 TA 的一条对话，往上划能一直看到第一天；导入后在记忆面板里分批提炼成记忆卡和大事记。</div>
       <button class="btn-primary" onclick="runCharacterImport()">导入</button>
     </div>
@@ -3917,9 +3921,16 @@
       $('ci-rel').value = ch.rel || '';
       const chars = all.reduce((n, m) => n + m.content.length, 0);
       $('ci-info').textContent = `${d.conversations.length} 段对话 · ${all.length} 条消息 · 约 ${(chars / 1e4).toFixed(1)} 万字 · ${fmtEpiDay(all[0].ts || Date.now())} → ${fmtEpiDay(all[all.length - 1].ts || Date.now())}` + ((ch.cards || []).length ? ` · 自带记忆卡 ${ch.cards.length} 条` : '') + ((ch.epis || []).length + (ch.summaries || []).length ? ` · 自带大事记 ${(ch.epis || []).length + (ch.summaries || []).length} 条` : '');
+      const sel = $('ci-target');
+      sel.innerHTML = '<option value="">新建角色</option>' + companions.map(x => `<option value="${x.id}">并入「${esc(x.name)}」</option>`).join('');
+      sel.value = ''; ciToggleTarget();
       hide('setup-overlay'); show('charimport-overlay');
     };
     r.readAsText(file);
+  }
+  function ciToggleTarget() {
+    const merging = !!$('ci-target').value;
+    $('ci-new-fields').style.display = merging ? 'none' : '';
   }
   function ciAllMsgs() {
     const out = [];
@@ -3938,12 +3949,20 @@
   }
   async function runCharacterImport() {
     if (!ciData) return;
-    const name = $('ci-name').value.trim();
-    if (!name) { $('ci-name').focus(); return; }
+    const targetId = $('ci-target').value;
+    let c, isNew = !targetId;
+    if (targetId) {
+      c = companions.find(x => x.id === targetId);
+      if (!c) { toast('角色不存在'); return; }
+      if (c.hist && !c.hist.cleared) { toast('这个角色还有一份原文没提炼完/没清掉，去记忆面板里跑完或清掉，再合并新的'); return; }
+    } else {
+      const name = $('ci-name').value.trim();
+      if (!name) { $('ci-name').focus(); return; }
+      c = { id: genId(), name, persona: $('ci-persona').value.trim(), rel: $('ci-rel').value.trim(), cards: [], epis: [], autoDistill: true, memUpdated: Date.now() };
+      if (c.rel) c.relUpdated = Date.now();
+    }
     const all = ciAllMsgs();
     const ch = ciData.character || {};
-    const c = { id: genId(), name, persona: $('ci-persona').value.trim(), rel: $('ci-rel').value.trim(), cards: [], epis: [], autoDistill: true, memUpdated: Date.now() };
-    if (c.rel) c.relUpdated = Date.now();
     // 文件自带的记忆卡（电脑上先提炼过的）与大事记（摘要、小结）
     (ch.cards || []).forEach(k => { if (!k || !k.t) return; const st = splitCatTag(k.t); const t = st.t.slice(0, 500); const cat = MEM_CATS.includes(k.c) ? k.c : st.c; if (t && !memDup(c, t)) c.cards.push({ id: genId(), t, d: +k.d || Date.now(), p: 0, c: cat || '' }); });
     c.cards.sort((a, b) => b.d - a.d); trimMemCards(c);
@@ -3951,11 +3970,12 @@
     c.epis.sort((a, b) => b.d - a.d); if (c.epis.length > EPI_MAX) c.epis.length = EPI_MAX;
     // 整段原文进 IndexedDB，供分批提炼
     const fileId = 'imp_' + c.id;
-    try { await idbPut('imports', { id: fileId, name, msgs: all, created: Date.now() }); }
+    try { await idbPut('imports', { id: fileId, name: c.name, msgs: all, created: Date.now() }); }
     catch (e) { toast('原文存不进本机数据库：' + ((e && e.message) || e)); return; }
     const bounds = histBounds(all);
     c.hist = { fileId, total: all.length, chars: all.reduce((n, m) => n + m.content.length, 0), bounds, done: 0, lastSummary: '', model: '' };
-    companions.push(c); saveCompanions();
+    if (isNew) companions.push(c);
+    saveCompanions();
     // 全部原文按 CHUNK_MAX 条一块接成 TA 的河：最新几块进 localStorage，其余直接进 IndexedDB。标记为已提炼，免得自动提炼再跑一遍
     const groups = []; for (let i = 0; i < all.length; i += CHUNK_MAX) groups.push(all.slice(i, i + CHUNK_MAX));
     let added = 0;
@@ -3968,10 +3988,11 @@
       sessions.push(meta); added++;
     }
     saveIndex();
+    if (!isNew) await rebalanceChunks(c.id);   // 并入已有角色：新老块混一起后重新分冷热，别让热块超额堆在 localStorage 里
     ciData = null; hide('charimport-overlay');
     enterCompanion(c.id);
     renderAll(); renderDrawerCompanions(); updatePill(); updateStoreMeter();
-    await uiAlert(`已导入「${name}」`, { sub: `记忆卡 ${c.cards.length} 条 · 大事记 ${c.epis.length} 条 · 原文 ${all.length} 条已接成一条对话，往上划能看到第一天。\n\n原文切成 ${bounds.length} 段，去记忆面板的「历史提炼」里分批跑，跑完 TA 就有完整的记忆和编年史了。` });
+    await uiAlert(`已${isNew ? '导入' : '并入'}「${c.name}」`, { sub: `记忆卡 ${c.cards.length} 条 · 大事记 ${c.epis.length} 条 · 原文 ${all.length} 条已接成一条对话，往上划能看到第一天。\n\n原文切成 ${bounds.length} 段，去记忆面板的「历史提炼」里分批跑，跑完 TA 就有完整的记忆和编年史了。` });
   }
 
   /* 分批提炼：每段一次请求，结果直接进角色的记忆卡与大事记；进度存在 c.hist 里 */
