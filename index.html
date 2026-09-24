@@ -627,6 +627,14 @@
         </div>
         <label class="switch"><input type="checkbox" id="reason-toggle" checked><span class="slider"></span></label>
       </div>
+      <div class="field-label">思考力度（OpenRouter）</div>
+      <div class="comp-tabs" id="effort-tabs" style="padding:6px 0 0">
+        <button type="button" class="comp-tab" data-mode="" onclick="setEffort('')">自动</button>
+        <button type="button" class="comp-tab" data-mode="low" onclick="setEffort('low')">低</button>
+        <button type="button" class="comp-tab" data-mode="medium" onclick="setEffort('medium')">中</button>
+        <button type="button" class="comp-tab" data-mode="high" onclick="setEffort('high')">高</button>
+      </div>
+      <div class="mem-hint">自动 = 让模型自己定。越高想得越久、越贵；只在「显示思考过程」打开时生效。CC 通道的思考由传话员那头管，这里调不到。</div>
       <div class="toggle-row">
         <div>
           <div class="tg-main">让角色使用小工具</div>
@@ -2155,7 +2163,7 @@
     $('cc-base-input').value = ccBase;
     $('cc-key-input').value = ccKey;
     $('system-input').value = systemPrompt;
-    $('reason-toggle').checked = reasoningEnabled;
+    $('reason-toggle').checked = reasoningEnabled; renderEffortTabs();
     $('tools-toggle').checked = toolsEnabled;
     $('ccsys-toggle').checked = ccSystemDirect;
     renderProviderTabs();
@@ -2684,6 +2692,11 @@
     return parts.join("\n\n");
   }
   let companionsDirty = false;   // 构建请求途中对角色对象的零碎改动（lastSeen、记忆热度）先记着，buildApiMessages 末尾一次写盘
+  // 思考力度：OpenRouter 的 reasoning.effort；空 = 不指定，按模型默认
+  const EFFORTS = ['', 'low', 'medium', 'high'];
+  let reasoningEffort = EFFORTS.includes(localStorage.getItem('or_effort')) ? localStorage.getItem('or_effort') : '';
+  function setEffort(e) { if (!EFFORTS.includes(e)) return; reasoningEffort = e; localStorage.setItem('or_effort', e); renderEffortTabs(); }
+  function renderEffortTabs() { const w = $('effort-tabs'); if (w) w.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === reasoningEffort)); }
   const CTX_OPTIONS = [60, 120, 240, 400];
   let ctxMsgs = CTX_OPTIONS.includes(+localStorage.getItem('islet_ctx')) ? +localStorage.getItem('islet_ctx') : 120;   // 发给模型的最近消息条数（设置里可调）；界面和存储始终保留完整记录
   const CTX_STEP = 20;    // 阶梯窗口步长：起点每 20 条才前移一次，窗口在 N~N+20 条间浮动，保住缓存命中
@@ -2923,7 +2936,8 @@
       // 有的会"接受"但模型把思考裸写进正文。对它们只传 exclude：照常思考、不传回来，正文保持干净
       // reasoning 是 OpenRouter 的私有参数，自建端点（传话员）不认识，不发；Claude 的思考由传话员那头自己管
       if (provider === 'or' && modelSupportsReasoning(model)) {
-        if (reasoningEnabled) payload.reasoning = { enabled: true };
+        // 按力度分配思考预算时，OpenRouter 按 max_tokens 的比例算（high 约八成），8192 会把正文挤没，高档放宽
+        if (reasoningEnabled) { payload.reasoning = reasoningEffort ? { effort: reasoningEffort } : { enabled: true }; if (reasoningEffort === 'high') payload.max_tokens = 16384; }
         else if (/fable|mythos/i.test(model)) payload.reasoning = { exclude: true };
         else payload.reasoning = { enabled: false, exclude: true };
       }
