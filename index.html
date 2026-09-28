@@ -906,7 +906,8 @@
     <div class="form">
       <div class="field-label" style="margin-top:8px">关于你 · Lea<span class="lock-tag">所有角色共享</span></div>
       <textarea class="field tall" id="about-input" placeholder="关于你的背景，跟谁聊都会读到…" spellcheck="false"></textarea>
-      <div class="mem-hint">你的档案，所有角色共用，模型不会自动改它。</div>
+      <div class="mem-hint">你的档案，所有角色共用。模型不会自己改它；你在聊天里开口要求时，TA 才会动手改（仅 OpenRouter 通道）。</div>
+      <button class="comp-tab habit-add" type="button" id="about-undo-btn" style="display:none" onclick="undoAboutEdit()">撤销模型的上次修改</button>
 
       <hr class="mem-divider">
       <div class="field-label">角色（各自独立的人设与记忆）</div>
@@ -953,6 +954,7 @@
       </div>
       <div id="epi-list"></div>
       <div class="mem-hint">每场对话的小结自动落在这里，攒成你们的编年史；最近几条和「去年今天」会带进对话，给 TA 时间纵深。</div>
+      <button class="comp-tab habit-add" type="button" onclick="exportMemoryMd()">导出记忆卡和大事记（Markdown）</button>
 
       <div id="hist-block" style="display:none">
         <div class="field-head">
@@ -1869,6 +1871,26 @@
     if (!activeCompanionId || !companions.find(c => c.id === activeCompanionId)) activeCompanionId = companions[0].id;
   }
   function sharedAbout() { return (localStorage.getItem('islet_about') || '').trim(); }
+  // 模型改「关于你」：改前把旧版压进 islet_about_hist（最多留 5 版），记忆面板里可撤销
+  function aboutHist() { try { const a = JSON.parse(localStorage.getItem('islet_about_hist') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+  function setAboutByModel(prev, next) {
+    const h = aboutHist(); h.push({ t: prev, d: Date.now() }); if (h.length > 5) h.splice(0, h.length - 5);
+    if (!lsSet('islet_about_hist', JSON.stringify(h))) return false;
+    if (!lsSet('islet_about', next)) return false;
+    if (localStorage.getItem('islet_about') !== next) return false;   // 读回校验
+    if ($('memory-overlay').classList.contains('show')) $('about-input').value = next;   // 面板开着就同步，免得点保存时拿旧文本盖回去
+    renderAboutUndo();
+    return true;
+  }
+  function renderAboutUndo() { const b = $('about-undo-btn'); if (b) b.style.display = aboutHist().length ? '' : 'none'; }
+  async function undoAboutEdit() {
+    const h = aboutHist(); const last = h[h.length - 1]; if (!last) return;
+    if (!(await uiConfirm('撤销模型对「关于你」的上次修改？', { sub: '会回到改之前的版本（' + fmtWhen(last.d) + '）。', ok: '撤销' }))) return;
+    h.pop();
+    if (!lsSet('islet_about', last.t)) return;
+    lsSet('islet_about_hist', JSON.stringify(h));
+    $('about-input').value = last.t; renderAboutUndo(); toast('已撤销');
+  }
   function editingCompanion() { return companions.find(c => c.id === editingCompanionId) || activeCompanion(); }
   function sessionCompanion(sid) {
     const s = sessions.find(x => x.id === sid);
@@ -2480,6 +2502,8 @@
       parameters: { type: 'object', properties: { action: { type: 'string', enum: ['status', 'log', 'undo'] }, habit: { type: 'string', description: '打卡项名称（log / undo 必填）' } }, required: ['action'] } } },
     { type: 'function', function: { name: 'save_quote', description: '把一句话收进「名场面」语录本。用户说「这句记下来」「收进名场面」时调用；不要主动把自己的话收进去。',
       parameters: { type: 'object', properties: { who: { type: 'string', description: '谁说的，默认是你自己' }, text: { type: 'string', description: '原话' }, note: { type: 'string', description: '场景或备注，可选' } }, required: ['text'] } } },
+    { type: 'function', function: { name: 'update_about', description: '修改「关于你」档案（用户本人的背景资料，所有角色共用，已经在你的设定里）。只在用户明确要求改、补充或删掉档案里的内容时调用，绝不主动调用。append：在末尾加一段；replace：把档案里的一段原文换成新内容（old 必须从档案里一字不差地抄，new 留空就是删掉这段）。',
+      parameters: { type: 'object', properties: { action: { type: 'string', enum: ['append', 'replace'] }, text: { type: 'string', description: 'append 时要加的内容' }, old: { type: 'string', description: 'replace 时要替换的原文，一字不差' }, new: { type: 'string', description: 'replace 时的新内容；留空 = 删掉 old' } }, required: ['action'] } } },
     { type: 'function', function: { name: 'notion_search', description: '在用户的 Notion 里按关键词搜索页面，返回标题和链接。用户问起 Notion 里记的东西、想找某篇笔记时调用。',
       parameters: { type: 'object', properties: { query: { type: 'string', description: '关键词' } }, required: ['query'] } } },
     { type: 'function', function: { name: 'notion_read_page', description: '读取某个 Notion 页面的正文（不只是标题）。传入页面的链接或 ID——可以是 notion_search 结果里的链接，也可以是用户直接给的、或人设里记着的固定页面。长页面分页返回，约 4000 字一页：结果末尾看到「还没读完」，就把提示里给的 id（形如「xxx page=2」）原样填进 page 参数再调用一次，一页页读到「已读完」再回答，别只看第一页就停。',
@@ -2518,6 +2542,27 @@
           if (ok) { saveCompanions(); if ($('memory-overlay').classList.contains('show') && editingCompanionId === c.id) renderMemCards(); }
           result = ok ? '已记下' + (cat ? '（' + cat + '）' : '') + '：' + text : '已经有一条很相近的记忆，没有重复记：' + text;
           label = (ok ? '记下了：' : '早就记得：') + text;
+          break;
+        }
+        case 'update_about': {
+          const cur = sharedAbout();
+          let next = null;
+          if (args.action === 'append') {
+            const t = String(args.text || '').trim();
+            if (!t) { result = '没有要加的内容'; break; }
+            next = cur ? cur + '\n' + t : t;
+            label = '在「关于你」里加了：' + (t.length > 40 ? t.slice(0, 40) + '…' : t);
+          } else if (args.action === 'replace') {
+            const o = String(args.old || ''), n = String(args.new || '').trim();
+            if (!o.trim()) { result = '缺少要替换的原文 old'; break; }
+            const at = cur.indexOf(o);
+            if (at < 0) { result = '档案里找不到这段原文，没有改动。请从档案里一字不差地抄 old。当前档案：\n' + cur; label = '想改「关于你」，但没对上原文'; break; }
+            const end = at + o.length + (!n && cur[at + o.length] === '\n' ? 1 : 0);   // 整段删掉时连它后面的换行一起带走，别留空行
+            next = (cur.slice(0, at) + n + cur.slice(end)).replace(/\n{3,}/g, '\n\n').trim();
+            label = n ? '改了「关于你」：' + (n.length > 40 ? n.slice(0, 40) + '…' : n) : '从「关于你」里删掉了一段';
+          } else { result = '未知操作'; break; }
+          if (!setAboutByModel(cur, next)) { result = '保存失败（本机存储满了？），没有改动'; label = '「关于你」没存进去'; break; }
+          result = '已更新。现在的档案：\n' + next;
           break;
         }
         case 'recall': {
@@ -3489,6 +3534,31 @@
     const d = new Date(ts), n = new Date();
     return (d.getFullYear() !== n.getFullYear() ? d.getFullYear() + '年' : '') + (d.getMonth() + 1) + '月' + d.getDate() + '日';
   }
+  // 记忆卡 + 大事记 → 一份 Markdown，下载到本机
+  function exportMemoryMd() {
+    const c = editingCompanion(); if (!c) return;
+    const pad = n => String(n).padStart(2, '0');
+    const day = ts => { const d = new Date(ts || Date.now()); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
+    const one = s => String(s || '').replace(/\s*\n\s*/g, ' ').trim();
+    const cards = memCardsOf(c), epis = epiOf(c).slice().sort((a, b) => a.d - b.d);
+    const L = ['# ' + c.name + ' 的记忆', '', '导出于 ' + day() + ' · 记忆卡 ' + cards.length + ' 条 · 大事记 ' + epis.length + ' 条', ''];
+    if ((c.rel || '').trim()) L.push('## 关系状态', '', one(c.rel), '');
+    L.push('## 记忆卡', '');
+    if (!cards.length) L.push('（还没有）', '');
+    const groups = MEM_CATS.slice().reverse().concat(['']);   // 约定、事件、偏好、事实，最后是没分类的
+    groups.forEach(cat => {
+      const arr = cards.filter(k => (MEM_CATS.includes(k.c) ? k.c : '') === cat).sort((a, b) => (b.p ? 1 : 0) - (a.p ? 1 : 0) || b.d - a.d);
+      if (!arr.length) return;
+      L.push('### ' + (cat || '未分类') + '（' + arr.length + '）', '');
+      arr.forEach(k => L.push('- ' + (k.p ? '📌 ' : '') + one(k.t) + '（' + day(k.d) + '）'));
+      L.push('');
+    });
+    L.push('## 大事记', '');
+    if (!epis.length) L.push('（还没有）', '');
+    epis.forEach(e => L.push('- **' + day(e.d) + '** ' + one(e.t)));
+    // 文件名只用英文数字：部分浏览器遇到中文文件名会退回成 "download"；角色名写在文件标题里
+    downloadFile('islet-memory-' + dateStamp() + '.md', L.join('\n') + '\n', 'text/markdown;charset=utf-8');
+  }
   function epiInjectText(c) {
     const arr = epiOf(c); if (!arr.length) return '';
     const out = []; let used = 0; const shown = new Set();
@@ -3785,7 +3855,7 @@
   }
   function loadMemoryForm() {
     const c = editingCompanion();
-    $('about-input').value = sharedAbout();
+    $('about-input').value = sharedAbout(); renderAboutUndo();
     $('companion-name-input').value = c.name;
     $('persona-input').value = c.persona || '';
     const _ri = $('rel-input'); if (_ri) _ri.value = c.rel || '';
@@ -4513,7 +4583,7 @@
       const k = localStorage.key(i), v = localStorage.getItem(k) || '';
       const b = (k.length + v.length) * 2; used += b;
       if (k.startsWith('islet_s_')) buckets['会话'] += b;
-      else if (k === 'islet_companions' || k === 'islet_about' || k.startsWith('islet_memblob_')) buckets['记忆与角色'] += b;
+      else if (k === 'islet_companions' || k === 'islet_about' || k === 'islet_about_hist' || k.startsWith('islet_memblob_')) buckets['记忆与角色'] += b;
       else if (k === 'islet_quotes') buckets['名场面'] += b;
       else buckets['其他'] += b;
     }
