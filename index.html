@@ -287,6 +287,25 @@
   .empty-mem:active .empty-chip { border-color: var(--accent-line); }
 
   /* 输入栏 */
+  /* 小熊：坐在输入栏左上角的分隔线上；平时呼吸、眨眼，模型在想时歪头冒「…」，回完蹦一下，点它会说句小话 */
+  .input-bar { position: relative; }
+  body.bear-on .chat { padding-bottom: 46px; }
+  .bear { position: absolute; left: 16px; bottom: calc(100% - 3px); width: 44px; height: 44px; z-index: 5; cursor: pointer; -webkit-tap-highlight-color: transparent; display: none; }
+  body.bear-on .bear { display: block; }
+  .bear svg { width: 100%; height: 100%; overflow: visible; transform-origin: 50% 100%; animation: bear-breathe 3.6s ease-in-out infinite; }
+  .bear .b-eye { transform-box: fill-box; transform-origin: center; animation: bear-blink 5.2s infinite; }
+  .bear .b-arm-r { transform-box: fill-box; transform-origin: 30% 20%; }
+  .bear.think svg { animation: bear-tilt 1.6s ease-in-out infinite; }
+  .bear.hop svg { animation: bear-hop .55s cubic-bezier(.3,.7,.4,1); }
+  .bear.hop .b-arm-r { animation: bear-wave .55s ease-in-out; }
+  .bear-say { position: absolute; left: 36px; bottom: 34px; white-space: nowrap; font-size: 12.5px; line-height: 1.3; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 12px 12px 12px 3px; padding: 4px 9px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); opacity: 0; transform: translateY(4px); transition: opacity .18s, transform .18s; pointer-events: none; }
+  .bear-say.show { opacity: 1; transform: none; }
+  @keyframes bear-breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.025, .975); } }
+  @keyframes bear-blink { 0%, 94%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.1); } }
+  @keyframes bear-tilt { 0%, 100% { transform: rotate(-7deg); } 50% { transform: rotate(4deg); } }
+  @keyframes bear-hop { 0% { transform: translateY(0); } 40% { transform: translateY(-9px) scale(.97, 1.04); } 75% { transform: translateY(0) scale(1.05, .95); } 100% { transform: none; } }
+  @keyframes bear-wave { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(-40deg); } 60% { transform: rotate(-15deg); } }
+  @media (prefers-reduced-motion: reduce) { .bear svg, .bear .b-eye, .bear.think svg, .bear.hop svg, .bear.hop .b-arm-r { animation: none; } }
   .input-bar { display: flex; align-items: flex-end; gap: 9px; padding: 8px 14px calc(12px + var(--safe-bottom)); background: var(--bg); flex-shrink: 0; border-top: 1px solid var(--line); }
   .input-wrap { flex: 1; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 9px 16px; display: flex; align-items: flex-end; transition: border-color .15s; }
   .input-wrap:focus-within { border-color: var(--accent-line); }
@@ -536,6 +555,26 @@
 <div class="edit-bar hidden" id="edit-bar"><span>✎ 编辑消息 · 发送后将从这里重新生成</span><button class="x" type="button" onclick="cancelEdit()">取消</button></div>
 <div class="img-strip" id="img-strip"></div>
 <div class="input-bar" id="input-bar" style="display:none">
+  <div class="bear" id="bear" role="button" aria-label="小熊" onclick="bearPoke()">
+    <div class="bear-say" id="bear-say"></div>
+    <svg viewBox="0 0 44 44" aria-hidden="true">
+      <g fill="#A8744A">
+        <circle cx="11" cy="9" r="5.2"/><circle cx="33" cy="9" r="5.2"/>
+        <ellipse cx="22" cy="35" rx="11" ry="9"/>
+        <ellipse cx="11.5" cy="34" rx="3.6" ry="5" transform="rotate(20 11.5 34)"/>
+        <g class="b-arm-r"><ellipse cx="32.5" cy="34" rx="3.6" ry="5" transform="rotate(-20 32.5 34)"/></g>
+        <circle cx="22" cy="18" r="12"/>
+      </g>
+      <circle cx="11" cy="9" r="2.6" fill="#E3BC8E"/><circle cx="33" cy="9" r="2.6" fill="#E3BC8E"/>
+      <ellipse cx="22" cy="37" rx="6" ry="5" fill="#E3BC8E"/>
+      <ellipse cx="22" cy="22" rx="5.6" ry="4.4" fill="#EBCBA2"/>
+      <ellipse cx="22" cy="20.4" rx="2" ry="1.4" fill="#3A2A20"/>
+      <path d="M20.3 23.2q1.7 1.4 3.4 0" fill="none" stroke="#3A2A20" stroke-width="0.9" stroke-linecap="round"/>
+      <ellipse class="b-eye" cx="17.4" cy="16.2" rx="1.3" ry="1.5" fill="#3A2A20"/>
+      <ellipse class="b-eye" cx="26.6" cy="16.2" rx="1.3" ry="1.5" fill="#3A2A20"/>
+      <circle cx="14.6" cy="20.6" r="1.6" fill="#E89A8A" opacity=".45"/><circle cx="29.4" cy="20.6" r="1.6" fill="#E89A8A" opacity=".45"/>
+    </svg>
+  </div>
   <button class="attach-btn" id="web-btn" type="button" aria-label="联网搜索" onclick="toggleWeb()">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg>
   </button>
@@ -662,6 +701,13 @@
         <button type="button" class="comp-tab" data-mode="auto" onclick="setTheme('auto')">跟随系统</button>
         <button type="button" class="comp-tab" data-mode="light" onclick="setTheme('light')">浅色</button>
         <button type="button" class="comp-tab" data-mode="dark" onclick="setTheme('dark')">深色</button>
+      </div>
+      <div class="toggle-row">
+        <div>
+          <div class="tg-main">小熊 🧸</div>
+          <div class="tg-sub">坐在输入框上面陪着你，点它会说句话</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="bear-toggle" onchange="setBear(this.checked)"><span class="slider"></span></label>
       </div>
       <div class="field-label">字号</div>
       <div class="comp-tabs" id="fontsize-tabs" style="padding:6px 0 0">
@@ -1718,6 +1764,7 @@
 
   /* ---------- 初始化 ---------- */
   window.onload = () => {
+    applyBear();
     apiKey = localStorage.getItem('or_key') || '';
     provider = localStorage.getItem('islet_provider') === 'cc' ? 'cc' : 'or';
     ccBase = localStorage.getItem('cc_base') || '';
@@ -2187,6 +2234,7 @@
     $('system-input').value = systemPrompt;
     $('reason-toggle').checked = reasoningEnabled; renderEffortTabs();
     $('tools-toggle').checked = toolsEnabled;
+    applyBear();
     $('ccsys-toggle').checked = ccSystemDirect;
     renderProviderTabs();
     renderThemeTabs();
@@ -3336,8 +3384,37 @@
     generateAssistant();
   }
 
+  /* ---------- 小熊 ---------- */
+  const BEAR_LINES = ['抱抱～', '我在这儿呢', '今天也辛苦啦', '嘿嘿', '🍯', '记得喝水哦', '要不要歇一会儿？', '摸摸头', '（蹭蹭）', '晚安也可以找我'];
+  let bearOn = localStorage.getItem('islet_bear') !== 'off', _bearSayT = null, _bearLast = -1;
+  function applyBear() { document.body.classList.toggle('bear-on', bearOn); const t = $('bear-toggle'); if (t) t.checked = bearOn; }
+  function setBear(v) { bearOn = !!v; localStorage.setItem('islet_bear', bearOn ? 'on' : 'off'); applyBear(); }
+  function bearHop() {
+    const b = $('bear'); if (!b) return;
+    b.classList.remove('hop'); void b.offsetWidth; b.classList.add('hop');
+    setTimeout(() => b.classList.remove('hop'), 600);
+  }
+  function bearSay(text, ms) {
+    const el = $('bear-say'); if (!el) return;
+    el.textContent = text; el.classList.add('show');
+    clearTimeout(_bearSayT); _bearSayT = setTimeout(() => el.classList.remove('show'), ms || 2200);
+  }
+  function bearPoke() {
+    if (isLoading) { bearSay('嘘，TA 在想呢', 1600); return; }
+    let i; do { i = Math.floor(Math.random() * BEAR_LINES.length); } while (i === _bearLast && BEAR_LINES.length > 1);
+    _bearLast = i; bearHop(); bearSay(BEAR_LINES[i]);
+  }
+  function bearThinking(v) {
+    const b = $('bear'); if (!b) return;
+    const was = b.classList.contains('think');
+    b.classList.toggle('think', !!v);
+    if (v) bearSay('…', 60000);
+    else if (was) { const el = $('bear-say'); if (el) el.classList.remove('show'); bearHop(); }
+  }
+
   function setLoading(v) {
     isLoading = v;
+    bearThinking(v);
     $('chat').classList.toggle('streaming', !!v);
     const btn = $('send-btn'), ic = $('send-ic');
     if (v) { btn.setAttribute('aria-label', '停止'); ic.outerHTML = '<svg id="send-ic" viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>'; }
