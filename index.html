@@ -282,6 +282,21 @@
   .has-img { background-size: cover !important; background-position: center !important; background-color: var(--card) !important; }
   .ava-edit { display: flex; align-items: center; gap: 12px; margin: 4px 0 2px; }
   .ava-edit .ava-big { width: 56px; height: 56px; border-radius: 50%; color: #fff; font-family: var(--serif); font-size: 24px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+  /* 随机掉落（抽卡） */
+  .gacha-stage { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 0 8px; min-height: 150px; }
+  .gacha-ava { width: 84px; height: 84px; border-radius: 50%; color: #fff; font-family: var(--serif); font-size: 36px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 16px rgba(0,0,0,.12); transition: transform .08s; }
+  .gacha-ava.q { background: var(--card) !important; color: var(--ink-3); border: 1.5px dashed var(--line); box-shadow: none; }
+  .gacha-name { font-family: var(--serif); font-size: 19px; color: var(--ink); min-height: 26px; }
+  .gacha-stage.spin .gacha-ava { animation: gacha-tick .12s ease-out; }
+  .gacha-stage.won .gacha-ava { animation: gacha-won .7s cubic-bezier(.3,.7,.4,1.4); box-shadow: 0 0 0 6px var(--accent-weak), 0 6px 22px rgba(0,0,0,.16); }
+  .gacha-stage.won .gacha-name::before { content: '✨ '; }
+  .gacha-stage.won .gacha-name::after { content: ' ✨'; }
+  @keyframes gacha-tick { from { transform: scale(.9); } to { transform: none; } }
+  @keyframes gacha-won { 0% { transform: scale(.8); } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
+  .gacha-pool .comp-tab .tab-ava { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; color: #fff; font-family: var(--serif); margin-right: 5px; vertical-align: -3px; }
+  .gacha-pool .comp-tab:not(.sel) .tab-ava { opacity: .45; }
+  .drawn-tag { font-size: 11px; color: var(--ink-3); margin-right: 6px; }
+  @media (prefers-reduced-motion: reduce) { .gacha-stage.spin .gacha-ava, .gacha-stage.won .gacha-ava { animation: none; } }
   .empty-ava { width: 52px; height: 52px; border-radius: 50%; color: #fff; font-family: var(--serif); font-size: 24px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,0,0,.10); }
   .empty-name { font-size: 21px; font-weight: 600; color: var(--ink); letter-spacing: .02em; margin-top: -2px; }
   .empty-mem { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; margin-top: 18px; max-width: 320px; background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; }
@@ -589,6 +604,9 @@
         <button class="icon-btn" onclick="openSearch()" aria-label="搜索消息">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
         </button>
+        <button class="icon-btn" onclick="openGacha()" aria-label="随机掉落一个">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r="1.1" fill="currentColor"/><circle cx="15" cy="15" r="1.1" fill="currentColor"/><circle cx="15" cy="9" r="1.1" fill="currentColor"/><circle cx="9" cy="15" r="1.1" fill="currentColor"/></svg>
+        </button>
         <button class="icon-btn" onclick="addCompanion()" aria-label="新角色">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         </button>
@@ -799,6 +817,25 @@
   </div>
 </div>
 <!-- 名场面 -->
+<div class="overlay" id="gacha-overlay">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">随机掉落</div>
+      <button class="sheet-x" onclick="closeGacha()">×</button>
+    </div>
+    <div class="form">
+      <div class="gacha-stage" id="gacha-stage">
+        <span class="gacha-ava q" id="gacha-ava">?</span>
+        <div class="gacha-name" id="gacha-name"></div>
+      </div>
+      <button class="btn-primary" id="gacha-go" onclick="runGacha()">抽一个</button>
+      <div class="field-label" style="margin-top:14px">卡池 <span style="text-transform:none;opacity:.6">（点一下放进 / 拿出）</span></div>
+      <div class="comp-tabs gacha-pool" id="gacha-pool" style="padding:6px 0 4px"></div>
+      <div class="mem-hint" id="gacha-hint"></div>
+    </div>
+  </div>
+</div>
 <div class="overlay" id="quotes-overlay">
   <div class="sheet">
     <div class="grabber"></div>
@@ -2009,10 +2046,66 @@
     else createSession(cid);
   }
   function switchCompanion(id) {
+    if (gachaPending() && gachaPending() !== id) setGachaPending('');
     if (id === activeCompanionId) { return; }
     leaveCurrentSession();
     enterCompanion(id);
     renderAll(); renderDrawerCompanions(); updatePill();
+  }
+  /* ---------- 随机掉落：从卡池里抽一个角色，带一点仪式感 ---------- */
+  function gachaPending() { try { return localStorage.getItem('islet_gacha_pending') || ''; } catch (e) { return ''; } }
+  function setGachaPending(id) { try { if (id) localStorage.setItem('islet_gacha_pending', id); else localStorage.removeItem('islet_gacha_pending'); } catch (e) {} }
+  let gachaBusy = false;
+  function gachaPool() { return companions.filter(c => c.pool); }
+  function openGacha() {
+    if (gachaBusy) return;
+    const st = $('gacha-stage'); st.classList.remove('spin', 'won');
+    const a = $('gacha-ava'); paintAva(a, null); a.className = 'gacha-ava q'; a.textContent = '?'; a.style.background = '';
+    $('gacha-name').textContent = '';
+    renderGachaPool(); show('gacha-overlay');
+  }
+  function closeGacha() { if (!gachaBusy) hide('gacha-overlay'); }
+  function renderGachaPool() {
+    ensureAvaStyles();
+    $('gacha-pool').innerHTML = companions.map(c => {
+      const ava = c.avatar ? `<span class="tab-ava has-img ava-img-${c.id}"></span>` : `<span class="tab-ava" style="background:${avaColor(c.id)}">${esc(avaChar(c.name))}</span>`;
+      return `<button type="button" class="comp-tab ${c.pool ? 'sel' : ''}" onclick="toggleGachaPool('${c.id}')">${ava}${esc(c.name)}</button>`;
+    }).join('');
+    const n = gachaPool().length;
+    $('gacha-go').disabled = !n;
+    $('gacha-hint').textContent = n ? `卡池里有 ${n} 个。只会从这里面抽。` : '卡池是空的，先点几个放进去。';
+  }
+  function toggleGachaPool(id) {
+    if (gachaBusy) return;
+    const c = companions.find(x => x.id === id); if (!c) return;
+    if (c.pool) delete c.pool; else c.pool = 1;
+    saveCompanions(); renderGachaPool();
+  }
+  async function runGacha() {
+    const pool = gachaPool(); if (!pool.length || gachaBusy) return;
+    gachaBusy = true; $('gacha-go').disabled = true;
+    const win = pool[Math.floor(Math.random() * pool.length)];
+    const st = $('gacha-stage'), a = $('gacha-ava'), nm = $('gacha-name');
+    const showC = c => { a.className = 'gacha-ava'; paintAva(a, c); nm.textContent = c.name; st.classList.remove('spin'); void st.offsetWidth; st.classList.add('spin'); };
+    st.classList.remove('won');
+    const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (pool.length > 1 && !reduce) {
+      // 转盘：先快后慢，最后一格落在抽中的人身上
+      let i = Math.floor(Math.random() * pool.length);
+      const steps = 16 + Math.floor(Math.random() * 4);
+      for (let k = 0; k < steps; k++) {
+        i = (i + 1) % pool.length;
+        showC(pool[i]);
+        await delay(55 + Math.pow(k / steps, 2.2) * 330);
+      }
+    }
+    showC(win); st.classList.remove('spin'); st.classList.add('won');
+    if (navigator.vibrate) try { navigator.vibrate(30); } catch (e) {}
+    await delay(1300);
+    setGachaPending(win.id);
+    gachaBusy = false; hide('gacha-overlay'); closeDrawer();
+    if (win.id !== activeCompanionId) switchCompanion(win.id);
+    toast('掉落了 ' + win.name + ' ✨');
   }
   function togglePinCompanion(id) {
     const c = companions.find(x => x.id === id);
@@ -2390,7 +2483,7 @@
     for (let i = from; i < to; i++) {
       const m = msgs[i];
       if (m.ts) { const dk = dayKey(new Date(m.ts)); if (dk !== prevDay) { appendDaySep(m.ts, target); prevDay = dk; } }
-      if (m.role === 'user') addUser(m.content, m.time, i, m.imgs, m.files, target);
+      if (m.role === 'user') addUser(m.content, m.time, i, m.imgs, m.files, target, m.drawn);
       else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true, m.reqModel, target, m.tools);
       const last = target.lastElementChild; if (last) { last.dataset.midx = i; last.dataset.sid = sid; }
     }
@@ -2447,11 +2540,11 @@
   }
   function dropEmpty() { const e = $('empty'); if (e) e.remove(); }
 
-  function addUser(text, time, idx, imgs, files, target) {
+  function addUser(text, time, idx, imgs, files, target, drawn) {
     dropEmpty();
     const row = document.createElement('div');
     row.className = 'msg user';
-    row.innerHTML = `<div class="bubble"></div><div class="meta-row"><button class="edit-btn" type="button" aria-label="编辑" onclick="editMessage(${idx})"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button><div class="time">${esc(time || '')}</div></div>`;
+    row.innerHTML = `<div class="bubble"></div><div class="meta-row"><button class="edit-btn" type="button" aria-label="编辑" onclick="editMessage(${idx})"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>${drawn ? '<span class="drawn-tag">🎲 抽卡掉落</span>' : ''}<div class="time">${esc(time || '')}</div></div>`;
     const bub = row.querySelector('.bubble');
     bub.textContent = text;
     if (!text) bub.style.display = 'none';
@@ -2918,6 +3011,7 @@
     for (let i = win.length - 1; i >= 0; i--) {
       const m = win[i];
       let content = _stamp[i] ? `${_stamp[i]} ${m.content}` : m.content;
+      if (m.role === 'user' && m.drawn) content = '（她这次是从「随机掉落」抽卡进来的——在几个人里抽中了你。）\n' + content;
       if (m.role === 'user' && m.files && m.files.length) {
         if (fileBudget > 0) {
           const blocks = [];
@@ -3307,8 +3401,9 @@
     const msg = { role: 'user', content: text, time: t, ts };
     if (imgs) msg.imgs = imgs;
     if (docs) msg.files = docs;
+    if (gachaPending() === activeCompanionId) { msg.drawn = 1; setGachaPending(''); }   // 抽卡进来后的第一句：带个标记，模型那边会看到一句说明
     messages.push(msg);
-    addUser(text, t, messages.length - 1, msg.imgs, msg.files);
+    addUser(text, t, messages.length - 1, msg.imgs, msg.files, null, msg.drawn);
     const _lr = $('chat').lastElementChild; if (_lr) { _lr.dataset.midx = messages.length - 1; _lr.dataset.sid = currentId; }
     if (!renderFrom) { renderFrom = { sid: currentId, idx: 0 }; renderFirstTs = ts; }
     saveCurrent();
@@ -4763,7 +4858,7 @@
   // 点遮罩关闭：弹层 id → 关闭函数
   const OVERLAY_CLOSE = {
     'drawer-overlay': closeDrawer, 'setup-overlay': closeSettings, 'picker-overlay': closePicker, 'memory-overlay': closeMemory,
-    'arena-overlay': closeArena, 'habit-overlay': closeHabits, 'search-overlay': closeSearch,
+    'arena-overlay': closeArena, 'gacha-overlay': closeGacha, 'habit-overlay': closeHabits, 'search-overlay': closeSearch,
     'msgmenu-overlay': () => hide('msgmenu-overlay'), 'dlg-overlay': () => closeDlg(null), 'charimport-overlay': () => hide('charimport-overlay'),
   };
   Object.entries(OVERLAY_CLOSE).forEach(([id, fn]) => $(id).addEventListener('click', e => { if (e.target.id === id) fn(); }));
