@@ -796,6 +796,7 @@
             <textarea class="field" id="cn-input" placeholder="追问、补充，或者点评一下…" spellcheck="false"></textarea>
           </div>
           <div class="cn-actions">
+            <button class="ar-btn" id="cn-retry" style="display:none" onclick="councilRetry()">补上没说的</button>
             <button class="ar-btn" id="cn-next" onclick="councilNextRound()">说完了，再轮一圈</button>
             <button class="ar-btn" id="cn-stop" style="display:none" onclick="councilStop()">停</button>
             <button class="ar-btn" id="cn-end" onclick="adjournCouncil()">散会</button>
@@ -4558,6 +4559,9 @@
     $('cn-end').style.display = busy ? 'none' : '';
     $('cn-stop').style.display = busy ? '' : 'none';
     $('cn-input').disabled = busy;
+    const last = council && council.rounds[council.rounds.length - 1];
+    const miss = last ? last.turns.filter(t => t.status !== 'done').length : 0;
+    const rb = $('cn-retry'); rb.style.display = (!busy && miss) ? '' : 'none'; rb.textContent = `补上没说的（${miss}）`;
   }
   async function startCouncil() {
     const topic = $('cn-topic').value.trim();
@@ -4580,12 +4584,24 @@
     const order = shuffled(council.cids.map(id => companions.find(c => c.id === id)).filter(Boolean));
     const round = { q, turns: order.map(c => ({ cid: c.id, name: c.name, text: '', status: 'wait' })) };
     council.rounds.push(round);
-    const ri = council.rounds.length - 1;
+    await councilRunTurns(council.rounds.length - 1);
+  }
+  async function councilRetry() {
+    if (!council || councilBusy || !council.rounds.length) return;
+    if (!providerReady()) { toast('请先在设置里配置接口来源'); return; }
+    await councilRunTurns(council.rounds.length - 1);
+  }
+  // 跑某一轮里还没说完的人；断网就停，剩下的等着「补上没说的」
+  async function councilRunTurns(ri) {
+    const round = council.rounds[ri];
     councilBusy = true; councilButtons(); renderCouncilLog();
-    const names = order.map(c => '「' + c.name + '」').join('、');
+    const names = round.turns.map(t => '「' + t.name + '」').join('、');
+    let netDown = false;
     for (let ti = 0; ti < round.turns.length; ti++) {
       const t = round.turns[ti], c = companions.find(x => x.id === t.cid);
-      if (!councilBusy || !c) { t.status = 'stop'; continue; }
+      if (t.status === 'done') continue;
+      if (!councilBusy || netDown || !c) { t.status = netDown ? 'wait' : 'stop'; continue; }
+      t.text = ''; t.err = '';
       t.status = 'run'; renderCouncilLog();
       const card = $('cn-t-' + ri + '-' + ti); if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       councilAbort = new AbortController();
@@ -4597,10 +4613,11 @@
       if (raf) cancelAnimationFrame(raf);
       t.text = t.text.trim();
       t.status = (res.ended === 'done' && t.text) ? 'done' : (res.ended === 'aborted' ? 'stop' : 'fail');
-      if (t.status === 'fail') t.err = res.error || '空回复';
+      if (t.status === 'fail') { if (res.ended === 'network') { netDown = true; t.err = '网络断了'; t.text = ''; } else t.err = res.error || '空回复'; }
       renderCouncilLog();
     }
-    councilBusy = false; councilAbort = null; councilButtons();
+    councilBusy = false; councilAbort = null; renderCouncilLog(); councilButtons();
+    if (netDown) toast('网络断了，先停在这里。网好了点「补上没说的」。', 4200);
   }
   function councilStop() { councilBusy = false; if (councilAbort) councilAbort.abort(); }
 
@@ -4752,7 +4769,7 @@
       else if (p.status === 'fail' && p.err) $('ar-text-' + i).innerHTML = '<div class="mem-hint">生成失败：' + esc(p.err) + '</div>';
     });
     $('arena-judge-wrap').innerHTML = '';
-    $('arena-actions').innerHTML = readonly ? `<button class="ar-btn" onclick="arenaSetupView()">← 返回</button><button class="ar-btn" onclick="shareArena()">分享给朋友</button><button class="ar-btn" onclick="exportArenaMd()">导出 .md</button>` : `<button class="ar-btn" onclick="arenaStop()">停止</button>`;
+    $('arena-actions').innerHTML = readonly ? (arenaUnfinished() ? `<button class="ar-btn" onclick="continueArena()">继续没完成的（${arenaUnfinished()}）</button>` : '') + `<button class="ar-btn" onclick="arenaSetupView()">← 返回</button><button class="ar-btn" onclick="shareArena()">分享给朋友</button><button class="ar-btn" onclick="exportArenaMd()">导出 .md</button>` : `<button class="ar-btn" onclick="arenaStop()">停止</button>`;
   }
   function arenaStop() { arenaBusy = false; if (arenaAbort) arenaAbort.abort(); }
 
@@ -4774,36 +4791,58 @@
     if (picks.length < 2) { toast('至少选两位参赛角色'); return; }
     if (!providerReady()) { toast('请先在设置里配置接口来源'); return; }
     arena = { ts: Date.now(), theme, parts: picks.map(c => ({ cid: c.id, name: c.name, model: c.model || selectedModel, text: '', status: 'wait' })), judge: null };
+    arenaPersist(); renderArenaLog();   // 一开场就存：中途断网、刷新页面，这场都还在往期里，能接着跑
+    await runArenaParts();
+  }
+  function arenaUnfinished() { return arena ? arena.parts.filter(p => p.status !== 'done').length : 0; }
+  function arenaEndActions() {
+    const n = arenaUnfinished();
+    return (n ? `<button class="ar-btn" onclick="continueArena()">继续没完成的（${n}）</button>` : '') + `<button class="ar-btn" onclick="arenaSetupView()">← 再来一场</button><button class="ar-btn" onclick="shareArena()">分享给朋友</button><button class="ar-btn" onclick="exportArenaMd()">导出 .md</button>`;
+  }
+  async function continueArena() {
+    if (!arena || arenaBusy) return;
+    if (!providerReady()) { toast('请先在设置里配置接口来源'); return; }
+    await runArenaParts();
+  }
+  // 只跑还没完成的；一遇到断网就停，剩下的留着「等待中」，网好了点「继续」接上
+  async function runArenaParts() {
     arenaBusy = true;
     arenaRunView(false);
-    const names = picks.map(c => '「' + c.name + '」').join('、');
+    const names = arena.parts.map(p => '「' + p.name + '」').join('、');
+    let netDown = false;
     for (let i = 0; i < arena.parts.length; i++) {
-      if (!arenaBusy) { arena.parts[i].status = 'stop'; setArSt(i); continue; }
-      const p = arena.parts[i], c = companions.find(x => x.id === p.cid);
-      p.status = 'run'; setArSt(i);
+      const p = arena.parts[i];
+      if (p.status === 'done') continue;
+      if (!arenaBusy || netDown) { p.status = netDown ? 'wait' : 'stop'; setArSt(i); continue; }
+      const c = companions.find(x => x.id === p.cid);
+      if (!c) { p.status = 'fail'; p.err = '这个角色已经不在了'; setArSt(i); continue; }
+      p.text = ''; p.err = ''; p.status = 'run'; setArSt(i);
       arenaAbort = new AbortController();
-      const user = `【活动】${theme}\n\n参赛者：${names}。现在轮到你提交作品。直接给出参赛作品本身；可以带一两句简短的参赛感言，但不要解释创作思路、不要跑题。`;
-      const el = $('ar-text-' + i);
+      const user = `【活动】${arena.theme}\n\n参赛者：${names}。现在轮到你提交作品。直接给出参赛作品本身；可以带一两句简短的参赛感言，但不要解释创作思路、不要跑题。`;
+      const el = $('ar-text-' + i); if (el) el.innerHTML = '';
       let raf = null;
-      const paint = () => { raf = null; el.innerHTML = renderMarkdown(p.text); };
+      const paint = () => { raf = null; const e2 = $('ar-text-' + i); if (e2) e2.innerHTML = renderMarkdown(p.text); };
       const res = await streamCompletion(p.model,
         sysUserMsgs(arenaSystem(c), user),
         arenaAbort.signal, () => {},
         d => { p.text += d; if (!raf) raf = requestAnimationFrame(paint); },
         sm => { if (baseModelId(sm) !== baseModelId(p.model)) showRouteToast(p.model, sm); });
       if (raf) cancelAnimationFrame(raf);
-      el.innerHTML = renderMarkdown(p.text);
+      paint();
       p.status = (res.ended === 'done' && p.text) ? 'done' : (res.ended === 'aborted' ? 'stop' : 'fail');
       if (p.status === 'fail') {
-        p.err = res.error || '未知错误（可能是内容被该模型拒绝，或返回了空回复）';
-        if (!p.text) el.innerHTML = '<div class="mem-hint">生成失败：' + esc(p.err) + '</div>';
+        if (res.ended === 'network') { netDown = true; p.err = '网络断了' + (p.text ? '，只写了一半' : ''); }
+        else p.err = res.error || '未知错误（可能是内容被该模型拒绝，或返回了空回复）';
+        const e3 = $('ar-text-' + i); if (e3 && !p.text) e3.innerHTML = '<div class="mem-hint">生成失败：' + esc(p.err) + '</div>';
       }
       setArSt(i);
+      arenaPersist();   // 每写完一位就存一次
     }
     arenaBusy = false; arenaAbort = null;
     arenaPersist(); renderArenaLog();
+    if (netDown) toast('网络断了，先停在这里。网好了点「继续没完成的」接着来。', 4200);
     if (arena.parts.some(p => p.status === 'done')) arenaJudgeUI();
-    $('arena-actions').innerHTML = `<button class="ar-btn" onclick="arenaSetupView()">← 再来一场</button><button class="ar-btn" onclick="shareArena()">分享给朋友</button><button class="ar-btn" onclick="exportArenaMd()">导出 .md</button>`;
+    $('arena-actions').innerHTML = arenaEndActions();
   }
   function setArSt(i) { const el = $('ar-st-' + i); if (el) el.textContent = AR_ST[arena.parts[i].status] || ''; }
 
