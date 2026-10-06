@@ -673,6 +673,9 @@
       <div id="or-fields">
         <div class="field-label">OpenRouter API Key</div>
         <input class="field mono" id="api-key-input" type="password" placeholder="sk-or-..." autocomplete="off" spellcheck="false">
+        <div class="field-label">Notion 小工具的钥匙（可留空）</div>
+        <input class="field mono" id="notion-key-input" type="password" placeholder="中转服务器上的 X-Islet-Key" autocomplete="off" spellcheck="false">
+        <div class="mem-hint">填了角色才能搜、读、写你的 Notion；留空就不给角色这几件工具。和 API Key 一样只存在本机，不进备份。</div>
       </div>
       <div id="cc-fields" style="display:none">
         <div class="field-label">自建接口地址</div>
@@ -751,6 +754,7 @@
         <button type="button" class="comp-tab" onclick="document.getElementById('import-file').click()">导入备份</button>
       </div>
       <div class="comp-tabs" style="padding:6px 0 0">
+        <button type="button" class="comp-tab" onclick="archiveOldSessions()">归档旧对话</button>
         <button type="button" class="comp-tab" onclick="document.getElementById('archive-file').click()">导入归档</button>
       </div>
       <input type="file" id="archive-file" accept=".json,application/json" style="display:none" onchange="importArchive(this)">
@@ -765,7 +769,7 @@
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-09-08 · 一条河 · 小工具</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-10-06 · 一条河 · 小工具 · 归档</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -1775,11 +1779,46 @@
         provider: localStorage.getItem('islet_provider') || 'or',
         ccBase: localStorage.getItem('cc_base') || '',   // 门禁密码和 API Key 一样刻意不进备份
       },
-      // 刻意不包含 API Key：备份文件可能被分享或云同步，key 不应跟着走
+      // 刻意不包含 API Key 和 Notion 钥匙：备份文件可能被分享或云同步，key 不应跟着走
     };
     downloadFile('islet-backup-' + dateStamp() + '.json', JSON.stringify(data));
     localStorage.setItem('islet_last_backup', String(Date.now()));
     updateBackupHint();
+  }
+  // 归档：把久未活动的旧块导出成文件，确认文件存好了，再从本机删除（随时可用「导入归档」找回）。
+  // 河的模型下「一块」是某个角色对话里连续的一段；删掉中间或末尾的块，河只是变短，界面照常。
+  // 正在写的那块（currentId）永远不动；别的角色最新一块被归档后，下次进入会自动开一块新的。
+  async function archiveOldSessions() {
+    const ans = await uiPrompt('把多少天没动过的对话归档？', '90', { sub: '先导出成文件；你确认文件存好了，才从本机删除。当前正在聊的这块不动。', ok: '下一步' });
+    if (ans == null) return;
+    const days = parseInt(ans, 10);
+    if (!(days > 0)) { toast('请输入正整数天数'); return; }
+    const cutoff = Date.now() - days * 864e5;
+    const picked = sessions.filter(s => s.id !== currentId && (s.updated || 0) < cutoff);
+    if (!picked.length) { toast('没有 ' + days + ' 天前的旧对话'); return; }
+    const total = picked.reduce((n, x) => n + (x.count || 0), 0);
+    const names = [...new Set(picked.map(s => (companions.find(c => c.id === s.companionId) || {}).name || '？'))];
+    if (!(await uiConfirm('将归档 ' + picked.length + ' 块旧对话，共 ' + total + ' 条', { sub: '涉及：' + names.join('、') + '。先导出成文件，再问你一次要不要删。', ok: '导出归档文件' }))) return;
+    const recs = [];
+    for (const s of picked) recs.push({ meta: s, msgs: await loadChunk(s.id) });
+    const bad = recs.filter(r => (r.meta.count || 0) > 0 && !r.msgs.length);   // 索引说有内容、仓里却读不出：这块不能删，先留着
+    const attachments = await collectAttachments(recs.map(r => r.msgs));
+    const data = { app: 'islet-archive', version: 2, exportedAt: new Date().toISOString(), sessions: recs, attachments };
+    downloadFile('islet-archive-' + dateStamp() + '.json', JSON.stringify(data));
+    if (!(await uiConfirm('归档文件已开始下载。文件存好了吗？', { sub: '确认之后这 ' + picked.length + ' 块会从本机删除，只能靠这个文件找回。没把握就先不删，对话原样留着。', ok: '存好了，删除', cancel: '先不删', danger: true }))) { toast('没有删除，对话原样留着'); return; }
+    let removed = 0;
+    for (const r of recs) {
+      if (bad.includes(r)) continue;
+      purgeAttachments(r.msgs);
+      await removeChunkStore(r.meta.id);
+      sessions = sessions.filter(s => s.id !== r.meta.id);
+      removed++;
+    }
+    saveIndex();
+    _tailCache = { key: '', msgs: [] };
+    if (picked.some(s => s.companionId === activeCompanionId)) { enterCompanion(activeCompanionId); renderAll(); }
+    renderDrawerCompanions(); updateStoreMeter();
+    uiAlert('已归档 ' + removed + ' 块对话', { sub: '归档文件请妥善保存，想找回时在设置里「导入归档」。' + (bad.length ? '\n有 ' + bad.length + ' 块在本机读不出内容，没有删。' : '') });
   }
   function importArchive(input) {
     const file = input.files && input.files[0];
@@ -1791,21 +1830,23 @@
         const data = JSON.parse(r.result);
         if (!data || data.app !== 'islet-archive' || !Array.isArray(data.sessions)) { toast('这不是 islet 的归档文件'); return; }
         await restoreAttachments(data.attachments);
-        let added = 0; const touched = new Set();
-        data.sessions.forEach(rec => {
-          if (!rec || !rec.meta || !rec.meta.id) return;
-          if (sessions.some(x => x.id === rec.meta.id)) return;
+        let added = 0, lost = 0; const touched = new Set();
+        for (const rec of data.sessions) {
+          if (!rec || !rec.meta || !rec.meta.id) continue;
+          if (sessions.some(x => x.id === rec.meta.id)) continue;
           const msgs = rec.msgs || [];
           const meta = Object.assign({}, rec.meta, { cold: 0, count: msgs.length, first: rec.meta.first || (msgs[0] && msgs[0].ts) || rec.meta.updated });
           if (!meta.companionId) meta.companionId = companions[0].id;
-          lsSet('islet_s_' + meta.id, JSON.stringify(msgs));
+          if (!(await storeChunkHot(meta, msgs))) { lost++; continue; }   // 两边都存不下就不进索引，别留一个空壳
           sessions.push(meta); touched.add(meta.companionId); added++;
-        });
+        }
         saveIndex();
         for (const cid of touched) await rebalanceChunks(cid);   // 老块自动挪进 IndexedDB
         renderDrawerCompanions(); updateStoreMeter();
+        _tailCache = { key: '', msgs: [] };
         if (touched.has(activeCompanionId)) { enterCompanion(activeCompanionId); renderAll(); }
-        toast(added ? ('找回 ' + added + ' 个对话 ✓') : '没有新的可导入（都已在本机）');
+        if (lost) uiAlert('找回 ' + added + ' 块对话，另有 ' + lost + ' 块存不进本机', { sub: '本机存储满了。归档文件没动，腾出空间后可以再导一次。' });
+        else toast(added ? ('找回 ' + added + ' 块对话 ✓') : '没有新的可导入（都已在本机）');
       } catch (e) { toast('读取失败：' + (e && e.message || e)); }
     };
     r.readAsText(file);
@@ -1841,6 +1882,27 @@
     };
     r.readAsText(file);
   }
+  // 把一块写进本机：先试 localStorage（热块），放不下就进 IndexedDB（冷块）；读回核对过才算数。
+  // 返回 'hot' / 'cold' / false。导入备份、导入归档共用——一块都不能静默丢掉
+  async function storeChunkHot(x, msgs) {
+    const raw = JSON.stringify(msgs);
+    try { localStorage.setItem('islet_s_' + x.id, raw); if (localStorage.getItem('islet_s_' + x.id) === raw) { x.cold = 0; return 'hot'; } } catch (e) {}
+    localStorage.removeItem('islet_s_' + x.id);
+    try {
+      await idbPut('chunks', { id: x.id, msgs });
+      const back = await idbGet('chunks', x.id);
+      if (back && Array.isArray(back.msgs) && JSON.stringify(back.msgs) === raw) { x.cold = 1; return 'cold'; }
+    } catch (e) {}
+    return false;
+  }
+  async function storeChunkCold(x, msgs) {
+    try {
+      await idbPut('chunks', { id: x.id, msgs });
+      const back = await idbGet('chunks', x.id);
+      if (back && Array.isArray(back.msgs) && JSON.stringify(back.msgs) === JSON.stringify(msgs)) { x.cold = 1; return 'cold'; }
+    } catch (e) {}
+    return storeChunkHot(x, msgs);   // 大仓库写不进去（极少见），退回 localStorage 试试
+  }
   function importBackup(inp) {
     const file = inp.files && inp.files[0];
     inp.value = '';
@@ -1858,16 +1920,22 @@
         const sm = data.sessionMsgs || {};
         const idx = (data.sessions || []).map(x => Object.assign({}, x));
         // 每个角色最新的几块进 localStorage，其余进 IndexedDB——和平时的冷热分层一致，导入再多也不爆仓
-        const byC = {};
+        const byC = {}; const lost = [];
         idx.forEach(x => { const k = x.companionId || ''; (byC[k] = byC[k] || []).push(x); });
         for (const list of Object.values(byC)) {
           list.sort((a, b) => ((a.first || a.updated || 0) - (b.first || b.updated || 0)));
           for (let i = 0; i < list.length; i++) {
             const x = list[i], msgs = sm[x.id] || [];
             x.count = msgs.length; if (!x.first && msgs[0] && msgs[0].ts) x.first = msgs[0].ts;
-            if (i >= list.length - HOT_CHUNKS) { x.cold = 0; try { localStorage.setItem('islet_s_' + x.id, JSON.stringify(msgs)); } catch (e) {} }
-            else { x.cold = 1; try { await idbPut('chunks', { id: x.id, msgs }); } catch (e) {} }
+            // 最新一块先试 localStorage，放不下就进 IndexedDB——以前这里写失败是静默吞掉的，那一块就空了
+            const ok = i >= list.length - HOT_CHUNKS ? await storeChunkHot(x, msgs) : await storeChunkCold(x, msgs);
+            if (!ok) lost.push(x);
           }
+        }
+        if (lost.length) {
+          // 两边都写不进去的块不进索引：索引里有、仓里没有，看起来像空对话，比直接说"没导进来"更糟
+          const bad = new Set(lost.map(x => x.id));
+          for (let i = idx.length - 1; i >= 0; i--) if (bad.has(idx[i].id)) idx.splice(i, 1);
         }
         localStorage.setItem('islet_idx', JSON.stringify(idx));
         localStorage.setItem('islet_about', data.about || '');
@@ -1890,7 +1958,8 @@
         // 附件：先清空本机的（旧对话已被覆盖，它们的图没人引用了），再把备份里的写回去
         try { await idbClear('imgs'); await idbClear('files'); } catch (e) {}
         await restoreAttachments(data.attachments);
-        await uiAlert('导入完成，即将刷新');
+        if (lost.length) await uiAlert('导入完成，但有 ' + lost.length + ' 块对话（共 ' + lost.reduce((n, x) => n + (x.count || 0), 0) + ' 条）存不进本机', { sub: '本机存储满了。备份文件本身没动，腾出空间后可以再导一次。即将刷新。' });
+        else await uiAlert('导入完成，即将刷新');
         location.reload();
       } catch (e) { uiAlert('导入失败：' + e.message); }
     };
@@ -1927,7 +1996,8 @@
     if (activeCompanionId) {
       applyCompanionModel(activeCompanionId);
       const last = riverChunks(activeCompanionId).slice(-1)[0];   // 永远站在河的末端
-      if (last && last.id !== currentId) { currentId = last.id; localStorage.setItem('islet_cur', currentId); messages = loadSessionMsgs(currentId); }
+      if (last && last.cold) createSession(activeCompanionId);   // 末端那块在 IndexedDB 里：开一块新的接上，别对着空的 localStorage 写
+      else if (last && last.id !== currentId) { currentId = last.id; localStorage.setItem('islet_cur', currentId); messages = loadSessionMsgs(currentId); }
     }
 
     if (providerReady()) { showMain(); renderAll(); }
@@ -2106,8 +2176,9 @@
     activeCompanionId = cid;
     localStorage.setItem('islet_active_companion', cid);
     applyCompanionModel(cid);
-    const chunks = riverChunks(cid);
-    if (chunks.length) { currentId = chunks[chunks.length - 1].id; localStorage.setItem('islet_cur', currentId); messages = loadSessionMsgs(currentId); }
+    const chunks = riverChunks(cid), last = chunks[chunks.length - 1];
+    // 最新一块在 IndexedDB 里（归档/导入后可能出现）：localStorage 读不到它，直接开一块新的接在后面；旧块往上划照样能看
+    if (last && !last.cold) { currentId = last.id; localStorage.setItem('islet_cur', currentId); messages = loadSessionMsgs(currentId); }
     else createSession(cid);
   }
   function switchCompanion(id) {
@@ -2442,6 +2513,7 @@
   function openSettings(firstRun) {
     closeDrawer();
     $('api-key-input').value = apiKey;
+    $('notion-key-input').value = notionKey;
     $('cc-base-input').value = ccBase;
     $('cc-key-input').value = ccKey;
     $('system-input').value = systemPrompt;
@@ -2480,6 +2552,8 @@
       localStorage.setItem('cc_key', ccKey);
       catalog = []; fetchModels();   // 地址可能刚填/刚改，立刻按新地址拉模型列表
     }
+    notionKey = $('notion-key-input').value.trim();
+    localStorage.setItem('islet_notion_key', notionKey);
     systemPrompt = $('system-input').value.trim();
     reasoningEnabled = $('reason-toggle').checked;
     toolsEnabled = $('tools-toggle').checked;
@@ -2776,7 +2850,10 @@
   const NOTION_TOOL_URL = 'https://149-248-9-202.sslip.io/notion/search';
   const NOTION_PAGE_URL = 'https://149-248-9-202.sslip.io/notion/page';
   const NOTION_APPEND_URL = 'https://149-248-9-202.sslip.io/notion/append';
-  const NOTION_TOOL_KEY = '0544b1a388a71056250b928220f5a78b70ff0a86537f032e';
+  // 中转服务器的门禁钥匙：存在本机 localStorage（设置里填），不写进代码——这个文件是公开仓库里的
+  let notionKey = localStorage.getItem('islet_notion_key') || '';
+  // 没填钥匙就不把 Notion 工具发给模型，免得它调了又失败
+  function activeToolDefs() { return notionKey ? TOOL_DEFS : TOOL_DEFS.filter(t => !t.function.name.startsWith('notion_')); }
   const TOOLS_GUIDE = '你手边有几件小工具（记忆卡、翻旧对话、打卡、名场面）。用户要求记住、打卡、收藏时就用；不确定过去是否聊过什么时，先查再答，别凭空编。读 Notion 页面时看到「还没读完」，就按提示继续读下一页，读完再答。不要为了用而用；用完把结果自然地融进回复，不要提工具名或调用过程本身。';
   const MAX_TOOL_ROUNDS = 5;   // 一次回复里最多几轮工具往返，防止模型绕圈
   let toolsEnabled = localStorage.getItem('islet_tools') !== 'off';
@@ -2902,8 +2979,9 @@
         }
         case 'notion_search': {
           const q = String(args.query || '').trim();
+          if (!notionKey) { result = '没有配置 Notion 钥匙，用不了'; break; }
           if (!q) { result = '缺少关键词'; break; }
-          const res = await fetch(NOTION_TOOL_URL + '?q=' + encodeURIComponent(q), { headers: { 'X-Islet-Key': NOTION_TOOL_KEY } });
+          const res = await fetch(NOTION_TOOL_URL + '?q=' + encodeURIComponent(q), { headers: { 'X-Islet-Key': notionKey } });
           const data = await res.json();
           result = data.result || '查询出错';
           label = '查了 Notion：「' + q + '」';
@@ -2911,8 +2989,9 @@
         }
         case 'notion_read_page': {
           const page = String(args.page || '').trim();
+          if (!notionKey) { result = '没有配置 Notion 钥匙，用不了'; break; }
           if (!page) { result = '缺少页面链接或 ID'; break; }
-          const res = await fetch(NOTION_PAGE_URL + '?id=' + encodeURIComponent(page), { headers: { 'X-Islet-Key': NOTION_TOOL_KEY } });
+          const res = await fetch(NOTION_PAGE_URL + '?id=' + encodeURIComponent(page), { headers: { 'X-Islet-Key': notionKey } });
           const data = await res.json();
           result = data.result || '读取出错';
           label = /(?:page|p)\s*=\s*\d|第\s*\d+\s*页/i.test(page) ? '接着往下读 Notion 页面' : '读了个 Notion 页面';
@@ -2921,10 +3000,11 @@
         case 'notion_append': {
           const page = String(args.page || '').trim();
           const text = String(args.text || '').trim();
+          if (!notionKey) { result = '没有配置 Notion 钥匙，用不了'; break; }
           if (!page || !text) { result = '缺少页面链接/ID 或要写的内容'; break; }
           const res = await fetch(NOTION_APPEND_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Islet-Key': NOTION_TOOL_KEY },
+            headers: { 'Content-Type': 'application/json', 'X-Islet-Key': notionKey },
             body: JSON.stringify({ id: page, text }),
           });
           const data = await res.json();
@@ -3495,7 +3575,7 @@
     let attempt = 0, lastUsage = null, myAbort = null, servedModel = null;
     const onServed = makeServedHandler(h, model, sm => { servedModel = sm; });
     // 工具往返：extra 是发给模型的往返消息（不进存储，每轮重建）；toolLog 存进消息供回看；roundStart 标记本轮正文起点
-    let tools = (toolsActive() && modelSupportsTools(model)) ? TOOL_DEFS : null;
+    let tools = (toolsActive() && modelSupportsTools(model)) ? activeToolDefs() : null;
     const extra = [], toolLog = [];
     let rounds = 0, roundStart = 0;
     while (true) {
