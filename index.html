@@ -764,6 +764,7 @@
       <input type="file" id="extras-file" accept=".json,application/json" style="display:none" onchange="importExtras(this)">
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
+      <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
       <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-09-08 · 一条河 · 小工具</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
@@ -1984,7 +1985,7 @@
   /* ---------- 一条河：每个角色一条不断的对话，底下按块存 ----------
    * sessions 里的每一项是一「块」（≤ CHUNK_MAX 条），同一角色的块按 first 接成一条河，界面上看不到块的边界。
    * 最新的 HOT_CHUNKS 块放 localStorage（同步读写），更早的块挪进 IndexedDB（不受 5MB 限制），滚到、搜到时按需加载。 */
-  const CHUNK_MAX = 500, HOT_CHUNKS = 3;
+  const CHUNK_MAX = 500, HOT_CHUNKS = 1;   // 每个角色只把正在写的那一块留在 localStorage，其余都放 IndexedDB
   function riverChunks(cid) { return sessions.filter(x => (x.companionId || (companions[0] && companions[0].id)) === cid).sort((a, b) => ((a.first || a.updated || 0) - (b.first || b.updated || 0))); }
   function riverTotal(cid) { return riverChunks(cid).reduce((n, x) => n + (x.count || 0), 0); }
   async function loadChunk(id) {
@@ -2002,13 +2003,26 @@
   async function rebalanceChunks(cid) {
     const chunks = riverChunks(cid);
     let changed = false;
+    let moved = 0, kept = 0;
     for (let i = 0; i < chunks.length - HOT_CHUNKS; i++) {
       const x = chunks[i]; if (x.cold) continue;
-      const msgs = loadSessionMsgs(x.id);
-      try { await idbPut('chunks', { id: x.id, msgs }); } catch (e) { continue; }
-      localStorage.removeItem('islet_s_' + x.id); x.cold = 1; changed = true;
+      if (x.id === currentId) continue;   // 正在聊的那块不动
+      const raw = localStorage.getItem('islet_s_' + x.id);
+      if (raw == null) continue;
+      let msgs; try { msgs = JSON.parse(raw); } catch (e) { kept++; continue; }
+      if (!Array.isArray(msgs)) { kept++; continue; }
+      // 先写进 IndexedDB，读回来核对一字不差，才删 localStorage 里的那份；任何一步不对就原样留着
+      try {
+        await idbPut('chunks', { id: x.id, msgs });
+        const back = await idbGet('chunks', x.id);
+        if (!back || !Array.isArray(back.msgs) || JSON.stringify(back.msgs) !== JSON.stringify(msgs)) { kept++; continue; }
+      } catch (e) { kept++; continue; }
+      x.cold = 1; saveIndex();          // 先记下「这块在 IndexedDB」，再删旧副本：中途断电也只会多一份，不会少
+      localStorage.removeItem('islet_s_' + x.id);
+      moved++; changed = true;
     }
     if (changed) { saveIndex(); if ($('setup-overlay').classList.contains('show')) updateStoreMeter(); }
+    return { moved, kept };
   }
   // 生成途中换了块 / 切了角色，回复要写回它原来所属的块
   async function appendToChunk(sid, msg) { const x = sessions.find(y => y.id === sid); if (!x) return; const old = await loadChunk(sid); old.push(msg); await saveChunk(sid, old); x.count = old.length; x.updated = Date.now(); saveIndex(); }
@@ -5082,6 +5096,17 @@
     let n = 0;
     try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); n += (k.length + (localStorage.getItem(k) || '').length) * 2; } } catch (e) {}
     return n;
+  }
+  function lsUsedBytes() { let n = 0; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); n += (k.length + (localStorage.getItem(k) || '').length) * 2; } return n; }
+  async function freeUpSpace() {
+    const btn = $('free-space-btn'); if (btn) { btn.disabled = true; btn.textContent = '正在挪…'; }
+    const before = lsUsedBytes(); let moved = 0, kept = 0;
+    for (const c of companions) { const r = await rebalanceChunks(c.id).catch(() => null); if (r) { moved += r.moved; kept += r.kept; } }
+    const freed = Math.max(0, before - lsUsedBytes());
+    const f = n => n < 1048576 ? Math.round(n / 1024) + 'K' : (n / 1048576).toFixed(2) + 'M';
+    updateStoreMeter();
+    if (btn) { btn.disabled = false; btn.textContent = '腾空间：把旧对话挪进大仓库'; }
+    uiAlert(moved ? `挪好了，腾出 ${f(freed)}` : '没有可以挪的了', { sub: (moved ? `挪了 ${moved} 块旧对话进 IndexedDB，每块都读回来核对过才删的本地副本。` : '每个角色只剩正在聊的那一块在本地，已经是最省的状态。') + (kept ? `\n有 ${kept} 块核对没通过，原样留在本地，没有动。` : '') });
   }
   function updateStoreMeter() {
     const el = $('store-meter');
