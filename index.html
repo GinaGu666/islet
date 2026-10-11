@@ -1104,7 +1104,7 @@
       <div class="toggle-row">
         <div>
           <div class="tg-main">自动累积记忆</div>
-          <div class="tg-sub">聊天停顿时提炼记忆，窗口推进前整理接续摘要；会产生模型用量。关闭后不再自动整理。</div>
+          <div class="tg-sub">聊天优先，空闲时在后台整理记忆和接续摘要；会产生模型用量。关闭后不再自动整理。</div>
         </div>
         <label class="switch"><input type="checkbox" id="autodistill-toggle" checked><span class="slider"></span></label>
       </div>
@@ -2101,7 +2101,7 @@
   function rolloverChunk() {
     const cid = activeCompanionId;
     saveCurrent();
-    maybeAutoDistill(currentId, null);
+    scheduleMemory(currentId);
     const id = createSession(cid);
     _tailCache = { key: '', msgs: [] };
     rebalanceChunks(cid).catch(() => {});
@@ -2363,7 +2363,7 @@
   function leaveCurrentSession() {
     const prevId = currentId, snap = messages.slice();
     if (currentAbort) currentAbort.abort();
-    maybeAutoDistill(prevId, snap);
+    scheduleMemory(prevId);
     isLoading = false; setLoading(false);
   }
 
@@ -2833,11 +2833,11 @@
           if (!text) { result = '没有要记的内容'; break; }
           const cat = MEM_CATS.includes(args.category) ? args.category : '';
           const units=(await sourceUnits(sid)).slice(-4);
-          const ok=await queueMemory(c.id,()=>commitMemory(c.id,d=>{
+          const ok=await commitMemory(c.id,d=>{
             const added=addMemCard(d,text,undefined,cat);
             if(added){const k=d.cards[0];k.sources=units.map(u=>({id:u.id,mid:u.mid,sid:u.sid,rev:u.rev,hash:u.hash,offset:u.offset,ts:u.ts}));}
             return added;
-          },async()=>{const latest=new Map((await sourceUnits(sid)).map(u=>[u.id,u.hash]));return units.every(u=>latest.get(u.id)===u.hash);}));
+          },async()=>{const latest=new Map((await sourceUnits(sid)).map(u=>[u.id,u.hash]));return units.every(u=>latest.get(u.id)===u.hash);});
           if (ok && $('memory-overlay').classList.contains('show') && editingCompanionId === c.id) renderMemCards();
           result = ok ? '已记下' + (cat ? '（' + cat + '）' : '') + '：' + text : '已经有一条很相近的记忆，没有重复记：' + text;
           label = (ok ? '记下了：' : '早就记得：') + text;
@@ -2990,16 +2990,20 @@
   function companionModel(c) { return (c && c.model) || selectedModel; }
   // 非流式单次请求，返回正文；失败抛错。提炼 / 整理 / 出题这类「问一句拿结果」的都走这里
   async function chatOnce(sys,user,model,maxTokens,opts) {
+    opts=opts||{};
+    if(opts.background&&(isLoading||document.hidden))throw memoryPauseError();
     const messages=sysUserMsgs(sys,user),output=Math.min(maxTokens||2048,chatOutputBudget(model));
     if(requestTokenEstimate(messages)>modelInputBudget(model,output))throw new Error('提炼输入超过模型预算，请提高输入预算或选择更大窗口的模型');
-    const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),60000);
+    const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),opts.background?30000:60000);
+    if(opts.background)automaticMemoryRequests.add(ctrl);
     try {
       const res=await fetch(apiUrl(),{method:'POST',headers:authHeaders(),body:JSON.stringify({model,messages,max_tokens:output,stream:false}),signal:ctrl.signal});
       if(!res.ok)throw new Error('HTTP '+res.status);
       const j=await res.json(),choice=j?.choices?.[0];
+      if(ctrl.memoryPaused)throw memoryPauseError();
       if(choice?.finish_reason==='length')throw new Error('结果被截断，进度未推进');
       const out=choice?.message?.content;if(typeof out!=='string'||!out.trim())throw new Error('空回复');return out;
-    }catch(e){if(e.name==='AbortError')throw new Error('请求超时，进度未推进');throw e;}finally{clearTimeout(timer);}
+    }catch(e){if(ctrl.memoryPaused)throw memoryPauseError();if(e.name==='AbortError')throw new Error('请求超时，进度未推进');throw e;}finally{clearTimeout(timer);automaticMemoryRequests.delete(ctrl);}
   }
   function buildSystemContent(sid) {
     const about = sharedAbout();
@@ -3094,13 +3098,14 @@
     const toolCost=toolsActive()?estimateTokens(activeToolDefs()):0;
     const limit=modelInputBudget(model,chatOutputBudget(model));
     const rawCost=m=>estimateTokens(m.content||'')+(m.files||[]).reduce((n,f)=>n+Math.ceil((f.chars||20000)*2),0)+(m.imgs||[]).length*4096+30;
-    const stateReserve=(edge>0||win.length>20)?Math.min(5000,Math.floor(limit*.2)):estimateTokens(workingText(mc));
+    const stateReserve=Math.min(3600,Math.floor(limit*.2));
     const fixed=estimateTokens(sys)+toolCost+requestTokenEstimate(extra||[])+MEM_RECALL_BUDGET*2+stateReserve+300;
     let cost=win.reduce((n,m)=>n+rawCost(m),0);
     while(win.length>2&&cost+fixed>limit){cost-=rawCost(win[0]);win=win.slice(1);edge++;}
     while(win.length>2&&win[0].role!=='user'){cost-=rawCost(win[0]);win=win.slice(1);edge++;}
     if(cost+fixed>limit)throw new Error('本轮消息、附件或常驻资料超过输入预算，请缩短内容或提高输入预算。');
-    await ensureWindowContinuity(resolvedSid,edge);
+    const continuityText=await immediateContinuityText(resolvedSid,edge,stateReserve);
+    scheduleContinuity(resolvedSid,edge);
     // 本轮系统资料使用同一快照；接续状态在末尾注入，避免重复消费纸条。
     contextEstimates[resolvedSid]={visible:win.length,limit,estimated:cost+fixed,deliveredNotes};
     let budget = IMG_CTX, fileBudget = FILE_CTX;
@@ -3159,7 +3164,7 @@
     try {
       const _mc = sessionCompanion(sid == null ? currentId : sid);
       const _lines = memRecall(_mc, win, memCoreParts(_mc).ids);
-      const _working=workingText(_mc);if(_working)_lines.unshift(_working);
+      if(continuityText)_lines.unshift(continuityText);
       if (_lines.length) {
         for (let i = out.length - 1; i >= 0; i--) {
           if (out[i].role !== 'user') continue;
@@ -3528,7 +3533,7 @@
       if (sid === currentId) { messages.push(msg); saveCurrent(); scheduleMemory(sid); }
       else if (sessions.find(s => s.id === sid)) appendToChunk(sid, msg).then(()=>scheduleMemory(sid)).catch(() => {});   // 已切走 / 已换块也别丢；块已删除则不写回
     }
-    if (sid === currentId) { if(messages.length%20===0)maybeAutoDistill(sid,null,{maxBatches:2}); $('msg-input').focus(); }
+    if (sid === currentId) { scheduleMemory(sid); $('msg-input').focus(); }
   }
 
   // 断点续写：把已收到的部分作为 assistant 预填，让模型接着写
@@ -3618,6 +3623,7 @@
 
   function setLoading(v) {
     isLoading = v;
+    if(v)pauseAutomaticMemory();else{if(currentId)scheduleMemory(currentId);for(const cid of continuityTargets.keys())wakeContinuity(cid);}
     bearThinking(v);
     $('chat').classList.toggle('streaming', !!v);
     const btn = $('send-btn'), ic = $('send-ic');
@@ -4160,6 +4166,76 @@
   const MEMORY_BASES = ['explicit', 'inferred', 'shared_story', 'legacy'];
   let memorySaveQueue = Promise.resolve(), memoryRevision = 0;
   const memoryJobs = new Map(), memoryTimers = new Map();
+  // 网络提炼只在聊天空闲时进行；聊天只读取已保存状态和有限的原文节选。
+  const CONTINUITY_IDLE_MS = 30000;
+  const continuityTargets = new Map(), continuityTimers = new Map();
+  const autoMemoryJobs = new Map(), automaticMemoryRequests = new Set();
+  function memoryPauseError() { const e=new Error('聊天优先，自动整理稍后继续');e.code='MEMORY_PAUSED';return e; }
+  function pauseAutomaticMemory() {
+    for(const ctrl of automaticMemoryRequests){ctrl.memoryPaused=true;ctrl.abort();}
+  }
+  function clearContinuityTarget(cid) {
+    clearTimeout(continuityTimers.get(cid));continuityTimers.delete(cid);continuityTargets.delete(cid);
+    const c=companions.find(c=>c.id===cid);if(c)c.workingRevision=(c.workingRevision||0)+1;
+  }
+  function scheduleContinuity(sid,edge) {
+    const c=sessionCompanion(sid);
+    if(!sid||!c||c.autoDistill===false||!providerReady()||edge<=0||c.working?.edge>=edge)return;
+    const old=continuityTargets.get(c.id);
+    if(!old||edge>=old.edge)continuityTargets.set(c.id,{sid,edge,retryAt:old?.retryAt||0});
+    wakeContinuity(c.id);
+  }
+  function wakeContinuity(cid,waitMs=CONTINUITY_IDLE_MS) {
+    if(continuityTimers.has(cid)||!continuityTargets.has(cid))return;
+    continuityTimers.set(cid,setTimeout(async()=>{
+      continuityTimers.delete(cid);
+      const c=companions.find(c=>c.id===cid),target=continuityTargets.get(cid);
+      if(!c||!target||c.autoDistill===false||!providerReady()||!sessions.some(s=>s.id===target.sid)){continuityTargets.delete(cid);return;}
+      if(isLoading||document.hidden||memoryJobs.has(cid)){wakeContinuity(cid);return;}
+      let retryMs=CONTINUITY_IDLE_MS;
+      try{await ensureWindowContinuity(target.sid,target.edge,{maxBlocks:1});target.retryAt=0;}
+      catch(e){if(e.code!=='MEMORY_PAUSED'){retryMs=90000;target.retryAt=Date.now()+retryMs;}}
+      const latest=continuityTargets.get(cid);
+      if(latest&&c.working?.edge>=latest.edge)continuityTargets.delete(cid);
+      else if(latest)wakeContinuity(cid,retryMs);
+    },waitMs));
+  }
+  function contextExcerpt(text,maxChars) {
+    text=String(text||'');maxChars=Math.max(0,Math.floor(maxChars));
+    if(text.length<=maxChars)return text;
+    if(maxChars<20)return text.slice(0,maxChars);
+    const head=Math.floor((maxChars-9)*.7);
+    return text.slice(0,head)+'…（节选）…'+text.slice(-(maxChars-head-9));
+  }
+  function compactWorkingText(c,maxChars) {
+    const state=c?.working?.state;if(!state||maxChars<80)return '';
+    const lines=['【已保存的前文摘要】旧状态，以最新原文和纠正为准。'];
+    for(const [label,value] of [['最近纠正',(state.corrections||[]).join('；')],['未完事项',(state.openLoops||[]).join('；')],['人物指代',(state.referents||[]).join('；')],['话题',state.topic],['摘要',state.summary],['当时语气',state.tone]]){
+      const room=maxChars-lines.join('\n').length-label.length-2;
+      if(!value||room<20)continue;
+      lines.push(label+'：'+contextExcerpt(value,room));
+    }
+    return lines.join('\n');
+  }
+  async function immediateContinuityText(sid,edge,tokenBudget) {
+    if(edge<=0||tokenBudget<200)return '';
+    const c=sessionCompanion(sid);if(!c)return '';
+    const covered=c.working?.edge||0,maxChars=Math.max(0,Math.floor((tokenBudget-120)/2));
+    if(covered>=edge)return compactWorkingText(c,maxChars);
+    // 最多等本机读取150ms，不等待模型；原文不可读时仍可直接聊天。
+    let timer,rows=[];
+    try{rows=await Promise.race([readRiverRange(c.id,Math.max(covered,edge-8),edge),new Promise(resolve=>{timer=setTimeout(()=>resolve([]),150);})]);}catch(e){}finally{clearTimeout(timer);}
+    const useful=rows.filter(m=>['user','assistant'].includes(m.role)&&m.content);
+    const saved=compactWorkingText(c,useful.length?Math.floor(maxChars*.55):maxChars);
+    if(!useful.length)return saved;
+    const header='【刚退出窗口的原文节选】尚未全部整理成摘要；人物、时间与约定以最新原文为准。';
+    let left=maxChars-saved.length-header.length-4;
+    if(left<80)return saved;
+    const each=Math.min(360,Math.floor(left/useful.length)-5),lines=[];
+    for(const m of useful)lines.push((m.role==='user'?'用户':'角色')+'：'+contextExcerpt(m.content,each));
+    return [saved,header,lines.join('\n')].filter(Boolean).join('\n');
+  }
+
   function copyMemory(x) { return JSON.parse(JSON.stringify(x)); }
   function memoryHash(s) {
     s = String(s); let h = 2166136261, g = 5381;
@@ -4342,13 +4418,13 @@ relation 若有重要变化，格式为 {"text":"关系位置，最多120字","s
     while(end>start+1&&requestTokenEstimate(sysUserMsgs(MEMORY_SYS_V2,memoryInput(units.slice(start,end),comp,previous,model)))+180>modelInputBudget(model,Math.min(4096,chatOutputBudget(model))))end--;
     return end;
   }
-  async function distillMemory(units, comp, previous, model) {
+  async function distillMemory(units, comp, previous, model, opts) {
     model=model||companionModel(comp);
     const input = memoryInput(units,comp,previous,model);
     let error;
     for (let i=0;i<2;i++) {
-      try { const raw = await chatOnce(MEMORY_SYS_V2, input + (i ? '\n上次格式无效。请严格返回完整 JSON，不要解释或续写聊天。' : ''), model || companionModel(comp), 4096); return parseMemoryResult(raw, units, comp); }
-      catch (e) { error=e; if (/HTTP|保存|取消|超时/.test(e.message || '')) break; }
+      try { const raw = await chatOnce(MEMORY_SYS_V2, input + (i ? '\n上次格式无效。请严格返回完整 JSON，不要解释或续写聊天。' : ''), model || companionModel(comp), 4096, opts); return parseMemoryResult(raw, units, comp); }
+      catch (e) { error=e; if (e.code==='MEMORY_PAUSED'||/HTTP|保存|取消|超时/.test(e.message || '')) break; }
     }
     throw error || new Error('提炼失败');
   }
@@ -4400,9 +4476,10 @@ relation 若有重要变化，格式为 {"text":"关系位置，最多120字","s
     let total=0,batches=0;
     while(start<units.length && batches<(opts.maxBatches||Infinity)) {
       if(!companions.some(x=>x.id===c.id))throw new Error('角色已删除');
+      if(!opts.force&&(isLoading||document.hidden))break;
       const end=distillBatchEnd(units,start,c,cp&&cp.summary,opts.model), batch=units.slice(start,end);
       const prefix=unitsDigest(units.slice(0,end));
-      const result=await distillMemory(batch,c,cp&&cp.summary,opts.model);
+      const result=await distillMemory(batch,c,cp&&cp.summary,opts.model,{background:!opts.force});
       const res=await commitMemory(c.id,draft=>{
         const counts=applyMemoryResult(draft,result,batch,'segment:'+sid+':'+batch[batch.length-1].id,false);
         draft.progress[sid]={done:end,digest:prefix,endId:batch[batch.length-1].id,summary:result.summary,at:Date.now()};
@@ -4413,20 +4490,36 @@ relation 若有重要变化，格式为 {"text":"关系位置，最多120字","s
     return {added:total,pending:start<units.length};
   }
   function maybeAutoDistill(sid,snapshot,opts) {
-    const c=sessionCompanion(sid);if(!sid||!c||!providerReady()||(!opts?.force&&c.autoDistill===false))return Promise.resolve(null);
-    return queueMemory(c.id,async()=>{
+    opts=opts||{};
+    const c=sessionCompanion(sid);if(!sid||!c||!providerReady()||(!opts.force&&c.autoDistill===false))return Promise.resolve(null);
+    if(!opts.force){
+      if(autoMemoryJobs.has(sid))return autoMemoryJobs.get(sid);
+      if(isLoading||document.hidden){scheduleMemory(sid);return Promise.resolve({added:0,pending:true});}
+      opts={...opts,maxBatches:Math.min(opts.maxBatches||1,2)};
+    }
+    const job=queueMemory(c.id,async()=>{
+      if(!opts.force&&(isLoading||document.hidden)){scheduleMemory(sid);return {added:0,pending:true};}
       setDistillState(c.id,'running');
-      try{const r=await distillChunk(sid,snapshot,opts);setDistillState(c.id,r.pending?'pending':null);return r;}
-      catch(e){setDistillState(c.id,'fail');const st=distillState[c.id];if(st)st.error=e.message;return null;}
+      try{const r=await distillChunk(sid,snapshot,opts);setDistillState(c.id,r.pending?'pending':null);if(r.pending&&!opts.force)scheduleMemory(sid);return r;}
+      catch(e){if(e.code==='MEMORY_PAUSED'){setDistillState(c.id,'pending');scheduleMemory(sid);return {added:0,pending:true};}setDistillState(c.id,'fail');const st=distillState[c.id];if(st)st.error=e.message;return null;}
     });
+    if(!opts.force){autoMemoryJobs.set(sid,job);job.finally(()=>{if(autoMemoryJobs.get(sid)===job)autoMemoryJobs.delete(sid);}).catch(()=>{});}
+    return job;
   }
   function scheduleMemory(sid) {
-    const c=sessionCompanion(sid);if(!c||c.autoDistill===false||!providerReady())return;
+    const c=sessionCompanion(sid);if(!sid||!c||c.autoDistill===false||!providerReady())return;
     clearTimeout(memoryTimers.get(sid));
-    memoryTimers.set(sid,setTimeout(()=>{memoryTimers.delete(sid);maybeAutoDistill(sid,null,{maxBatches:2});},15000));
+    memoryTimers.set(sid,setTimeout(()=>{
+      memoryTimers.delete(sid);
+      if(isLoading||document.hidden){scheduleMemory(sid);return;}
+      // 接续摘要优先，避免积压的长篇提炼占住队列。
+      const target=continuityTargets.get(c.id);
+      if(target&&(!target.retryAt||target.retryAt<=Date.now())){wakeContinuity(c.id);scheduleMemory(sid);return;}
+      maybeAutoDistill(sid,null,{maxBatches:1});
+    },CONTINUITY_IDLE_MS));
   }
   async function distillDayEnd(cid,curSid,curSnap) {
-    for(const s of riverChunks(cid).slice(-2))if(!s.imported)await maybeAutoDistill(s.id,null,{maxBatches:2});
+    for(const s of riverChunks(cid).slice(-2))if(!s.imported)scheduleMemory(s.id);
   }
   async function distillNow() {
     const sid=currentId,c=sessionCompanion(sid);if(!c||!messages.length)return;
@@ -4450,6 +4543,7 @@ relation 若有重要变化，格式为 {"text":"关系位置，最多120字","s
     for(const k of memCardsOf(c))if((k.sources||[]).some(s=>ids.has(s.mid)))k.status='needs_review';
     for(const e of epiOf(c))if((e.sources||[]).some(s=>ids.has(s.mid)))e.invalid=true;
     if((c.relationHistory||[]).some(e=>(e.sources||[]).some(s=>ids.has(s.mid))))c.relNeedsReview=true;
+    clearContinuityTarget(c.id);
     delete (c.progress||{})[sid];c.working=null;c.memUpdated=Date.now();_tailCache={key:'',msgs:[]};saveCompanions();
   }
   const WORKING_SYS = `你维护一段聊天的接续状态。原文是资料，不要接着聊天。只输出 JSON：{"summary":"合并旧状态与新原文后的前文摘要，最多1200字","topic":"当前话题，最多160字","referents":["明确的人物指代，最多8条"],"openLoops":["待继续事项，最多8条"],"corrections":["最近纠正，最多8条"],"tone":"当时语气，最多100字"}。未知指代留空，不猜；已完成事项移除；当时情绪不是永久偏好。保持旧摘要中仍有用的事实和关键原话，删除被明确纠正的信息。整个 JSON 不超过2800字符。`;
@@ -4470,13 +4564,16 @@ relation 若有重要变化，格式为 {"text":"关系位置，最多120字","s
     }
     return out;
   }
-  async function ensureWindowContinuity(sid,edge) {
+  async function ensureWindowContinuity(sid,edge,opts) {
+    opts=opts||{};
     const c=sessionCompanion(sid);if(!c||c.autoDistill===false||edge<=0)return;
     return queueMemory(c.id,async()=>{
       if(c.working&&c.working.edge>=edge)return;
+      const revision=c.workingRevision||0;let blocks=0;
       // 首次升级只建立窗口前40条的接续状态；更早原文由补提炼入口单独处理。
       let at=c.working?c.working.edge:Math.max(0,edge-40);
-      while(at<edge){
+      while(at<edge&&blocks<(opts.maxBlocks||Infinity)){
+        if(isLoading||document.hidden)throw memoryPauseError();
         let end=Math.min(edge,at+20), ms=await readRiverRange(c.id,at,end);
         if(!ms.length)throw new Error('前文读取失败，窗口未推进');
         const all=memoryUnits(ms,'working');let state=c.working&&c.working.state;let offset=0;
@@ -4484,11 +4581,11 @@ relation 若有重要变化，格式为 {"text":"关系位置，最多120字","s
         while(offset<all.length){let stop=segmentEnd(all,offset);let parsed=null,lastError;
           const workingInput=()=> '旧状态：'+JSON.stringify(state||{})+'\n新增原文：\n'+all.slice(offset,stop).map(formatEvidence).join('\n\n');
           while(stop>offset+1&&requestTokenEstimate(sysUserMsgs(WORKING_SYS,workingInput()))+100>modelInputBudget(companionModel(c),Math.min(3000,chatOutputBudget(companionModel(c)))))stop--;
-          for(let attempt=0;attempt<2;attempt++)try{parsed=parseWorking(await chatOnce(WORKING_SYS,'旧状态：'+JSON.stringify(state||{})+'\n新增原文：\n'+all.slice(offset,stop).map(formatEvidence).join('\n\n'),companionModel(c),3000));break;}catch(e){lastError=e;}
+          for(let attempt=0;attempt<2;attempt++)try{parsed=parseWorking(await chatOnce(WORKING_SYS,'旧状态：'+JSON.stringify(state||{})+'\n新增原文：\n'+all.slice(offset,stop).map(formatEvidence).join('\n\n'),companionModel(c),3000,{background:true}));break;}catch(e){lastError=e;if(e.code==='MEMORY_PAUSED')throw e;if(/HTTP|超时/.test(e.message||''))break;}
           if(!parsed)throw new Error('接续摘要未完成：'+(lastError?.message||'请重试'));state=parsed;offset=stop;
         }
-        await commitMemory(c.id,draft=>{draft.working={edge:end,state,at:Date.now(),sourceAt:ms[ms.length-1].ts||0,digest:fingerprint};},async()=>unitsDigest(memoryUnits(await readRiverRange(c.id,at,end),'working'))===fingerprint);
-        at=end;
+        await commitMemory(c.id,draft=>{draft.working={edge:end,state,at:Date.now(),sourceAt:ms[ms.length-1].ts||0,digest:fingerprint};},async()=>(c.workingRevision||0)===revision&&unitsDigest(memoryUnits(await readRiverRange(c.id,at,end),'working'))===fingerprint);
+        at=end;blocks++;
       }
     });
   }
