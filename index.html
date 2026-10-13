@@ -1254,18 +1254,48 @@
 
   /* ---------- 图片：IndexedDB 存 Blob，消息只存引用 id ---------- */
   let _dbP = null;
+  const IDB_NAME = 'islet';
+  const IDB_STORES = [
+    ['imgs', { keyPath: 'id' }],
+    ['files', { keyPath: 'id' }],
+    ['imports', { keyPath: 'id' }],   // 导入角色时的整段原文，供分批提炼
+    ['chunks', { keyPath: 'id' }],    // 对话的冷块：每个角色最新几块之外的都住这里
+  ];
+  function ensureIdbStores(db) {
+    IDB_STORES.forEach(([name, opts]) => {
+      if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, opts);
+    });
+  }
   function idb() {
     if (!_dbP) _dbP = new Promise((res, rej) => {
-      const req = indexedDB.open('islet', 4);
-      req.onupgradeneeded = () => {
+      const fail = err => { _dbP = null; rej(err); };
+      // 不写死版本号：先打开浏览器里现有的版本，避免旧页面尝试降级数据库而报 VersionError。
+      const req = indexedDB.open(IDB_NAME);
+      req.onupgradeneeded = () => ensureIdbStores(req.result);
+      req.onsuccess = () => {
         const db = req.result;
-        if (!db.objectStoreNames.contains('imgs')) db.createObjectStore('imgs', { keyPath: 'id' });
-        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'id' });
-        if (!db.objectStoreNames.contains('imports')) db.createObjectStore('imports', { keyPath: 'id' });   // 导入角色时的整段原文，供分批提炼
-        if (!db.objectStoreNames.contains('chunks')) db.createObjectStore('chunks', { keyPath: 'id' });     // 对话的冷块：每个角色最新几块之外的都住这里
+        const missing = IDB_STORES.filter(([name]) => !db.objectStoreNames.contains(name));
+        if (!missing.length) {
+          db.onversionchange = () => { db.close(); _dbP = null; };
+          res(db);
+          return;
+        }
+
+        // 兼容很早的数据库：若缺少表，只在当前版本基础上安全升级一级。
+        const nextVersion = db.version + 1;
+        db.close();
+        const upgrade = indexedDB.open(IDB_NAME, nextVersion);
+        upgrade.onupgradeneeded = () => ensureIdbStores(upgrade.result);
+        upgrade.onsuccess = () => {
+          const upgradedDb = upgrade.result;
+          upgradedDb.onversionchange = () => { upgradedDb.close(); _dbP = null; };
+          res(upgradedDb);
+        };
+        upgrade.onerror = () => fail(upgrade.error);
+        upgrade.onblocked = () => fail(new Error('数据库正在被另一个页面占用，请关闭其他前端页面后重试'));
       };
-      req.onsuccess = () => res(req.result);
-      req.onerror = () => rej(req.error);
+      req.onerror = () => fail(req.error);
+      req.onblocked = () => fail(new Error('数据库正在被另一个页面占用，请关闭其他前端页面后重试'));
     });
     return _dbP;
   }
