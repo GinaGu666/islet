@@ -158,6 +158,7 @@
   .branch-open { flex: 1; min-width: 0; padding: 14px 12px; border: none; background: none; color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
   .branch-title { display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .branch-sub { display: block; margin-top: 5px; font-size: 11px; color: var(--ink-3); }
+  .branch-delete { color: var(--danger); }
 
   /* 对话区 */
   .chat { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px 16px 20px; display: flex; flex-direction: column; gap: 20px; scroll-behavior: smooth; }
@@ -999,7 +1000,7 @@
       <button class="sheet-x" type="button" onclick="hide('branch-overlay')" aria-label="关闭分支列表">×</button>
     </div>
     <div class="form" style="padding-top:0">
-      <div class="mem-hint">每条分支各自续聊，共用这个角色的设定和长期记忆。长按任意消息，可以从那里分叉。</div>
+      <div class="mem-hint">每条分支各自续聊，共用这个角色的设定和长期记忆。长按任意消息，可以从那里分叉。主线保留；删除分支不会删除其他分支和共享记忆。</div>
       <div id="branch-list"></div>
       <button class="mm-btn" type="button" onclick="hide('branch-overlay');forkAtEnd()">从当前末尾开分支</button>
       <button class="mm-btn" type="button" onclick="hide('branch-overlay');createChatBranch(null)">＋ 开一段空白对话</button>
@@ -2164,7 +2165,14 @@
       open.onclick = () => { switchChatBranch(cid, b.id); hide('branch-overlay'); };
       const rename = document.createElement('button'); rename.type = 'button'; rename.className = 'icon-btn'; rename.textContent = '✎'; rename.setAttribute('aria-label', '重命名' + b.name);
       rename.onclick = () => renameChatBranch(cid, b.id);
-      row.append(open, rename); $('branch-list').appendChild(row);
+      row.append(open, rename);
+      if (b.id !== MAIN_BRANCH) {
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'icon-btn branch-delete'; remove.setAttribute('aria-label', '删除分支' + b.name);
+        remove.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg>';
+        remove.onclick = () => deleteChatBranch(cid, b.id);
+        row.appendChild(remove);
+      }
+      $('branch-list').appendChild(row);
     }
     show('branch-overlay');
   }
@@ -2186,6 +2194,54 @@
     c.branchNames = Object.assign({}, c.branchNames, { [bid]: name });
     companionChunks(cid).filter(s => branchOf(s) === bid).forEach(s => { s.branchName = name; });
     saveCompanions(); saveIndex(); renderBranchBar(); openBranches();
+  }
+  async function deleteChatBranch(cid, bid) {
+    if (branchBusy) return;
+    if (bid === MAIN_BRANCH) { toast('主线需要保留，可以删除其他分支'); return; }
+    if (isLoading) { toast('先停止回复，或等回复完成后再删除分支'); return; }
+    const c = companions.find(c => c.id === cid), b = branchesOf(cid).find(b => b.id === bid);
+    if (!c || !b) return;
+    if (!(await uiConfirm('删除分支「' + b.name + '」？', { sub: '这条分支的 ' + b.count + ' 条聊天记录会被删除，无法撤销。其他分支、角色设定和共享记忆保留。删除当前分支后会回到主线。', ok: '删除分支', danger: true }))) return;
+    if (branchBusy || isLoading || !companions.includes(c) || !branchesOf(cid).some(b => b.id === bid)) return;
+    branchBusy = true; renderBranchBar();
+    $('msg-input').disabled = true; $('send-btn').disabled = true;
+    let committed = false;
+    try {
+      // 等后台迁移结束，再移除索引和数据，避免迁移任务把删掉的块重新写回来。
+      if (rebalanceJobs.has(cid)) await rebalanceJobs.get(cid);
+      const removed = companionChunks(cid).filter(s => branchOf(s) === bid), ids = new Set(removed.map(s => s.id)), attachments = [];
+      for (const s of removed) {
+        const msgs = s.id === currentId ? messages : await loadChunk(s.id);
+        if (!Array.isArray(msgs) || (s.count && s.count !== msgs.length)) throw new Error('有一段记录读不完整，暂时没有删除');
+        msgs.forEach(m => { if ((m.imgs && m.imgs.length) || (m.files && m.files.length)) attachments.push(m); });
+      }
+      const wasCurrent = cid === activeCompanionId && activeBranchFor(cid) === bid;
+      const names = Object.assign({}, c.branchNames); delete names[bid];
+      const nextC = Object.assign({}, c, { branchNames: names, activeBranchId: c.activeBranchId === bid ? MAIN_BRANCH : c.activeBranchId });
+      const nextSessions = sessions.filter(s => !ids.has(s.id));
+      const oldCompanions = localStorage.getItem('islet_companions');
+      const compRaw = JSON.stringify(companions.map(x => x === c ? nextC : x)), idxRaw = JSON.stringify(nextSessions);
+      // 先保存角色元数据，再提交索引；索引失败时原块全部保留，并恢复角色元数据。
+      if (!lsSet('islet_companions', compRaw) || localStorage.getItem('islet_companions') !== compRaw) throw new Error('角色信息保存失败');
+      if (!lsSet('islet_idx', idxRaw) || localStorage.getItem('islet_idx') !== idxRaw) {
+        if (oldCompanions == null) localStorage.removeItem('islet_companions'); else lsSet('islet_companions', oldCompanions);
+        throw new Error('分支索引保存失败，原记录保留');
+      }
+      sessions = nextSessions; Object.assign(c, nextC); committed = true;
+      _tailCache = { key: '', msgs: [] }; _searchSeq++; _searchCache.clear();
+      for (const id of ids) chunkCache.delete(id);
+      if (wasCurrent) { enterCompanion(cid); renderAll(); }
+      for (const s of removed) await removeChunkStore(s.id, true);
+      await purgeAttachments(attachments);
+      renderDrawerCompanions(); updatePill();
+      toast('已删除「' + b.name + '」');
+    } catch (e) {
+      toast((committed ? '分支已删除，部分清理未完成：' : '删除失败：') + (e.message || e));
+    } finally {
+      branchBusy = false; $('msg-input').disabled = false; $('send-btn').disabled = false;
+      renderBranchBar();
+      if ($('branch-overlay').classList.contains('show') && cid === activeCompanionId) openBranches();
+    }
   }
   function forkAtEnd() {
     const chunks = riverChunks(activeCompanionId), last = [...chunks].reverse().find(s => (s.id === currentId ? messages.length : s.count) > 0);
@@ -2259,7 +2315,7 @@
     if (x && x.cold) { await idbPut('chunks', { id, msgs }); return true; }
     return lsSet('islet_s_' + id, JSON.stringify(msgs));
   }
-  async function removeChunkStore(id) { localStorage.removeItem('islet_s_' + id); await idbDel('chunks', id).catch(() => {}); }
+  async function removeChunkStore(id, strict = false) { localStorage.removeItem('islet_s_' + id); const job = idbDel('chunks', id); if (strict) await job; else await job.catch(() => {}); }
   // 把该角色最新几块之外的热块挪进 IndexedDB
   const rebalanceJobs = new Map();
   function rebalanceChunks(cid) {
