@@ -147,6 +147,18 @@
   .pill-sub { color: var(--ink-3); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pill-chev { color: var(--ink-3); flex-shrink: 0; display: flex; }
 
+  .branch-bar { display: flex; align-items: center; gap: 8px; padding: 0 20px 6px; flex-shrink: 0; }
+  .branch-btn { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 36px; border: none; background: none; color: var(--ink-2); font: inherit; font-size: 12px; cursor: pointer; }
+  .branch-btn:first-child { flex: 1; text-align: left; }
+  .branch-btn:disabled { opacity: .45; cursor: default; }
+  .branch-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+  #branch-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .branch-row { display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+  .branch-row.sel { background: var(--accent-weak); border-radius: 12px; }
+  .branch-open { flex: 1; min-width: 0; padding: 14px 12px; border: none; background: none; color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
+  .branch-title { display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .branch-sub { display: block; margin-top: 5px; font-size: 11px; color: var(--ink-3); }
+
   /* 对话区 */
   .chat { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px 16px 20px; display: flex; flex-direction: column; gap: 20px; scroll-behavior: smooth; }
   .chat::-webkit-scrollbar { width: 0; }
@@ -578,6 +590,13 @@
   </button>
 </div>
 
+<div class="branch-bar" id="branch-bar" style="display:none">
+  <button class="branch-btn" type="button" onclick="openBranches()" aria-label="切换对话分支">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v16M6 8c0 6 12 2 12 8v4"/><circle cx="6" cy="4" r="2"/><circle cx="6" cy="20" r="2"/><circle cx="18" cy="20" r="2"/></svg>
+    <span id="branch-label">主线</span><span aria-hidden="true">⌄</span>
+  </button>
+  <button class="branch-btn" id="branch-fork-btn" type="button" onclick="forkAtEnd()">＋ 分支</button>
+</div>
 <div class="chat" id="chat" style="display:none"></div>
 <button class="to-bottom" id="to-bottom" type="button" aria-label="回到底部" onclick="scrollToBottom(true)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg></button>
 
@@ -769,7 +788,7 @@
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-10-06 · 一条河 · 小工具 · 归档</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-10-17 · 对话分支 · 小工具 · 归档</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -972,6 +991,21 @@
     <div class="model-list" id="search-results"></div>
   </div>
 </div>
+<div class="overlay" id="branch-overlay" role="dialog" aria-modal="true" aria-labelledby="branch-heading">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title" id="branch-heading">对话分支</div>
+      <button class="sheet-x" type="button" onclick="hide('branch-overlay')" aria-label="关闭分支列表">×</button>
+    </div>
+    <div class="form" style="padding-top:0">
+      <div class="mem-hint">每条分支各自续聊，共用这个角色的设定和长期记忆。长按任意消息，可以从那里分叉。</div>
+      <div id="branch-list"></div>
+      <button class="mm-btn" type="button" onclick="hide('branch-overlay');forkAtEnd()">从当前末尾开分支</button>
+      <button class="mm-btn" type="button" onclick="hide('branch-overlay');createChatBranch(null)">＋ 开一段空白对话</button>
+    </div>
+  </div>
+</div>
 <div class="overlay" id="msgmenu-overlay">
   <div class="sheet">
     <div class="grabber"></div>
@@ -979,6 +1013,7 @@
       <div class="mm-preview" id="mm-preview"></div>
       <button class="mm-btn" id="mm-copy" type="button">复制全文</button>
       <button class="mm-btn" id="mm-note" type="button">传纸条给别的角色</button>
+      <button class="mm-btn" id="mm-branch" type="button">从这里开分支</button>
       <button class="mm-btn" id="mm-edit" type="button">编辑并从这里重发</button>
       <button class="mm-btn danger" id="mm-del" type="button">删除这条消息</button>
       <button class="mm-btn" type="button" onclick="hide('msgmenu-overlay')">取消</button>
@@ -1307,15 +1342,25 @@
   function idbGet(store, id) { return idb().then(db => new Promise((res, rej) => { const r = db.transaction(store).objectStore(store).get(id); r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error); })); }
   function idbDel(store, id) { return idb().then(db => new Promise((res, rej) => { const tx = db.transaction(store, 'readwrite'); tx.objectStore(store).delete(id); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
   function idbClear(store) { return idb().then(db => new Promise((res, rej) => { const tx = db.transaction(store, 'readwrite'); tx.objectStore(store).clear(); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
-  // 消息被删时连带清掉 IndexedDB 里的图片与文件；不清的话附件只涨不降，删对话也腾不出空间
-  function purgeAttachments(msgs) {
-    (msgs || []).forEach(m => {
-      (m.imgs || []).forEach(id => {
+  // 先删消息并保存，再清理附件。分支共用图片 / 文件，仍被其他消息引用的附件要保留。
+  async function purgeAttachments(msgs) {
+    const imgs = new Set(), files = new Set();
+    (msgs || []).forEach(m => { (m.imgs || []).forEach(id => imgs.add(id)); (m.files || []).forEach(f => { if (f && f.id) files.add(f.id); }); });
+    if (!imgs.size && !files.size) return;
+    try {
+      if (sessions.some(s => s.id === currentId)) messages.forEach(m => { (m.imgs || []).forEach(id => imgs.delete(id)); (m.files || []).forEach(f => { if (f) files.delete(f.id); }); });
+      for (const s of sessions) {
+        const kept = await loadChunk(s.id);   // 也核对持久化副本，保存失败时不能删掉旧消息的附件。
+        // 读不出已知非空的块时，不冒险删除可能还在用的附件。
+        if (s.count && !kept.length) return;
+        kept.forEach(m => { (m.imgs || []).forEach(id => imgs.delete(id)); (m.files || []).forEach(f => { if (f) files.delete(f.id); }); });
+      }
+      for (const id of imgs) {
         const u = imgUrlCache.get(id); if (u) { URL.revokeObjectURL(u); imgUrlCache.delete(id); }
-        idbDel('imgs', id).catch(() => {});
-      });
-      (m.files || []).forEach(f => { if (f && f.id) idbDel('files', f.id).catch(() => {}); });
-    });
+        await idbDel('imgs', id);
+      }
+      for (const id of files) await idbDel('files', id);
+    } catch (e) { /* 读写失败时保留附件，下次删除时再清理。 */ }
   }
   // 备份/归档时把附件也带上：图片转 dataURL、文件带全文，按 id 去重
   async function collectAttachments(msgLists) {
@@ -1839,9 +1884,9 @@
     let removed = 0;
     for (const r of recs) {
       if (bad.includes(r)) continue;
-      purgeAttachments(r.msgs);
       await removeChunkStore(r.meta.id);
       sessions = sessions.filter(s => s.id !== r.meta.id);
+      await purgeAttachments(r.msgs);
       removed++;
     }
     saveIndex();
@@ -2060,6 +2105,7 @@
 
   function showMain() {
     $('header').style.display = 'flex';
+    $('branch-bar').style.display = 'flex';
     $('chat').style.display = 'flex';
     $('input-bar').style.display = 'flex'; document.body.classList.add('chat-on');
     if (!currentId) ensureSession();
@@ -2080,13 +2126,128 @@
     // 历史记录完整保留（1000 条的安全上限只为防 localStorage 爆仓）；发给模型的截断在 buildApiMessages 里做
     lsSet('islet_s_' + id, JSON.stringify(msgs.slice(-1000)));
   }
-  function saveIndex() { lsSet('islet_idx', JSON.stringify(sessions)); }
+  function saveIndex() { return lsSet('islet_idx', JSON.stringify(sessions)); }
+
+  /* 对话分支：旧块没有 branchId，视为主线；分叉前缀复制到新块，不改写原记录。
+   * 元数据随 sessions / companions 一起备份；角色记忆继续共用。 */
+  const MAIN_BRANCH = 'main';
+  let branchBusy = false;
+  function branchOf(s) { return (s && s.branchId) || MAIN_BRANCH; }
+  function activeBranchFor(cid) { const c = companions.find(c => c.id === cid); return (c && c.activeBranchId) || MAIN_BRANCH; }
+  function companionChunks(cid) { return sessions.filter(x => riverCid(x) === cid); }
+  function branchesOf(cid) {
+    const c = companions.find(c => c.id === cid), names = (c && c.branchNames) || {};
+    const rows = new Map([[MAIN_BRANCH, { id: MAIN_BRANCH, name: names[MAIN_BRANCH] || '主线', count: 0, updated: 0 }]]);
+    Object.entries(names).forEach(([id, name]) => { if (!rows.has(id)) rows.set(id, { id, name, count: 0, updated: 0 }); });
+    companionChunks(cid).forEach(s => {
+      const id = branchOf(s);
+      if (!rows.has(id)) rows.set(id, { id, name: names[id] || s.branchName || '找回的分支', count: 0, updated: 0 });
+      const b = rows.get(id); b.count += s.count || 0; b.updated = Math.max(b.updated, s.updated || 0);
+    });
+    return [...rows.values()];
+  }
+  function branchName(cid, bid) { const b = branchesOf(cid).find(b => b.id === bid); return b ? b.name : '主线'; }
+  function renderBranchBar() {
+    if (!$('branch-label')) return;
+    const rows = branchesOf(activeCompanionId);
+    $('branch-label').textContent = branchName(activeCompanionId, activeBranchFor(activeCompanionId)) + (rows.length > 1 ? ' · ' + rows.length + ' 条分支' : '');
+    $('branch-fork-btn').disabled = branchBusy || isLoading;
+  }
+  function openBranches() {
+    if (branchBusy) return;
+    const cid = activeCompanionId;
+    $('branch-list').innerHTML = '';
+    for (const b of branchesOf(cid)) {
+      const row = document.createElement('div'); row.className = 'branch-row' + (b.id === activeBranchFor(cid) ? ' sel' : '');
+      const open = document.createElement('button'); open.type = 'button'; open.className = 'branch-open';
+      open.innerHTML = '<span class="branch-title">' + esc(b.name) + '</span><span class="branch-sub">' + b.count + ' 条' + (b.updated ? ' · ' + esc(fmtWhen(b.updated)) : '') + (b.id === activeBranchFor(cid) ? ' · 当前' : '') + '</span>';
+      open.onclick = () => { switchChatBranch(cid, b.id); hide('branch-overlay'); };
+      const rename = document.createElement('button'); rename.type = 'button'; rename.className = 'icon-btn'; rename.textContent = '✎'; rename.setAttribute('aria-label', '重命名' + b.name);
+      rename.onclick = () => renameChatBranch(cid, b.id);
+      row.append(open, rename); $('branch-list').appendChild(row);
+    }
+    show('branch-overlay');
+  }
+  function switchChatBranch(cid, bid) {
+    if (branchBusy || !branchesOf(cid).some(b => b.id === bid)) return;
+    const c = companions.find(c => c.id === cid); if (!c) return;
+    if (cid === activeCompanionId && bid === activeBranchFor(cid)) return;
+    leaveCurrentSession();
+    c.activeBranchId = bid; saveCompanions();
+    enterCompanion(cid); _tailCache = { key: '', msgs: [] };
+    renderAll(); renderDrawerCompanions(); updatePill();
+  }
+  async function renameChatBranch(cid, bid) {
+    if (branchBusy) return;
+    const c = companions.find(c => c.id === cid); if (!c) return;
+    const value = await uiPrompt('给这条分支起个名字', branchName(cid, bid));
+    if (value == null || !value.trim()) return;
+    const name = value.trim().slice(0, 60);
+    c.branchNames = Object.assign({}, c.branchNames, { [bid]: name });
+    companionChunks(cid).filter(s => branchOf(s) === bid).forEach(s => { s.branchName = name; });
+    saveCompanions(); saveIndex(); renderBranchBar(); openBranches();
+  }
+  function forkAtEnd() {
+    const chunks = riverChunks(activeCompanionId), last = [...chunks].reverse().find(s => (s.id === currentId ? messages.length : s.count) > 0);
+    createChatBranch(last ? { sid: last.id, idx: (last.id === currentId ? messages.length : last.count) - 1 } : null);
+  }
+  async function createChatBranch(ref) {
+    if (branchBusy) return;
+    if (isLoading) { toast('先停止回复，或等回复完成后再开分支'); return; }
+    const cid = activeCompanionId, parent = activeBranchFor(cid), c = activeCompanion(), origin = currentId;
+    if (!c || !origin) return;
+    const source = ref && sessions.find(s => s.id === ref.sid);
+    if (ref && (!source || riverCid(source) !== cid || branchOf(source) !== parent)) return;
+    const value = await uiPrompt(ref ? '从这条消息开分支' : '开一段空白对话', '分支 ' + branchesOf(cid).length, { sub: ref ? '保留到这条消息为止的对话，原来的后续也会保留。角色记忆共用。' : '不带聊天记录，角色设定和长期记忆照常保留。', ok: '创建' });
+    if (value == null) return;
+    if (branchBusy || isLoading || cid !== activeCompanionId || origin !== currentId) { toast('当前对话已变化，请重新选择分叉点'); return; }
+    branchBusy = true; renderBranchBar();
+    $('msg-input').disabled = true; $('send-btn').disabled = true;
+    const staged = [], bid = genId(), name = value.trim().slice(0, 60) || '新分支';
+    let committed = false;
+    try {
+      // 每块都先写入、读回核对；索引一次提交成功后才切换，失败只清理新副本。
+      if (ref) {
+        for (const s of riverChunks(cid, parent)) {
+          const all = s.id === currentId ? messages : await loadChunk(s.id);
+          if (!Array.isArray(all) || (s.count && s.count !== all.length)) throw new Error('有一段原对话读不完整，原记录没有改动');
+          if (s.id === ref.sid && (!Number.isInteger(ref.idx) || ref.idx < 0 || ref.idx >= all.length)) throw new Error('找不到这条消息，请重新选择');
+          const copy = JSON.parse(JSON.stringify(s.id === ref.sid ? all.slice(0, ref.idx + 1) : all));
+          if (copy.length) {
+            const meta = { id: genId(), companionId: cid, branchId: bid, branchName: name, parentBranchId: parent, forkSid: ref.sid, forkIdx: ref.idx, first: s.first, updated: s.updated, count: copy.length, distilled: copy.filter(m => m.role === 'user').length };
+            staged.push(meta);
+            if (!(await storeChunkCold(meta, copy))) throw new Error('本机存储空间不足，分支没有创建');
+          }
+          if (s.id === ref.sid) break;
+        }
+      }
+      const now = Date.now();
+      const tail = { id: genId(), companionId: cid, branchId: bid, branchName: name, parentBranchId: parent, first: now, updated: now, count: 0, distilled: 0 };
+      staged.push(tail);
+      if (await storeChunkHot(tail, []) !== 'hot') throw new Error('本地空间不足，请先在设置里腾空间');
+      const next = sessions.concat(staged), raw = JSON.stringify(next);
+      if (!lsSet('islet_idx', raw) || localStorage.getItem('islet_idx') !== raw) throw new Error('分支索引保存失败，原对话没有改动');
+      sessions = next; committed = true;
+      leaveCurrentSession();
+      c.activeBranchId = bid; c.branchNames = Object.assign({}, c.branchNames, { [bid]: name }); saveCompanions();
+      currentId = tail.id; messages = []; localStorage.setItem('islet_cur', currentId);
+      _tailCache = { key: '', msgs: [] };
+      renderAll(); renderDrawerCompanions(); updatePill();
+      rebalanceChunks(cid).catch(() => {});
+      toast('已进入「' + name + '」');
+    } catch (e) {
+      if (!committed) for (const s of staged) await removeChunkStore(s.id);
+      toast('创建失败：' + (e.message || e));
+    } finally {
+      branchBusy = false; $('msg-input').disabled = false; $('send-btn').disabled = false; renderBranchBar();
+    }
+  }
 
   /* ---------- 一条河：每个角色一条不断的对话，底下按块存 ----------
    * sessions 里的每一项是一「块」（≤ CHUNK_MAX 条），同一角色的块按 first 接成一条河，界面上看不到块的边界。
    * 最新的 HOT_CHUNKS 块放 localStorage（同步读写），更早的块挪进 IndexedDB（不受 5MB 限制），滚到、搜到时按需加载。 */
   const CHUNK_MAX = 500, HOT_CHUNKS = 1;   // 每个角色只把正在写的那一块留在 localStorage，其余都放 IndexedDB
-  function riverChunks(cid) { return sessions.filter(x => (x.companionId || (companions[0] && companions[0].id)) === cid).sort((a, b) => ((a.first || a.updated || 0) - (b.first || b.updated || 0))); }
+  function riverChunks(cid, bid = activeBranchFor(cid)) { return companionChunks(cid).filter(x => branchOf(x) === bid).sort((a, b) => ((a.first || a.updated || 0) - (b.first || b.updated || 0))); }
   function riverTotal(cid) { return riverChunks(cid).reduce((n, x) => n + (x.count || 0), 0); }
   async function loadChunk(id) {
     const x = sessions.find(y => y.id === id);
@@ -2100,8 +2261,15 @@
   }
   async function removeChunkStore(id) { localStorage.removeItem('islet_s_' + id); await idbDel('chunks', id).catch(() => {}); }
   // 把该角色最新几块之外的热块挪进 IndexedDB
-  async function rebalanceChunks(cid) {
-    const chunks = riverChunks(cid);
+  const rebalanceJobs = new Map();
+  function rebalanceChunks(cid) {
+    if (rebalanceJobs.has(cid)) return rebalanceJobs.get(cid);
+    const job = rebalanceChunksNow(cid).finally(() => rebalanceJobs.delete(cid));
+    rebalanceJobs.set(cid, job);
+    return job;
+  }
+  async function rebalanceChunksNow(cid) {
+    const chunks = companionChunks(cid).sort((a, b) => (a.first || a.updated || 0) - (b.first || b.updated || 0));
     let changed = false;
     let moved = 0, kept = 0;
     for (let i = 0; i < chunks.length - HOT_CHUNKS; i++) {
@@ -2117,7 +2285,9 @@
         const back = await idbGet('chunks', x.id);
         if (!back || !Array.isArray(back.msgs) || JSON.stringify(back.msgs) !== JSON.stringify(msgs)) { kept++; continue; }
       } catch (e) { kept++; continue; }
-      x.cold = 1; saveIndex();          // 先记下「这块在 IndexedDB」，再删旧副本：中途断电也只会多一份，不会少
+      if (x.id === currentId || !sessions.includes(x) || localStorage.getItem('islet_s_' + x.id) !== raw) { kept++; continue; }
+      x.cold = 1;
+      if (!saveIndex()) { x.cold = 0; kept++; continue; }   // 索引存不下时，热副本也保留。
       localStorage.removeItem('islet_s_' + x.id);
       moved++; changed = true;
     }
@@ -2212,6 +2382,7 @@
     else createSession(cid);
   }
   function switchCompanion(id) {
+    if (branchBusy) return;
     if (gachaPending() && gachaPending() !== id) setGachaPending('');
     if (id === activeCompanionId) { return; }
     leaveCurrentSession();
@@ -2283,7 +2454,7 @@
     const wrap = $('drawer-companions');
     if (!wrap) return;
     const rows = companions.map(c => {
-      const chunks = riverChunks(c.id);
+      const chunks = companionChunks(c.id);
       const last = chunks.length ? chunks[chunks.length - 1].updated : 0;
       return { c, chunks, last };
     }).sort((a, b) => (!!b.c.pinned - !!a.c.pinned) || (b.last - a.last));
@@ -2297,7 +2468,7 @@
         ${avaSpan('ava', c.id, c.name)}
         <div class="sr-main">
           <div class="sr-title">${esc(c.name)}${mark}${noteMark}</div>
-          <div class="sr-time">${total ? (last ? fmtWhen(last) + ' · ' : '') + total + ' 条' : '还没聊过'}</div>
+          <div class="sr-time">${total ? (last ? fmtWhen(last) + ' · ' : '') + total + ' 条' + (branchesOf(c.id).length > 1 ? ' · ' + branchesOf(c.id).length + ' 分支' : '') : '还没聊过'}</div>
         </div>
         <button class="sr-btn ${c.pinned ? 'pin-on' : ''}" onclick="event.stopPropagation();togglePinCompanion('${c.id}')" aria-label="${c.pinned ? '取消置顶' : '置顶'}">
           <svg viewBox="0 0 24 24" fill="${c.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3l5 5-4 2-1 5-3-3-5 5-1-1 5-5-3-3 5-1 2-4z"/></svg>
@@ -2334,9 +2505,11 @@
     if (companions.length <= 1) { toast('至少保留一个角色'); return; }
     const c = companions.find(x => x.id === id);
     if (!(await uiConfirm('删除角色「' + (c ? c.name : '') + '」？', { sub: 'TA 的人设、记忆和所有对话都会一并删除，不可恢复。', ok: '删除', danger: true }))) return;
-    for (const x of sessions.filter(y => y.companionId === id)) { purgeAttachments(await loadChunk(x.id)); await removeChunkStore(x.id); }
+    const removedMsgs = [];
+    for (const x of sessions.filter(y => y.companionId === id)) { removedMsgs.push(...await loadChunk(x.id)); await removeChunkStore(x.id); }
     if (c && c.hist && c.hist.fileId) idbDel('imports', c.hist.fileId).catch(() => {});
     sessions = sessions.filter(s => s.companionId !== id);
+    await purgeAttachments(removedMsgs);
     companions = companions.filter(x => x.id !== id);
     saveCompanions(); saveIndex();
     const fallback = companions[0].id;
@@ -2371,13 +2544,17 @@
     if (changed) saveIndex();
     currentId = localStorage.getItem('islet_cur');
     if (!currentId || !sessions.find(s => s.id === currentId)) currentId = sessions[0] ? sessions[0].id : null;
+    const cur = sessions.find(s => s.id === currentId);
+    const owner = cur && companions.find(c => c.id === riverCid(cur));
+    if (owner) owner.activeBranchId = branchOf(cur);
     messages = currentId ? loadSessionMsgs(currentId) : [];
   }
 
   // 给 cid 开一块新的空块并站到上面（河的第一块，或写满后的下一块）
   function createSession(cid) {
     const id = genId(), now = Date.now();
-    sessions.push({ id, title: '', updated: now, first: now, companionId: cid, count: 0, distilled: 0 });
+    const bid = activeBranchFor(cid);
+    sessions.push({ id, title: '', updated: now, first: now, companionId: cid, branchId: bid, branchName: branchName(cid, bid), count: 0, distilled: 0 });
     currentId = id; messages = [];
     saveIndex(); saveSessionMsgs(id, []);
     localStorage.setItem('islet_cur', id);
@@ -2466,6 +2643,7 @@
   // 目录里明确说不支持 tools 才判否；旧缓存 / 内置列表没这一项时按支持处理，真不支持还有请求失败后的降级兜底
   function modelSupportsTools(id) { const e = catalogMap[id]; return e && typeof e.tools === 'boolean' ? e.tools : true; }
   function updatePill() {
+    renderBranchBar();
     const c = companions.length ? activeCompanion() : null;
     const sub = $('pill-sub'), ava = $('pill-ava');
     if (c) {
@@ -2618,6 +2796,7 @@
   let renderFrom = null;      // {sid, idx}：已渲染的最早一条在河里的位置；null = 还没渲染任何消息
   let renderFirstTs = 0;      // 已渲染的最早一条的时间，用来去掉重复的日期线
   let _loadingOlder = false;
+  let renderEpoch = 0;
   const chunkCache = new Map();   // sid -> msgs：为渲染 / 菜单加载过的非当前块
   function chunkMsgsSync(sid) { return sid === currentId ? messages : (chunkCache.get(sid) || null); }
   async function chunkMsgs(sid) { if (sid === currentId) return messages; if (chunkCache.has(sid)) return chunkCache.get(sid); const m = await loadChunk(sid); chunkCache.set(sid, m); return m; }
@@ -2629,6 +2808,7 @@
     return n + renderFrom.idx;
   }
   function renderAll() {
+    renderEpoch++; _loadingOlder = false; renderBranchBar();
     cancelEdit();   // 切换角色等场景下退出编辑态（未在编辑时是空操作，不影响草稿）
     const chat = $('chat');
     chat.innerHTML = '';
@@ -2670,6 +2850,7 @@
   // 往上补一页：先补当前块里更早的，本块到头就去上一块（可能在 IndexedDB 里，异步取）
   async function loadOlder() {
     if (!renderFrom || _loadingOlder) return;
+    const epoch = renderEpoch;
     let { sid, idx } = renderFrom, msgs;
     _loadingOlder = true; updateLoadMore();
     try {
@@ -2677,8 +2858,15 @@
         const chunks = riverChunks(activeCompanionId), pos = chunks.findIndex(x => x.id === sid);
         if (pos <= 0) { renderFrom = { sid, idx: 0 }; return; }
         sid = chunks[pos - 1].id; msgs = await chunkMsgs(sid); idx = msgs.length;
-        if (!idx) { renderFrom = { sid, idx: 0 }; return loadOlder(); }   // 空块：继续往前
+        if (epoch !== renderEpoch) return;
+        while (!idx) {   // 切换分支 / 导入后可能有空块，继续往上找，不在加载锁内递归。
+          const prev = chunks.findIndex(x => x.id === sid) - 1;
+          if (prev < 0) { renderFrom = { sid, idx: 0 }; return; }
+          sid = chunks[prev].id; msgs = await chunkMsgs(sid); idx = msgs.length;
+          if (epoch !== renderEpoch) return;
+        }
       } else msgs = await chunkMsgs(sid);
+      if (epoch !== renderEpoch) return;
       const chat = $('chat');
       const from = Math.max(0, idx - RENDER_WINDOW);
       const frag = document.createDocumentFragment();
@@ -2696,13 +2884,16 @@
       chat.scrollTop += chat.scrollHeight - before;   // 视口停在原处，不跳
       chat.style.scrollBehavior = prev;
       requestAnimationFrame(() => chat.classList.remove('bulk'));
-    } finally { _loadingOlder = false; updateLoadMore(); }
+    } finally { if (epoch === renderEpoch) { _loadingOlder = false; updateLoadMore(); } }
   }
   // 把河里 (sid, idx) 那条消息渲染出来（搜索跳转用）
   async function ensureRendered(sid, idx) {
+    const epoch = renderEpoch;
     const chunks = riverChunks(activeCompanionId), target = chunks.findIndex(x => x.id === sid);
     if (target < 0) return;
     for (let guard = 0; guard < 500 && renderFrom; guard++) {
+      while (_loadingOlder && epoch === renderEpoch) await new Promise(r => setTimeout(r, 10));
+      if (epoch !== renderEpoch) return;
       const cur = chunks.findIndex(x => x.id === renderFrom.sid);
       if (cur < target || (cur === target && renderFrom.idx <= idx)) return;
       await loadOlder();
@@ -2714,7 +2905,7 @@
     dropEmpty();
     const row = document.createElement('div');
     row.className = 'msg user';
-    row.innerHTML = `<div class="bubble"></div><div class="meta-row"><button class="edit-btn" type="button" aria-label="编辑" onclick="editMessage(${idx})"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>${drawn ? '<span class="drawn-tag">🎲 抽卡掉落</span>' : ''}<div class="time">${esc(time || '')}</div></div>`;
+    row.innerHTML = `<div class="bubble"></div><div class="meta-row"><button class="edit-btn" type="button" aria-label="编辑" onclick="editMessage(${idx}, this.closest('.msg').dataset.sid)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>${drawn ? '<span class="drawn-tag">🎲 抽卡掉落</span>' : ''}<div class="time">${esc(time || '')}</div></div>`;
     const bub = row.querySelector('.bubble');
     bub.textContent = text;
     if (!text) bub.style.display = 'none';
@@ -2957,7 +3148,7 @@
           const q = String(args.query || '').trim().toLowerCase();
           if (!q) { result = '缺少关键词'; break; }
           const limit = Math.min(Math.max(parseInt(args.limit, 10) || 6, 1), 12);
-          const mine = riverChunks(c.id).reverse();   // 从最近的块往前搜
+          const mine = riverChunks(c.id, branchOf(sessions.find(s => s.id === sid))).reverse();   // 只搜请求所属分支，从最近的块往前搜
           const hits = [];
           for (const sess of mine) {
             const msgs = sess.id === currentId ? messages : await loadChunk(sess.id);
@@ -3126,12 +3317,12 @@
   function riverUpstream(sid) {   // 这一块之前，同一条河里已有多少条消息（按索引里的 count 算，不用把块读出来）
     const x = sessions.find(y => y.id === sid); if (!x) return 0;
     let n = 0;
-    for (const y of riverChunks(riverCid(x))) { if (y.id === sid) break; n += y.count || 0; }
+    for (const y of riverChunks(riverCid(x), branchOf(x))) { if (y.id === sid) break; n += y.count || 0; }
     return n;
   }
   async function riverTail(sid, n) {
     const x = sessions.find(y => y.id === sid); if (!x || n <= 0) return [];
-    const chunks = riverChunks(riverCid(x)), pos = chunks.findIndex(y => y.id === sid);
+    const chunks = riverChunks(riverCid(x), branchOf(x)), pos = chunks.findIndex(y => y.id === sid);
     if (pos <= 0) return [];
     const key = chunks.slice(0, pos).map(y => y.id + ':' + (y.count || 0)).join('|') + '#' + n;
     if (_tailCache.key === key) return _tailCache.msgs;
@@ -3515,7 +3706,8 @@
   /* ---------- 发送 / 生成 ---------- */
   /* ---------- 编辑消息 ---------- */
   let editingIdx = null;
-  function editMessage(idx) {
+  function editMessage(idx, sid = currentId) {
+    if (sid !== currentId) { toast('这是一条旧消息，长按后可从这里开分支'); return; }
     if (isLoading && currentAbort) currentAbort.abort();
     const m = messages[idx];
     if (!m || m.role !== 'user') return;
@@ -3531,9 +3723,10 @@
     $('edit-bar').classList.add('hidden');
   }
 
-  function onSend() { if (isLoading) { if (currentAbort) currentAbort.abort(); return; } sendMessage(); }
+  function onSend() { if (branchBusy) return; if (isLoading) { if (currentAbort) currentAbort.abort(); return; } sendMessage(); }
 
   function sendMessage() {
+    if (branchBusy) return;
     const input = $('msg-input');
     const text = input.value.trim();
     if (!text && !pendingImgs.length && !pendingDocs.length) return;
@@ -3562,9 +3755,10 @@
         messages[idx].content = text;
         if (imgs) messages[idx].imgs = (messages[idx].imgs || []).concat(imgs);
         if (docs) messages[idx].files = (messages[idx].files || []).concat(docs);
-        purgeAttachments(messages.slice(idx + 1));
+        const removed = messages.slice(idx + 1);
         messages.length = idx + 1;   // 之后的消息作废，从这里重新生成
         saveCurrent(); renderAll();
+        purgeAttachments(removed);
         generateAssistant();
         return;
       }
@@ -3750,7 +3944,7 @@
   }
 
   function setLoading(v) {
-    isLoading = v;
+    isLoading = v; renderBranchBar();
     bearThinking(v);
     $('chat').classList.toggle('streaming', !!v);
     const btn = $('send-btn'), ic = $('send-ic');
@@ -4372,7 +4566,8 @@
   }
   // 一天结束：新一天的第一句话发出前，把昨天（上次提炼之后）的对话提炼进记忆卡与大事记；大事记一天一条
   async function distillDayEnd(cid, curSid, curSnap) {
-    for (const x of riverChunks(cid).slice(-2)) {   // 昨天的内容最多跨到上一块
+    const current = sessions.find(s => s.id === curSid);
+    for (const x of riverChunks(cid, branchOf(current)).slice(-2)) {   // 昨天的内容最多跨到上一块
       const snap = x.id === curSid ? curSnap : await loadChunk(x.id);
       await maybeAutoDistill(x.id, snap);
     }
@@ -4482,7 +4677,7 @@
     let added = 0;
     for (let gi = 0; gi < groups.length; gi++) {
       const g = groups[gi], first = g[0], last = g[g.length - 1];
-      const meta = { id: genId(), title: '', first: first.ts || Date.now(), updated: last.ts || Date.now(), companionId: c.id, count: g.length, distilled: g.filter(m => m.role === 'user').length, cold: gi < groups.length - HOT_CHUNKS ? 1 : 0 };
+      const meta = { id: genId(), title: '', first: first.ts || Date.now(), updated: last.ts || Date.now(), companionId: c.id, branchId: activeBranchFor(c.id), branchName: branchName(c.id, activeBranchFor(c.id)), count: g.length, distilled: g.filter(m => m.role === 'user').length, cold: gi < groups.length - HOT_CHUNKS ? 1 : 0 };
       const msgs = g.map(ciMsg);
       if (meta.cold) { try { await idbPut('chunks', { id: meta.id, msgs }); } catch (e) { toast('原文存不进本机数据库'); break; } }
       else if (!lsSet('islet_s_' + meta.id, JSON.stringify(msgs))) break;
@@ -4752,7 +4947,7 @@
     const chunks = riverChunks(cid);
     let last = chunks[chunks.length - 1];
     if (!last) {
-      last = { id: genId(), title: '', updated: msg.ts, first: msg.ts, companionId: cid, count: 0, distilled: 0 };
+      last = { id: genId(), title: '', updated: msg.ts, first: msg.ts, companionId: cid, branchId: activeBranchFor(cid), branchName: branchName(cid, activeBranchFor(cid)), count: 0, distilled: 0 };
       if (!lsSet('islet_s_' + last.id, '[]')) return false;
       sessions.push(last);
     }
@@ -5141,7 +5336,7 @@
         const from = Math.max(0, pos - 14);
         hits.push({
           sid: sess.id, idx: i, when: msgs[i].ts ? fmtEpiDay(msgs[i].ts) : fmtWhen(sess.updated),
-          cname: (companions.find(x => x.id === sess.companionId) || {}).name || '',
+          cname: ((companions.find(x => x.id === sess.companionId) || {}).name || '') + ' · ' + branchName(riverCid(sess), branchOf(sess)),
           pre: (from > 0 ? '…' : '') + c.slice(from, pos),
           hit: c.slice(pos, pos + q.length),
           post: c.slice(pos + q.length, pos + q.length + 40),
@@ -5163,7 +5358,7 @@
     hide('search-overlay');
     const s = sessions.find(x => x.id === sid); if (!s) return;
     const cid = s.companionId || companions[0].id;
-    if (cid !== activeCompanionId) switchCompanion(cid);
+    if (cid !== activeCompanionId || branchOf(s) !== activeBranchFor(cid)) switchChatBranch(cid, branchOf(s));
     await ensureRendered(sid, idx);
     setTimeout(() => {
       const el = document.querySelector('.msg[data-sid="' + sid + '"][data-midx="' + idx + '"]');
@@ -5178,11 +5373,13 @@
   /* ---------- 长按消息菜单 ---------- */
   let menuRef = null;   // {sid, idx}
   function showMsgMenu(sid, idx) {
+    if (branchBusy) return;
     const msgs = chunkMsgsSync(sid), m = msgs && msgs[idx];
     if (!m) return;
     menuRef = { sid, idx };
     $('mm-preview').textContent = (m.content || '（图片消息）').slice(0, 100);
     $('mm-edit').style.display = (m.role === 'user' && sid === currentId) ? '' : 'none';   // 编辑重发只对最新一块开放：从很早的地方重发会把后面的一切作废
+    $('mm-branch').disabled = isLoading;
     show('msgmenu-overlay');
   }
 
@@ -5263,7 +5460,7 @@
   const OVERLAY_CLOSE = {
     'drawer-overlay': closeDrawer, 'setup-overlay': closeSettings, 'picker-overlay': closePicker, 'memory-overlay': closeMemory,
     'arena-overlay': closeArena, 'council-overlay': closeCouncil, 'gacha-overlay': closeGacha, 'habit-overlay': closeHabits, 'search-overlay': closeSearch,
-    'msgmenu-overlay': () => hide('msgmenu-overlay'), 'dlg-overlay': () => closeDlg(null), 'charimport-overlay': () => hide('charimport-overlay'),
+    'msgmenu-overlay': () => hide('msgmenu-overlay'), 'branch-overlay': () => hide('branch-overlay'), 'dlg-overlay': () => closeDlg(null), 'charimport-overlay': () => hide('charimport-overlay'),
   };
   Object.entries(OVERLAY_CLOSE).forEach(([id, fn]) => $(id).addEventListener('click', e => { if (e.target.id === id) fn(); }));
   // 弹窗里的输入框：回车 = 第一个按钮（确定）；Esc = 取消
@@ -5292,11 +5489,11 @@
     toast('已经传给「' + target.name + '」了');
   };
   $('mm-edit').onclick = () => { hide('msgmenu-overlay'); if (menuRef && menuRef.sid === currentId) editMessage(menuRef.idx); };
+  $('mm-branch').onclick = () => { const ref = menuRef && { ...menuRef }; hide('msgmenu-overlay'); if (ref) createChatBranch(ref); };
   $('mm-del').onclick = async () => {
     const ref = menuRef, msgs = ref && chunkMsgsSync(ref.sid), m = msgs && msgs[ref.idx];
     if (!m) { hide('msgmenu-overlay'); return; }
     if (!(await uiConfirm('删除这条消息？', { sub: '不可恢复。', ok: '删除', danger: true }))) return;
-    purgeAttachments([m]);
     if (ref.sid === currentId) {
       if (isLoading && currentAbort) currentAbort.abort();
       messages.splice(ref.idx, 1);
@@ -5310,6 +5507,7 @@
       if (renderFrom && renderFrom.sid === ref.sid && renderFrom.idx > ref.idx) renderFrom.idx--;
       renderTokenBar(); updateLoadMore();
     }
+    await purgeAttachments([m]);
     hide('msgmenu-overlay');
   };
 
