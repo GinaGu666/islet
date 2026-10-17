@@ -193,7 +193,78 @@ async function fork(a, ref, name = '分支 A') {
   assert.equal((await texts(b)).at(-1), 'branch-only');
   assert.equal(b.run(`branchesOf('c1').length`), a.run(`branchesOf('c1').length`));
   assert.equal((await b.run(`fileGet('shared-file')`)).text, 'data');
+
+  // Delete a parent branch while its child is active. Copies, shared memory,
+  // shared attachments and the current rendered message menu must survive.
+  const d = await app(fixture());
+  await d.run(`filePut({ id: 'shared-file', name: 'notes.txt', text: 'data' })`);
+  await fork(d, { sid: 'root-tail', idx: 1 }, '可删除的父分支');
+  const parent = d.run(`activeBranchFor('c1')`);
+  await d.run(`filePut({ id: 'child-file', name: 'child.txt', text: 'shared with child' })`);
+  await d.run(`appendToRiver('c1', { role: 'user', content: 'child inherits this', ts: Date.now(), files: [{ id: 'child-file', name: 'child.txt' }] })`);
+  const parentTail = d.run(`currentId`);
+  await fork(d, { sid: parentTail, idx: 0 }, '保留的子分支');
+  const child = d.run(`activeBranchFor('c1')`);
+  d.run(`switchChatBranch('c1', ${JSON.stringify(parent)})`);
+  await d.run(`filePut({ id: 'parent-file', name: 'parent.txt', text: 'delete me' }); imgPut({ id: 'parent-img', blob: 'synthetic image' })`);
+  await d.run(`appendToRiver('c1', { role: 'user', content: 'parent exclusive', ts: Date.now(), files: [{ id: 'parent-file', name: 'parent.txt' }], imgs: ['parent-img'] })`);
+  const parentIds = json(d.run(`riverChunks('c1').map(s => s.id)`));
+  d.run(`switchChatBranch('c1', ${JSON.stringify(child)})`);
+  await sleep(30);
+  const childBefore = await texts(d), memoryBefore = json(d.run(`activeCompanion().cards`));
+  d.run(`openBranches()`);
+  assert.equal(d.w.document.querySelectorAll('#branch-list .branch-delete').length, 2);
+  assert(!d.w.document.querySelector('[aria-label="删除分支主线"]'));
+
+  // Cancel and failed metadata/index writes must retain all data.
+  const beforeDelete = d.w.localStorage.getItem('islet_idx');
+  const compBeforeDelete = d.w.localStorage.getItem('islet_companions');
+  d.run(`uiConfirm = async () => false`);
+  await d.run(`deleteChatBranch('c1', ${JSON.stringify(parent)})`);
+  assert.equal(d.w.localStorage.getItem('islet_idx'), beforeDelete);
+  d.run(`uiConfirm = async () => true; globalThis.beforeDeleteLsSet = lsSet; lsSet = (k, v) => k === 'islet_idx' ? false : beforeDeleteLsSet(k, v)`);
+  await d.run(`deleteChatBranch('c1', ${JSON.stringify(parent)})`);
+  assert.equal(d.w.localStorage.getItem('islet_idx'), beforeDelete);
+  assert.equal(d.w.localStorage.getItem('islet_companions'), compBeforeDelete);
+  d.run(`lsSet = (k, v) => k === 'islet_companions' ? false : beforeDeleteLsSet(k, v)`);
+  await d.run(`deleteChatBranch('c1', ${JSON.stringify(parent)})`);
+  assert.equal(d.w.localStorage.getItem('islet_idx'), beforeDelete);
+  d.run(`lsSet = beforeDeleteLsSet`);
+
+  await d.run(`deleteChatBranch('c1', ${JSON.stringify(parent)})`);
+  assert.equal(d.run(`activeBranchFor('c1')`), child);
+  assert(!d.run(`branchesOf('c1')`).some(x => x.id === parent));
+  assert.deepEqual(await texts(d), childBefore);
+  assert.deepEqual(json(d.run(`activeCompanion().cards`)), memoryBefore);
+  assert(await d.run(`fileGet('shared-file')`));
+  assert(await d.run(`fileGet('child-file')`));
+  assert.equal(await d.run(`fileGet('parent-file')`), null);
+  assert.equal(await d.run(`imgGet('parent-img')`), null);
+  for (const id of parentIds) {
+    assert.equal(d.w.localStorage.getItem('islet_s_' + id), null);
+    assert.equal(await d.run(`idbGet('chunks', ${JSON.stringify(id)})`), null);
+  }
+  const childRow = d.w.document.querySelector('#chat .msg');
+  assert(childRow);
+  d.run(`showMsgMenu(${JSON.stringify(childRow.dataset.sid)}, ${childRow.dataset.midx})`);
+  assert(d.w.document.getElementById('msgmenu-overlay').classList.contains('show'));
+
+  // Deleting the current branch returns to main and survives a reload.
+  await d.run(`deleteChatBranch('c1', ${JSON.stringify(child)})`);
+  assert.equal(d.run(`activeBranchFor('c1')`), 'main');
+  assert.deepEqual(await texts(d), Array.from({ length: 8 }, (_, i) => 'root-' + i));
+  assert.equal(await d.run(`fileGet('child-file')`), null);
+  assert(await d.run(`fileGet('shared-file')`));
+  const onlyMainIndex = d.w.localStorage.getItem('islet_idx');
+  await d.run(`deleteChatBranch('c1', 'main')`);
+  assert.equal(d.w.localStorage.getItem('islet_idx'), onlyMainIndex);
+  const reloaded = await app(d.storage(), d.db);
+  assert.equal(reloaded.run(`branchesOf('c1').length`), 1);
+  assert.equal(reloaded.run(`activeBranchFor('c1')`), 'main');
+  assert.deepEqual(await texts(reloaded), Array.from({ length: 8 }, (_, i) => 'root-' + i));
   assert.deepEqual(a.errors, []);
   assert.deepEqual(b.errors, []);
-  console.log('PASS: legacy data, cold-chunk forks, nested forks, branch context, switching, search, rollback, shared memory, attachments, and backup/import.');
+  assert.deepEqual(d.errors, []);
+  assert.deepEqual(reloaded.errors, []);
+  console.log('PASS: branching, deletion/cancellation/failure rollback, descendants, shared attachments/memory, active-branch fallback, reload, and backup/import.');
 })().catch(e => { console.error(e); process.exitCode = 1; }).finally(() => { for (const dom of contexts) dom.window.close(); });
