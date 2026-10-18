@@ -3682,7 +3682,7 @@
         else if (/fable|mythos/i.test(model)) payload.reasoning = { exclude: true };
         else payload.reasoning = { enabled: false, exclude: true };
       }
-      if (opts && opts.tools && opts.tools.length) { payload.tools = opts.tools; payload.tool_choice = 'auto'; }
+      if (opts && opts.tools && opts.tools.length) { payload.tools = opts.tools; payload.tool_choice = opts.toolChoice || 'auto'; }
       let res = await fetch(apiUrl(), { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
       // 请求被拒时按原因降级重发，最多两次：
       //  - 个别模型（如 Fable）强制思考、拒绝任何禁用尝试——完全不提 reasoning，按端点默认重发
@@ -3936,13 +3936,20 @@
     let rounds = 0, roundStart = 0;
     while (true) {
       myAbort = currentAbort = new AbortController();
-      const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid, extra), myAbort.signal, onReason, onContent, onServed, { ghostGuard: true, tools });
+      const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid, extra), myAbort.signal, onReason, onContent, onServed, { ghostGuard: true, tools, toolChoice: rounds >= MAX_TOOL_ROUNDS ? 'none' : 'auto' });
       if (res.usage) lastUsage = res.usage;
       if (res.toolsDropped) tools = null;   // 这个模型不吃工具，后面几轮别再带
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { stopTimer(); h.textEl.classList.remove('cursor'); h.textEl.classList.add('err'); h.textEl.textContent = `请求失败：${res.error}。检查 API Key、余额，或换个模型再试。`; break; }
       if (res.ended === 'done') {
-        if (res.toolCalls && res.toolCalls.length && rounds < MAX_TOOL_ROUNDS) {
+        // tool_calls 是正常的工具交接。达到本地上限后只让模型收尾，不把它当成上游终止。
+        if (rounds >= MAX_TOOL_ROUNDS && ((res.toolCalls && res.toolCalls.length) || res.finish === 'tool_calls')) {
+          const label = '本轮工具调用已达上限，可以发送新消息继续查看';
+          logTool(h, label); toolLog.push({ name: 'tool_limit', args: {}, result: label, label });
+          if (!contentText.trim()) contentText = label;
+          break;   // 即使上游忽略 tool_choice:none，也不执行额外调用或无限重试
+        }
+        if (res.toolCalls && res.toolCalls.length) {
           rounds++;
           const roundText = contentText.slice(roundStart);
           extra.push({ role: 'assistant', content: roundText || null, tool_calls: res.toolCalls.map(t => ({ id: t.id, type: 'function', function: { name: t.name, arguments: t.args || '{}' } })) });
@@ -3955,6 +3962,7 @@
           if (myAbort.signal.aborted || currentAbort !== myAbort) break;
           if (contentText && !/\n\n$/.test(contentText)) contentText += '\n\n';   // 工具前后的文字各成一段
           roundStart = contentText.length;
+          if (rounds === MAX_TOOL_ROUNDS) extra.push({ role: 'user', content: '本轮工具调用已达到上限。请根据已经返回的资料直接回答本轮用户的问题；明确说明尚未查看或尚未完成的部分，不要声称已经读完或完成。此条是程序的收尾提示，不是用户新增的要求，不要再请求工具。' });
           continue;
         }
         if (res.finish === 'length' && contentText) showBroken(h, () => continueGen(h, model), () => retryGen(h), '达到长度上限');
