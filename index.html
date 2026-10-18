@@ -2356,7 +2356,7 @@
   }
   // 生成途中换了块 / 切了角色，回复要写回它原来所属的块
   async function appendToChunk(sid, msg) { const x = sessions.find(y => y.id === sid); if (!x) return; const old = await loadChunk(sid); old.push(msg); await saveChunk(sid, old); x.count = old.length; x.updated = Date.now(); saveIndex(); }
-  async function updateLastInChunk(sid, content) { const x = sessions.find(y => y.id === sid); if (!x) return; const old = await loadChunk(sid); if (old.length && old[old.length - 1].role === 'assistant') { old[old.length - 1].content = content; await saveChunk(sid, old); } }
+  async function updateLastInChunk(sid, content, source) { const x = sessions.find(y => y.id === sid); if (!x) return; const old = await loadChunk(sid); if (old.length && old[old.length - 1].role === 'assistant') { old[old.length - 1].content = content; if (source) Object.assign(old[old.length - 1], source); await saveChunk(sid, old); } }
   // 当前块写满了：封块、开新块。界面上什么都不变，下一条消息落进新块
   function rolloverChunk() {
     const cid = activeCompanionId;
@@ -2894,7 +2894,7 @@
       if (m.ts) { const dk = dayKey(new Date(m.ts)); if (dk !== prevDay) { appendDaySep(m.ts, target); prevDay = dk; } }
       if (m.role === 'user' && m.council) addCouncilCard(m, target);
       else if (m.role === 'user') addUser(m.content, m.time, i, m.imgs, m.files, target, m.drawn);
-      else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true, m.reqModel, target, m.tools);
+      else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true, m.reqModel, target, m.tools, m.providerName);
       const last = target.lastElementChild; if (last) { last.dataset.midx = i; last.dataset.sid = sid; }
     }
     return prevDay;
@@ -2993,7 +2993,12 @@
     scrollToBottom();
   }
 
-  function addAi(content, thinking, thinkSec, model, time, done, reqModel, target, tools) {
+  function replyModelLabel(model, providerName) { return prettyName(model || selectedModel) + (providerName === undefined ? '' : ' · ' + (providerName || '供应商未知')); }
+  function setReplyProvider(h, model, providerName) {
+    const el = h && h.row && h.row.querySelector('.model');
+    if (el) { el.textContent = replyModelLabel(model, providerName); el.title = el.textContent; }
+  }
+  function addAi(content, thinking, thinkSec, model, time, done, reqModel, target, tools, providerName) {
     dropEmpty();
     const row = document.createElement('div');
     row.className = 'msg ai';
@@ -3002,7 +3007,7 @@
     const _ava = _c ? avaSpan('ava', _c.id, _c.name) : '<span class="dot"></span>';
     const _routed = reqModel ? `<span class="routed" title="${esc('请求 ' + reqModel + ' → 实际 ' + model)}">已路由</span>` : '';
     row.innerHTML = `
-      <div class="ai-eyebrow">${_ava}<span class="name">${esc(_c ? _c.name : label)}</span><span class="model">${esc(label)}</span>${_routed}<span class="t">${esc(time || '')}</span></div>
+      <div class="ai-eyebrow">${_ava}<span class="name">${esc(_c ? _c.name : label)}</span><span class="model" title="${esc(replyModelLabel(model, providerName))}">${esc(replyModelLabel(model, providerName))}</span>${_routed}<span class="t">${esc(time || '')}</span></div>
       <div class="think hidden open">
         <button class="think-head" type="button">
           <span class="spark"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.6L18 9l-4.4 1.4L12 15l-1.6-4.6L6 9l4.4-1.4z"/></svg></span>
@@ -3671,7 +3676,8 @@
   // onServed（可选）：第一次拿到响应里的 model 字段时回调一次，用于「请求 A 实际是 B」的路由检测
   // opts.ghostGuard：是否启用代笔拦截（只有正式聊天开，活动/评审等自由创作不开，免得误伤）
   async function streamCompletion(model, msgs, signal, onReason, onContent, onServed, opts) {
-    let gotContent = false, sawDone = false, usage = null, finish = null, served = null, toolsDropped = false;
+    let gotContent = false, sawDone = false, usage = null, finish = null, served = null, toolsDropped = false, generationId = '', providerName = '';
+    const isOR = provider === 'or';
     const toolCalls = [];   // 流里分片到达的 tool_calls，按 index 拼装：{id, name, args}
     const guard = (provider === 'cc' && opts && opts.ghostGuard) ? makeGhostGuard(onContent) : null;   // 代笔拦截：只在 CC 通道 + 正式聊天启用
     try {
@@ -3716,6 +3722,11 @@
           const d = s.slice(5).trim();
           if (d === '[DONE]') { sawDone = true; break; }
           let json; try { json = JSON.parse(d); } catch (e) { continue; }
+          if (isOR) {
+            if (typeof json.id === 'string' && /^gen-[0-9A-Za-z-]{1,124}$/.test(json.id)) generationId = json.id;
+            const p = cleanProviderName(json.provider) || cleanProviderName(json.provider_name);
+            if (p) providerName = p;
+          }
           // OpenRouter 每个分片都带 model = 实际服务的模型；与请求的不一致说明被路由/回退了
           if (!served && json.model) { served = json.model; if (onServed) onServed(served); }
           if (json.usage) usage = json.usage;
@@ -3746,12 +3757,32 @@
       }
       if (guard) { if (guard.cut) reader.cancel().catch(() => {}); else guard.flush(); }
       const calls = toolCalls.filter(Boolean).map((t, i) => ({ id: t.id || ('call_' + Date.now().toString(36) + i), name: t.name, args: t.args }));
-      return (sawDone || gotContent || calls.length) ? { ended: 'done', usage, finish, served, cut: !!(guard && guard.cut), toolCalls: calls, toolsDropped } : { ended: 'network', usage, served };
+      return (sawDone || gotContent || calls.length) ? { ended: 'done', usage, finish, served, cut: !!(guard && guard.cut), toolCalls: calls, toolsDropped, generationId, providerName } : { ended: 'network', usage, served, generationId, providerName };
     } catch (e) {
       if (guard) guard.flush();   // 中断/断流：把扣着的那点尾巴也交出去，别丢
-      if (e.name === 'AbortError') return { ended: 'aborted', usage, served };
-      return { ended: 'network', usage, served, error: e.message };
+      if (e.name === 'AbortError') return { ended: 'aborted', usage, served, generationId, providerName };
+      return { ended: 'network', usage, served, generationId, providerName, error: e.message };
     }
+  }
+
+  function cleanProviderName(value) { return typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120) : ''; }
+  // 只查询本条生成的用量元数据；不重发对话，不再次调用模型。最多等两秒，失败不影响正文。
+  async function lookupGenerationProvider(id, key, signal) {
+    if (!/^gen-[0-9A-Za-z-]{1,124}$/.test(id || '') || !key || (signal && signal.aborted)) return '';
+    const controller = new AbortController(), abort = () => controller.abort();
+    if (signal) signal.addEventListener('abort', abort, { once: true });
+    const timer = setTimeout(abort, 2000);
+    try {
+      for (let attempt = 0; attempt < 2 && !controller.signal.aborted; attempt++) {
+        const res = await fetch('https://openrouter.ai/api/v1/generation?id=' + encodeURIComponent(id), { method: 'GET', headers: { Authorization: 'Bearer ' + key }, credentials: 'omit', signal: controller.signal });
+        if (res.status === 404 && attempt === 0) { await new Promise(resolve => setTimeout(resolve, 250)); continue; }   // 元数据可能稍晚到
+        if (!res.ok) return '';
+        const data = await res.json();
+        return cleanProviderName(data && data.data && data.data.provider_name);
+      }
+    } catch (e) { /* 元数据不可用时保留正常回复，显示未知 */ }
+    finally { clearTimeout(timer); if (signal) signal.removeEventListener('abort', abort); }
+    return '';
   }
 
   /* ---------- 模型路由提醒 ---------- */
@@ -3920,6 +3951,7 @@
 
   async function generateAssistant() {
     const sid = currentId, model = selectedModel, msgsRef = messages;   // 快照，切走后不串台
+    const sourceIsOR = provider === 'or', sourceKey = sourceIsOR ? apiKey : '';
     setLoading(true);
     const h = addAi('', '', null, model, nowTime(), false);
     h.row.dataset.midx = msgsRef.length; h.row.dataset.sid = sid;
@@ -3934,7 +3966,7 @@
       contentText += c; scheduleRender(h, () => contentText);
     };
 
-    let attempt = 0, lastUsage = null, myAbort = null, servedModel = null;
+    let attempt = 0, lastUsage = null, myAbort = null, servedModel = null, generationId = '', providerName = '';
     const onServed = makeServedHandler(h, model, sm => { servedModel = sm; });
     // 工具往返：extra 是发给模型的往返消息（不进存储，每轮重建）；toolLog 存进消息供回看；roundStart 标记本轮正文起点
     let tools = (toolsActive() && modelSupportsTools(model)) ? activeToolDefs() : null;
@@ -3943,6 +3975,7 @@
     while (true) {
       myAbort = currentAbort = new AbortController();
       const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid, extra), myAbort.signal, onReason, onContent, onServed, { ghostGuard: true, tools, toolChoice: rounds >= MAX_TOOL_ROUNDS ? 'none' : 'auto' });
+      generationId = res.generationId || ''; providerName = res.providerName || '';   // 每次请求独立，不能沿用上一轮工具请求的供应商
       if (res.usage) lastUsage = res.usage;
       if (res.toolsDropped) tools = null;   // 这个模型不吃工具，后面几轮别再带
       if (res.ended === 'aborted') break;
@@ -3991,6 +4024,10 @@
     stopTimer();
     h.textEl.classList.remove('cursor');
     if (contentText) renderNow(h, contentText);
+    if (sourceIsOR) {
+      if (!providerName && generationId) providerName = await lookupGenerationProvider(generationId, sourceKey, myAbort && myAbort.signal);
+      setReplyProvider(h, servedModel || model, providerName);
+    }
     if (thinkStart != null && finalSec == null) { finalSec = ((firstContentAt || performance.now()) - thinkStart) / 1000; h.thinkLbl.textContent = `已思考 ${finalSec.toFixed(1)}s`; }
     if (currentAbort === myAbort) { setLoading(false); currentAbort = null; }   // 若已有新一轮生成，别覆盖它的状态
     if (lastUsage && sid === currentId) updateTokenBar(lastUsage);
@@ -4001,6 +4038,7 @@
       const routedTo = (servedModel && baseModelId(servedModel) !== baseModelId(model)) ? servedModel : null;
       const msg = { role: 'assistant', content: contentText, thinking: reasoningText || null, thinkSec: finalSec, model: routedTo || model, time: h.row.querySelector('.t').textContent, ts: Date.now() };
       if (routedTo) msg.reqModel = model;
+      if (sourceIsOR) { msg.providerName = providerName; if (generationId) msg.generationId = generationId; }
       if (toolLog.length) msg.tools = toolLog;
       if (sid === currentId) { messages.push(msg); saveCurrent(); }
       else if (sessions.find(s => s.id === sid)) appendToChunk(sid, msg).catch(() => {});   // 已切走 / 已换块也别丢；块已删除则不写回
@@ -4018,13 +4056,16 @@
     h.textEl.classList.add('cursor');
     let contentText = last.content || '';
     const sid = currentId, msgsRef = messages;   // 快照，切走后不串台
-    const onContent = c => { contentText += c; last.content = contentText; scheduleRender(h, () => contentText); };
+    const sourceIsOR = provider === 'or', sourceKey = sourceIsOR ? apiKey : '';
+    let continued = false, generationId = '', providerName = '', servedModel = null;
+    const onContent = c => { continued = true; contentText += c; last.content = contentText; scheduleRender(h, () => contentText); };
 
     let myAbort = null;
-    const onServed = makeServedHandler(h, model, null);
+    const onServed = makeServedHandler(h, model, sm => { servedModel = sm; });
     while (true) {
       myAbort = currentAbort = new AbortController();
       const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid), myAbort.signal, () => {}, onContent, onServed, { ghostGuard: true });
+      generationId = res.generationId || ''; providerName = res.providerName || '';
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { h.textEl.classList.remove('cursor'); showBroken(h, () => continueGen(h, model), () => retryGen(h), '请求失败'); break; }
       if (res.ended === 'done') {
@@ -4037,9 +4078,16 @@
     }
     h.textEl.classList.remove('cursor');
     renderNow(h, contentText);
+    if (continued) {
+      if (sourceIsOR && !providerName && generationId) providerName = await lookupGenerationProvider(generationId, sourceKey, myAbort && myAbort.signal);
+      last.providerName = sourceIsOR ? providerName : undefined;
+      last.generationId = sourceIsOR && generationId ? generationId : undefined;
+      if (servedModel) { last.model = servedModel; last.reqModel = baseModelId(servedModel) !== baseModelId(model) ? model : undefined; }
+      setReplyProvider(h, last.model || model, last.providerName);
+    }
     if (currentAbort === myAbort) { setLoading(false); currentAbort = null; }
     if (sid === currentId) { last.content = contentText; saveCurrent(); }
-    else if (sessions.find(s => s.id === sid)) updateLastInChunk(sid, contentText).catch(() => {});   // 续写途中被切走：写回原块，别丢
+    else if (sessions.find(s => s.id === sid)) updateLastInChunk(sid, contentText, continued ? { providerName: last.providerName, generationId: last.generationId, model: last.model, reqModel: last.reqModel } : null).catch(() => {});   // 续写途中被切走：写回原块，别丢
   }
 
   function retryGen(h) {
