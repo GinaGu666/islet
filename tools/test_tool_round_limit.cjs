@@ -17,7 +17,7 @@ async function scenario({ needed = max, ignoreNone = false, parallel = 1, abortA
   const h = { row: { dataset: {}, querySelector: () => ({ textContent: '10:32' }) }, textEl: element(), thinkEl: element(), thinkLbl: element(), thinkBody: element() };
   const context = vm.createContext({
     AbortController, TextDecoder, setInterval, clearInterval, performance,
-    provider: 'or', webOn: false, reasoningEnabled: false, currentAbort: null,
+    provider: 'or', apiKey: 'test-only', webOn: false, reasoningEnabled: false, currentAbort: null,
     currentId: 'sid', activeCompanionId: 'test', selectedModel: 'anthropic/claude-fable-5.1',
     messages: [{ role: 'user', content: 'Please inspect the branch code.' }], sessions: [{ id: 'sid' }], MAX_TOOL_ROUNDS: max,
     $: () => ({ focus: noOp }), nowTime: () => '10:32',
@@ -28,6 +28,7 @@ async function scenario({ needed = max, ignoreNone = false, parallel = 1, abortA
     buildApiMessages: async (messages, sid, extra) => [...messages, ...extra],
     makeServedHandler: (_, model, cb) => served => cb(served), baseModelId: x => x,
     scheduleRender: (h, text) => { h.textEl.textContent = text(); }, renderNow: (h, text) => { h.textEl.textContent = text; },
+    setReplyProvider: noOp,
     showBroken: (h, a, b, label) => broken.push(label), logTool: (h, label) => labels.push(label),
     saveCurrent: noOp, updateTokenBar: noOp,
     runTool: async (call, sid, h, signal) => {
