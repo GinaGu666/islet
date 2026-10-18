@@ -357,6 +357,7 @@
   /* 覆盖层 / 底部抽屉 */
   .overlay { position: fixed; inset: 0; z-index: 50; background: var(--scrim); backdrop-filter: blur(2px); display: flex; align-items: flex-end; opacity: 0; pointer-events: none; transition: opacity .2s; }
   .overlay.show { opacity: 1; pointer-events: auto; }
+  #card-edit-overlay { z-index: 55; }   /* 记忆编辑器浮在记忆面板之上，确认弹窗仍在最上层 */
   .sheet { width: 100%; background: var(--bg); border-radius: 22px 22px 0 0; padding: 8px 0 calc(16px + var(--safe-bottom)); max-height: 88dvh; display: flex; flex-direction: column; transform: translateY(100%); transition: transform .26s cubic-bezier(.22,.61,.36,1); box-shadow: 0 -8px 40px rgba(31,30,28,0.16); }
   .overlay.show .sheet { transform: translateY(0); }
   .grabber { width: 38px; height: 4px; border-radius: 2px; background: var(--line); margin: 8px auto 6px; flex-shrink: 0; }
@@ -938,6 +939,9 @@
     </div>
     <div class="form" style="padding-top:0">
       <textarea class="field" id="card-text" placeholder="一句话，像索引卡那样短…" spellcheck="false" style="min-height:90px"></textarea>
+      <label class="field-label" for="card-date" style="display:block;margin-top:10px">日期</label>
+      <input class="field" id="card-date" type="date" min="0001-01-01" max="9999-12-31">
+      <div class="mem-hint">记忆所对应的日期；留空则只保留记录时间。</div>
       <div class="field-label" style="margin-top:10px">分类<span style="text-transform:none;opacity:.6">（「约定」会常驻带进每次对话）</span></div>
       <div id="card-cat-tabs"></div>
       <button class="btn-primary" onclick="saveCardEdit()">保存</button>
@@ -3107,8 +3111,8 @@
   const TOOL_DEFS = [
     { type: 'function', function: { name: 'read_github', description: '只读公开 GitHub 仓库的代码、文档或目录，默认仓库 GinaGu666/islet。用户问小岛代码或要求查看 GitHub 文件时调用；不知道文件路径时先用空 path 列根目录。大文件可先用 query 定位关键词，再按行读取附近代码。长文件分段返回，按 next 参数继续；不得把未读部分说成已经读完。没有写入、提交或私有仓库权限。',
       parameters: { type: 'object', properties: { repository: { type: 'string', description: 'owner/repo，默认 GinaGu666/islet；不填网址' }, path: { type: 'string', description: '仓库内文件或目录路径，例如 index.html；空字符串列根目录' }, ref: { type: 'string', description: '可选分支、标签或提交 SHA；不填使用默认分支' }, query: { type: 'string', description: '可选：在文件内定位文字或函数名，不区分大小写、不是正则；返回行号和短摘要，再按行读完整代码' }, start_line: { type: 'integer', minimum: 1, description: '文件起始行（从 1 开始）；目录则为条目起点，默认 1' }, line_count: { type: 'integer', minimum: 1, maximum: 200, description: '最多读取的行或条目数，默认 120，最多 200；关键词定位最多 20 处' }, start_column: { type: 'integer', minimum: 1, description: '仅用于超长行的续读，从 1 开始；按 next 提示填写' } }, required: ['path'] } } },
-    { type: 'function', function: { name: 'remember', description: '把一条值得长期记住的信息存成记忆卡：用户的事实、偏好、发生的事、你们之间的约定。用户明确说「记住」时必须调用；聊到重要信息时也可以主动记。一次一条，一句话，像索引卡那样短。',
-      parameters: { type: 'object', properties: { text: { type: 'string', description: '要记住的内容，一句话' }, category: { type: 'string', enum: ['事实', '偏好', '事件', '约定'], description: '分类；约定只用于你们真正说好的事' } }, required: ['text'] } } },
+    { type: 'function', function: { name: 'remember', description: '把一条值得长期记住的信息存成记忆卡：用户的事实、偏好、发生的事、你们之间的约定。用户明确说「记住」时必须调用；聊到重要信息时也可以主动记。一次一条，一句话，像索引卡那样短。可以用 date 指定记忆对应的日期；用户明确给出日期时保留，不确定就省略，不要猜。',
+      parameters: { type: 'object', properties: { text: { type: 'string', description: '要记住的内容，一句话' }, category: { type: 'string', enum: ['事实', '偏好', '事件', '约定'], description: '分类；约定只用于你们真正说好的事' }, date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: '可选，记忆对应的日期 YYYY-MM-DD，例如 2026-05-01；不确定具体日期就省略，只保留记录时间' } }, required: ['text'] } } },
     { type: 'function', function: { name: 'recall', description: '在你们的记忆卡里查找。用户问「你还记得…」、提到过去的人和事、或你不确定是否聊过某件事时调用。query 留空则返回最近的记忆。',
       parameters: { type: 'object', properties: { query: { type: 'string', description: '关键词或一句话' } } } } },
     { type: 'function', function: { name: 'search_history', description: '在你们过去的所有对话记录里按关键词搜索原文，返回出处和片段。用户问「我们上次 / 之前聊过…」「我什么时候说过…」时调用。',
@@ -3230,10 +3234,12 @@
           const text = String(args.text || '').trim();
           if (!text) { result = '没有要记的内容'; break; }
           const cat = MEM_CATS.includes(args.category) ? args.category : '';
-          const ok = addMemCard(c, text, undefined, cat);
+          const date = normMemoryDate(args.date);
+          if (args.date != null && args.date !== '' && !date) { result = '日期无效，请使用真实存在的 YYYY-MM-DD 日期；没有保存记忆'; break; }
+          const ok = addMemCard(c, text, undefined, cat, date);
           if (ok) { saveCompanions(); if ($('memory-overlay').classList.contains('show') && editingCompanionId === c.id) renderMemCards(); }
-          result = ok ? '已记下' + (cat ? '（' + cat + '）' : '') + '：' + text : '已经有一条很相近的记忆，没有重复记：' + text;
-          label = (ok ? '记下了：' : '早就记得：') + text;
+          result = ok ? '已记下' + (cat ? '（' + cat + '）' : '') + (date ? '（日期：' + date + '）' : '') + '：' + text : '已经有一条很相近的记忆，没有重复记；如需补日期，请编辑原记忆：' + text;
+          label = (ok ? '记下了' + (date ? '（' + date + '）' : '') + '：' : '早就记得：') + text;
           break;
         }
         case 'update_about': {
@@ -3271,7 +3277,7 @@
           if (!picked.length) result = '没有和「' + q + '」相关的记忆（共 ' + arr.length + ' 条）';
           else {
             picked.forEach(k => { k.u = Date.now(); k.n = (k.n || 0) + 1; }); saveCompanions();
-            result = picked.map(k => '- ' + (k.c ? '[' + k.c + '] ' : '') + k.t + '（' + fmtYM(k.d) + '）').join('\n');
+            result = picked.map(k => '- ' + (k.c ? '[' + k.c + '] ' : '') + k.t + '（' + memoryDateInfo(k) + '）').join('\n');
           }
           label = q ? '翻了翻关于「' + q + '」的记忆' : '翻了翻记忆';
           break;
@@ -4136,6 +4142,13 @@
   const EPI_MAX = 300;             // 大事记条数上限
   const MEM_CATS = ['事实', '偏好', '事件', '约定'];   // 分类；约定类保证常驻注入
   function memCardsOf(c) { if (!Array.isArray(c.cards)) c.cards = []; return c.cards; }
+  // 记忆对应日期独立于原有 d（记录时间），按日保存字符串，避免跨时区偏移。
+  function normMemoryDate(value) {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith('0000')) return '';
+    const d = new Date(value + 'T00:00:00Z');
+    return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === value ? value : '';
+  }
+  function memoryDateInfo(k) { const date = normMemoryDate(k.date); return date ? '日期：' + date : fmtYM(k.d); }
   function normMem(s) { return String(s || '').toLowerCase().replace(/[\s，。！？!?.、,'"“”「」『』（）()\-—·…:：;；~～]/g, ''); }
   function memDup(c, text) {
     const n = normMem(text); if (!n) return true;
@@ -4145,12 +4158,14 @@
     const m = String(text || '').match(/^([\s\S]*?)\s*[\[【](事实|偏好|事件|约定)[\]】]\s*$/);
     return m ? { t: m[1].trim(), c: m[2] } : { t: String(text || '').trim(), c: '' };
   }
-  function addMemCard(c, text, dedupe, cat) {
+  function addMemCard(c, text, dedupe, cat, date) {
     const st = splitCatTag(text);
     const t = st.t.slice(0, 500);
     if (!t) return false;
     if (dedupe !== false && memDup(c, t)) return false;
-    memCardsOf(c).unshift({ id: genId(), t, d: Date.now(), p: 0, c: cat || st.c || '' });
+    const memoryDate = normMemoryDate(date);
+    if (date && !memoryDate) throw new Error('记忆日期无效，请使用 YYYY-MM-DD');
+    memCardsOf(c).unshift({ id: genId(), t, d: Date.now(), p: 0, c: cat || st.c || '', ...(memoryDate ? { date: memoryDate } : {}) });
     trimMemCards(c); c.memUpdated = Date.now();
     return true;
   }
@@ -4171,7 +4186,8 @@
     const rest = arr.filter(k => !k.p && k.c !== '约定');
     const ids = new Set(); const out = []; let used = 0;
     for (const k of pin.concat(vow, rest)) {
-      const line = '- ' + (k.c === '约定' ? '【约定】' : '') + k.t;
+      const date = normMemoryDate(k.date);
+      const line = '- ' + (k.c === '约定' ? '【约定】' : '') + (date ? '【日期：' + date + '】' : '') + k.t;
       if (out.length && used + line.length > MEM_CORE_BUDGET) continue;
       out.push(line); used += line.length + 1; ids.add(k.id);
     }
@@ -4210,7 +4226,8 @@
   }
   function cardTokens(k) {
     let e = _bgCache.get(k.id);
-    if (!e || e.t !== k.t) { e = { t: k.t, set: memTokens(k.t) }; _bgCache.set(k.id, e); }
+    const text = k.t + ' ' + normMemoryDate(k.date);
+    if (!e || e.t !== text) { e = { t: text, set: memTokens(text) }; _bgCache.set(k.id, e); }
     return e.set;
   }
   let _dfCache = { key: '', df: null };
@@ -4251,7 +4268,7 @@
     const out = []; let used = 0;
     for (const it of scored) {
       if (out.length >= MEM_RECALL_MAX) break;
-      const line = '- ' + it.k.t + '（' + fmtYM(it.k.d) + '）';
+      const line = '- ' + it.k.t + '（' + memoryDateInfo(it.k) + '）';
       if (out.length && used + line.length > MEM_RECALL_BUDGET) continue;
       out.push(line); used += line.length + 1;
       it.k.u = Date.now(); it.k.n = (it.k.n || 0) + 1;            // 真被送进上下文才算「想起一次」
@@ -4298,7 +4315,7 @@
       const arr = cards.filter(k => (MEM_CATS.includes(k.c) ? k.c : '') === cat).sort((a, b) => (b.p ? 1 : 0) - (a.p ? 1 : 0) || b.d - a.d);
       if (!arr.length) return;
       L.push('### ' + (cat || '未分类') + '（' + arr.length + '）', '');
-      arr.forEach(k => L.push('- ' + (k.p ? '📌 ' : '') + one(k.t) + '（' + day(k.d) + '）'));
+      arr.forEach(k => L.push('- ' + (k.p ? '📌 ' : '') + one(k.t) + '（' + (normMemoryDate(k.date) ? '日期 ' + k.date + '；记录于 ' : '') + day(k.d) + '）'));
       L.push('');
     });
     L.push('## 大事记', '');
@@ -4348,6 +4365,7 @@
     const c = editingCompanion();
     const k = id ? memCardsOf(c).find(x => x.id === id) : null;
     $('card-text').value = k ? k.t : '';
+    $('card-date').value = k ? normMemoryDate(k.date) : dayKey();
     cardEditCat = (k && k.c) || '';
     renderCardCatTabs();
     show('card-edit-overlay');
@@ -4357,8 +4375,10 @@
     const c = editingCompanion();
     const text = $('card-text').value.trim().slice(0, 500);
     if (!text) { $('card-text').focus(); return; }
-    if (cardEditId) { const k = memCardsOf(c).find(x => x.id === cardEditId); if (k) { k.t = text; k.c = cardEditCat; c.memUpdated = Date.now(); } }
-    else if (!addMemCard(c, text, undefined, cardEditCat)) { toast('已经有一条很相近的记忆啦'); return; }
+    const rawDate = $('card-date').value, date = normMemoryDate(rawDate);
+    if (!$('card-date').checkValidity() || (rawDate && !date)) { toast('请填写有效日期'); $('card-date').focus(); return; }
+    if (cardEditId) { const k = memCardsOf(c).find(x => x.id === cardEditId); if (k) { k.t = text; k.c = cardEditCat; if (date) k.date = date; else delete k.date; c.memUpdated = Date.now(); } }
+    else if (!addMemCard(c, text, undefined, cardEditCat, date)) { toast('已经有一条很相近的记忆啦'); return; }
     saveCompanions(); renderMemCards(); closeCardEdit();
   }
   async function deleteCardFromEdit() {
@@ -4396,14 +4416,14 @@
     if (memFilter === 'pin') arr = arr.filter(k => k.p);
     else if (memFilter === '未') arr = arr.filter(k => !k.c);
     else if (memFilter) arr = arr.filter(k => k.c === memFilter);
-    if (q) arr = arr.filter(k => normMem(k.t).includes(q));
+    if (q) arr = arr.filter(k => normMem(k.t + ' ' + normMemoryDate(k.date)).includes(q));
     const ordered = arr.filter(k => k.p).concat(arr.filter(k => !k.p));
     wrap.innerHTML = ordered.length ? ordered.map(k => `
       <div class="mcard ${k.p ? 'pinned' : ''}">
         <button class="mcard-pin" type="button" onclick="togglePinCard('${k.id}')" aria-label="置顶"><svg viewBox="0 0 24 24" width="15" height="15" fill="${k.p ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.2 4.1 1 5.8L12 16.4 6.7 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg></button>
         <div class="mcard-body" onclick="openCardEdit('${k.id}')">
           <div class="mcard-text">${esc(k.t)}</div>
-          <div class="mcard-date">${k.p ? '📌 ' : ''}${k.c ? '<span class="mem-chip">' + k.c + '</span> ' : ''}${fmtWhen(k.d)}${k.n ? ' · 想起 ' + k.n + ' 次' : ''}</div>
+          <div class="mcard-date">${k.p ? '📌 ' : ''}${k.c ? '<span class="mem-chip">' + k.c + '</span> ' : ''}${normMemoryDate(k.date) || fmtWhen(k.d)}${k.n ? ' · 想起 ' + k.n + ' 次' : ''}</div>
         </div>
         <button class="mcard-del" type="button" onclick="deleteCardRow('${k.id}')" aria-label="删除">×</button>
       </div>`).join('') : '<div class="mcard-empty">' + (q || memFilter ? '没有匹配的记忆' : '还没有记忆卡片<br>聊过之后点下面「提炼」，或手动记一条') + '</div>';
@@ -4500,7 +4520,7 @@
     if (!providerReady()) { $('distill-status').textContent = '请先在设置里配置接口来源'; return; }
     const btn = $('tidy-btn'); btn.disabled = true;
     $('distill-status').textContent = '正在盘点记忆…';
-    const list = pool.map((k, i) => (i + 1) + '. ' + (k.c ? '[' + k.c + '] ' : '') + k.t + '（' + fmtYM(k.d) + '）').join('\n');
+    const list = pool.map((k, i) => (i + 1) + '. ' + (k.c ? '[' + k.c + '] ' : '') + k.t + '（' + memoryDateInfo(k) + '）').join('\n');
     const sys = "You are the curator of an AI companion's memory cards. Cards are numbered, NEWEST FIRST (lower number = newer). Propose ONLY clear, safe maintenance actions, one per line:\n- M: merge cards that say the same thing in different words. Format: 'M: 3,7 => merged one-line text [分类]'\n- D: drop a card that is clearly outdated (contradicted by a NEWER card) or clearly worthless. Format: 'D: 12 = short reason'. Prefer M over D; never drop unique facts.\n- T: add a category to an untagged card. Format: 'T: 5 = 分类'. Category is exactly one of 事实 / 偏好 / 事件 / 约定 (约定 = promises or plans made between the two of them).\nAt most 15 lines. If nothing needs doing, output exactly NONE. No commentary, no numbering, no code fences. Merged text stays in the cards' language, terse like an index card.";
     const user = 'MEMORY CARDS (newest first):\n' + list + '\n\nOutput actions now.';
     try {
@@ -4521,6 +4541,7 @@
       if ((m = l.match(/^M\s*[:：]\s*([\d\s,，]+)=>\s*(.+)$/i))) {
         const idx = m[1].split(/[,，\s]+/).filter(Boolean).map(n => +n - 1).filter(i => pool[i] && !used.has(i));
         if (idx.length < 2) return;
+        if (new Set(idx.map(i => normMemoryDate(pool[i].date)).filter(Boolean)).size > 1) return;   // 不合并对应不同日期的记忆
         const st = splitCatTag(m[2]); if (!st.t) return;
         idx.forEach(i => used.add(i));
         items.push({ kind: 'M', ids: idx.map(i => pool[i].id), olds: idx.map(i => pool[i].t), text: st.t.slice(0, 500), cat: st.c, on: true });
@@ -4564,10 +4585,12 @@
       else if (it.kind === 'M') {
         const ks = it.ids.map(byId).filter(i => i >= 0).sort((a, b) => a - b);
         if (!ks.length) continue;
+        const dates = [...new Set(ks.map(i => normMemoryDate(arr[i].date)).filter(Boolean))];
+        if (dates.length > 1) continue;   // 预案生成后日期被修改时也保护原卡
         const dMin = Math.min.apply(null, ks.map(i => arr[i].d));   // 保留最早"学到"的时间
         const pos = ks[0];                                           // 落在最新那张的位置
         for (let j = ks.length - 1; j >= 0; j--) arr.splice(ks[j], 1);
-        arr.splice(pos, 0, { id: genId(), t: it.text, d: dMin, p: 0, c: it.cat || '' });
+        arr.splice(pos, 0, { id: genId(), t: it.text, d: dMin, p: 0, c: it.cat || '', ...(dates.length ? { date: dates[0] } : {}) });
         n++;
       }
     }
@@ -4800,7 +4823,7 @@
     const all = ciAllMsgs();
     const ch = ciData.character || {};
     // 文件自带的记忆卡（电脑上先提炼过的）与大事记（摘要、小结）
-    (ch.cards || []).forEach(k => { if (!k || !k.t) return; const st = splitCatTag(k.t); const t = st.t.slice(0, 500); const cat = MEM_CATS.includes(k.c) ? k.c : st.c; if (t && !memDup(c, t)) c.cards.push({ id: genId(), t, d: +k.d || Date.now(), p: 0, c: cat || '' }); });
+    (ch.cards || []).forEach(k => { if (!k || !k.t) return; const st = splitCatTag(k.t); const t = st.t.slice(0, 500); const cat = MEM_CATS.includes(k.c) ? k.c : st.c; const date = normMemoryDate(k.date); if (t && !memDup(c, t)) c.cards.push({ id: genId(), t, d: +k.d || Date.now(), p: 0, c: cat || '', ...(date ? { date } : {}) }); });
     c.cards.sort((a, b) => b.d - a.d); trimMemCards(c);
     [].concat(ch.summaries || [], ch.epis || []).forEach(e => { const t = e && (e.text || e.t); if (t) c.epis.push({ id: genId(), sid: '', d: +(e.date || e.d) || Date.now(), t: String(t).slice(0, 600) }); });
     c.epis.sort((a, b) => b.d - a.d); if (c.epis.length > EPI_MAX) c.epis.length = EPI_MAX;
