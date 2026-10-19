@@ -34,38 +34,37 @@ async function app(responses=[],metadata=()=>({provider_name:'Google Vertex'}),s
   const direct=await app([{provider:'Anthropic'}]);await direct.run('generateAssistant()');
   assert.equal(direct.lookups.length,0);assert.equal(direct.run('messages.at(-1).providerName'),'Anthropic');
   assert.equal(direct.run('messages.at(-1).generationId'),'gen-test');
-  assert(direct.w.document.querySelector('.model').textContent.endsWith(' · Anthropic'));
+  assert(!direct.w.document.querySelector('.model').textContent.includes('Anthropic'));
   const reload=await app([],undefined,direct.storage());
-  assert(reload.w.document.querySelector('.model').textContent.endsWith(' · Anthropic'));
+  assert(!reload.w.document.querySelector('.model').textContent.includes('Anthropic'));
   await direct.run('exportBackup()');assert.equal(JSON.parse(direct.w.download.content).sessionMsgs.tail.at(-1).providerName,'Anthropic');
 
   // Each tool request is independent: use the final response's provider, never the earlier tool round.
   const fallback=await app([{id:'gen-tool',provider:'Anthropic',tool:true},{id:'gen-final'}]);await fallback.run('generateAssistant()');
-  assert.equal(fallback.lookups.length,1);assert(fallback.lookups[0].url.endsWith('id=gen-final'));
-  assert.deepEqual(plain(fallback.lookups[0].opts.headers),{Authorization:'Bearer test-only-key'});
-  assert.equal(fallback.run('messages.at(-1).providerName'),'Google Vertex');
+  assert.equal(fallback.lookups.length,0, 'no metadata lookup needed when suppliers are hidden');
+  assert.equal(fallback.run('messages.at(-1).providerName'),'');
   assert(!JSON.stringify(fallback.run('messages.at(-1)')).includes('test-only-key'));
   assert.equal(fallback.requests.length,2,'metadata lookup never invokes the model');
 
   const missing=await app([{}],()=>new Response('{}',{status:403}));await missing.run('generateAssistant()');
   assert.equal(missing.run('messages.at(-1).content'),'Hello');assert.equal(missing.run('messages.at(-1).providerName'),'');
-  assert(missing.w.document.querySelector('.model').textContent.includes('供应商未知'));
+  assert(!missing.w.document.querySelector('.model').textContent.includes('供应商未知'));
   assert.equal(missing.run('isLoading'),false);
   const delayed=await app([{}],n=>n===1?new Response('{}',{status:404}):({provider_name:'Amazon Bedrock'}));await delayed.run('generateAssistant()');
-  assert.equal(delayed.lookups.length,2);assert.equal(delayed.run('messages.at(-1).providerName'),'Amazon Bedrock');
+  assert.equal(delayed.lookups.length,0);assert.equal(delayed.run('messages.at(-1).providerName'),'');
 
   const invalid=await app([{id:'not-a-generation',provider:{order:['Anthropic']}}]);await invalid.run('generateAssistant()');
   assert.equal(invalid.lookups.length,0);assert.equal(invalid.run('messages.at(-1).providerName'),'');
   const escaped=await app([{provider:'<img src=x onerror=alert(1)>'}]);await escaped.run('generateAssistant()');escaped.run('renderAll()');
   assert.equal(escaped.w.document.querySelectorAll('.model img').length,0);
-  assert(escaped.w.document.querySelector('.model').textContent.includes('<img'));
+  assert(!escaped.w.document.querySelector('.model').textContent.includes('<img'));
 
   const continuation=await app([{id:'gen-first',provider:'Anthropic',content:'Part one ',finish:'length'},{id:'gen-cont',provider:'Google Vertex',content:'part two'}]);
   await continuation.run('generateAssistant()');await continuation.run(`continueGen(testHandle,selectedModel)`);
   assert(continuation.run('messages.at(-1).content').includes('part two'));
   assert.equal(continuation.run('messages.at(-1).providerName'),'Google Vertex');
   assert.equal(continuation.run('messages.at(-1).generationId'),'gen-cont');
-  assert(continuation.w.document.querySelector('.model').textContent.includes('Google Vertex'));
+  assert(!continuation.w.document.querySelector('.model').textContent.includes('Google Vertex'));
 
   // No supplier inference for custom endpoints or old history without recorded provider metadata.
   const custom=await app([{provider:'Anthropic'}]);custom.run(`provider='cc'; ccBase='https://mock.test';`);
@@ -73,12 +72,6 @@ async function app(responses=[],metadata=()=>({provider_name:'Google Vertex'}),s
   await custom.run('generateAssistant()');assert(!('providerName'in plain(custom.run('messages.at(-1)'))));
   assert(!custom.w.document.querySelector('.model').textContent.includes(' · '));
 
-  // Timeout and cancellation return an empty metadata result and keep the normal reply usable.
-  direct.w.fetch=(_,opts)=>new Promise((resolve,reject)=>{const abort=()=>reject(new Error('aborted'));if(opts.signal.aborted)abort();else opts.signal.addEventListener('abort',abort,{once:true});});
-  const controller=new direct.w.AbortController();direct.w.qaSignal=controller.signal;
-  const pending=direct.run(`lookupGenerationProvider('gen-cancel','test-only-key',qaSignal)`);controller.abort();assert.equal(await pending,'');
-  const originalTimer=direct.w.setTimeout;direct.w.setTimeout=(fn,ms)=>originalTimer(fn,ms===2000?1:ms);
-  assert.equal(await direct.run(`lookupGenerationProvider('gen-timeout','test-only-key')`),'');
   for(const a of [direct,reload,fallback,missing,delayed,invalid,escaped,continuation,custom])assert.deepEqual(a.errors,[]);
-  console.log('PASS: streamed/fallback providers, final tool-round attribution, metadata-only requests, unknown/error/404/timeout/cancel behavior, safe labels, history/backup, continuation and custom endpoint compatibility.');
+  console.log('PASS: passive provider metadata, no supplier labels or metadata lookups, final-round attribution, safe history/backup, continuation and custom endpoint compatibility.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>contexts.forEach(d=>d.window.close()));
