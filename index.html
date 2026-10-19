@@ -785,9 +785,9 @@
       </div>
       <input type="file" id="archive-file" accept=".json,application/json" style="display:none" onchange="importArchive(this)">
       <div class="comp-tabs" style="padding:6px 0 0">
-        <button type="button" class="comp-tab" onclick="document.getElementById('charimport-file').click()">导入角色（从 Claude.ai 等搬来）</button>
+        <button type="button" class="comp-tab" onclick="document.getElementById('charimport-file').click()">导入角色 / 聊天（Claude、ChatGPT）</button>
       </div>
-      <input type="file" id="charimport-file" accept=".json,application/json" style="display:none" onchange="importCharacterFile(this)">
+      <input type="file" id="charimport-file" accept=".json,application/json" multiple style="display:none" onchange="importCharacterFile(this)">
       <div class="comp-tabs" style="padding:6px 0 0">
         <button type="button" class="comp-tab" onclick="document.getElementById('extras-file').click()">补导名场面·打卡·活动</button>
       </div>
@@ -1050,16 +1050,32 @@
     </div>
   </div>
 </div>
-<!-- 导入角色（tools/split_claude_export.py 生成的 islet-import 文件） -->
+<!-- GPT 原始导出：先选择窗口，再进入统一角色导入 -->
+<div class="overlay" id="gpt-import-overlay">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="sheet-head"><div class="sheet-title">选择 GPT 聊天窗口</div><button class="sheet-x" onclick="closeCharacterImport()">×</button></div>
+    <div class="form">
+      <div class="mem-hint">选择解压后的 conversations.json，也支持同时选择多个编号 JSON 文件。只取当前选中的对话路线，合成一条河。图片、语音、附件不搬实体；这里只读取本机文件。</div>
+      <input class="search-box" id="gpt-import-search" placeholder="搜索聊天标题…" oninput="renderGptImports()">
+      <div style="display:flex;gap:8px;margin:10px 0"><button type="button" class="comp-tab" onclick="selectGptImports(true)">全选</button><button type="button" class="comp-tab" onclick="selectGptImports(false)">清空</button></div>
+      <div class="mem-hint" id="gpt-import-count" role="status"></div>
+      <div id="gpt-import-list"></div>
+      <button class="btn-primary" type="button" onclick="prepareGptImport()">下一步</button>
+    </div>
+  </div>
+</div>
+<!-- 导入角色：islet-import 文件 / 已转换的 GPT 记录 -->
 <div class="overlay" id="charimport-overlay">
   <div class="sheet">
     <div class="grabber"></div>
     <div class="sheet-head">
       <div class="sheet-title">导入角色</div>
-      <button class="sheet-x" onclick="hide('charimport-overlay')">×</button>
+      <button class="sheet-x" onclick="closeCharacterImport()">×</button>
     </div>
     <div class="form" style="padding-top:0">
       <div class="mem-hint" id="ci-info" style="margin:0 0 4px"></div>
+      <button type="button" class="comp-tab" id="ci-reselect" style="display:none" onclick="showGptImports()">重新选择 GPT 窗口</button>
       <div class="field-label">导入到</div>
       <select class="field" id="ci-target" onchange="ciToggleTarget()"><option value="">新建角色</option></select>
       <div id="ci-new-fields">
@@ -1071,7 +1087,7 @@
         <input class="field" id="ci-rel" spellcheck="false">
       </div>
       <div class="mem-hint" style="margin-top:12px">全部原文都会接成 TA 的一条对话，往上划能一直看到第一天；导入后在记忆面板里分批提炼成记忆卡和大事记。</div>
-      <button class="btn-primary" onclick="runCharacterImport()">导入</button>
+      <button class="btn-primary" id="ci-run" onclick="runCharacterImport()">导入</button>
     </div>
   </div>
 </div>
@@ -4863,33 +4879,116 @@
     }
   }
 
-  /* ---------- 导入角色：从 Claude.ai 等搬一个已有角色进来 ----------
-   * 输入是 tools/split_claude_export.py 生成的 islet-import 文件。两步走，都在手机上：
-   *  1. 导入：建角色；最近 N 条原文按 600 条一段进普通会话（受 localStorage 限制）；全部原文另存 IndexedDB（不受限）
-   *  2. 分批提炼：记忆面板里按段跑，每段约两万字一次请求，提炼成记忆卡和大事记；进度存在角色对象里，随时停、随时续 */
+  /* ---------- 导入角色：GPT 原始 JSON / Claude 转换后的 islet-import ----------
+   * GPT 从 current_node 沿 parent 回溯，只保留选中的路线。导入仅本机处理；历史提炼由用户另行启动。
+   * 原文、聊天块先写入读回验证，再提交角色与索引；失败只清理本次新副本。 */
   const HIST_CHUNK = 20000;   // 每段字数
-  let ciData = null;
-  function importCharacterFile(inp) {
-    const file = inp.files && inp.files[0]; inp.value = '';
-    if (!file) return;
-    const r = new FileReader();
-    r.onload = () => {
-      let d; try { d = JSON.parse(r.result); } catch (e) { toast('文件无法解析'); return; }
-      if (!d || d.app !== 'islet-import' || !Array.isArray(d.conversations)) { toast('这不是 islet 的角色导入文件（需由 split_claude_export.py 生成）'); return; }
-      ciData = d;
+  let ciData = null, ciGptEntries = [], ciBusy = false, ciReadEpoch = 0;
+  function closeCharacterImport() { if (ciBusy) return; ciReadEpoch++; ciData = null; ciGptEntries = []; hide('charimport-overlay'); hide('gpt-import-overlay'); }
+  function importTimestamp(value) {
+    if (value == null || value === '') return 0;
+    const n = Number(value), ts = Number.isFinite(n) ? (n < 1e11 ? n * 1000 : n) : Date.parse(value);
+    return Number.isFinite(ts) && ts > 0 && ts <= 8640000000000000 ? Math.round(ts) : 0;
+  }
+  function gptConversation(c) {
+    const map = c.mapping;
+    if (!map || typeof map !== 'object' || Array.isArray(map)) throw new Error('缺少消息树');
+    const keys = Object.keys(map), parents = new Set(keys.map(k => map[k] && map[k].parent).filter(Boolean));
+    let id = c.current_node;
+    if (id == null || id === '') {
+      const leaves = keys.filter(k => !parents.has(k));
+      if (leaves.length !== 1) throw new Error('缺少当前路线标识，不能确定哪个版本被选中');
+      id = leaves[0];
+    }
+    const chain = [], seen = new Set();
+    while (id != null && id !== '') {
+      if (seen.has(id)) throw new Error('消息树存在循环');
+      if (!Object.prototype.hasOwnProperty.call(map, id) || !map[id]) throw new Error('消息树不完整，缺少父消息');
+      seen.add(id); chain.push([id, map[id]]); id = map[id].parent;
+    }
+    const messages = []; let omitted = 0, previous = importTimestamp(c.create_time);
+    for (const [key, node] of chain.reverse()) {
+      const m = node.message, role = m && m.author && m.author.role;
+      if (!m || !['user', 'assistant'].includes(role) || (m.metadata && m.metadata.is_visually_hidden_from_conversation) || m.channel === 'analysis' || (m.metadata && m.metadata.channel === 'analysis') || (role === 'assistant' && m.recipient && m.recipient !== 'all')) continue;
+      const content = m.content || {}, type = content.content_type;
+      if (['thoughts', 'reasoning', 'reasoning_recap', 'user_editable_context', 'model_editable_context'].includes(type)) continue;
+      const parts = []; let media = false;
+      if (Array.isArray(content.parts)) for (const p of content.parts) {
+        if (typeof p === 'string') parts.push(p);
+        else if (p && ['text', 'audio_transcription', 'transcription', 'audio_text'].includes(p.content_type || p.type) && typeof p.text === 'string') parts.push(p.text);
+        else media = true;
+      }
+      else if (typeof content.text === 'string') parts.push(content.text);
+      else if (typeof m.content === 'string') parts.push(m.content);
+      else if (type) media = true;
+      if (m.metadata && Array.isArray(m.metadata.attachments) && m.metadata.attachments.length) media = true;
+      if (media) { omitted++; parts.push('【原消息包含图片、语音、附件或其他非文字内容，此处仅保留文字及占位说明】'); }
+      const text = parts.join('\n'); if (!text.trim()) continue;
+      const ts = importTimestamp(m.create_time) || previous; previous = ts;
+      messages.push({ role, content: text, ts, importKey: 'chatgpt:' + String(c.id || c.conversation_id || '') + ':' + String(m.id || key) });
+    }
+    if (!messages.length) throw new Error('当前路线没有可导入的文字或占位消息');
+    return { title: String(c.title || '未命名对话'), messages, omitted };
+  }
+  function readImportJson(file) { return new Promise((resolve, reject) => { const r = new FileReader(); r.onerror = () => reject(new Error('文件读取失败：' + file.name)); r.onload = () => { try { resolve(JSON.parse(String(r.result).replace(/^\uFEFF/, ''))); } catch (e) { reject(new Error('不是有效 JSON：' + file.name + '。ZIP 请先解压。')); } }; r.readAsText(file); }); }
+  async function importCharacterFile(inp) {
+    const files = Array.from(inp.files || []); inp.value = '';
+    if (!files.length || ciBusy) return;
+    closeCharacterImport(); const epoch = ciReadEpoch;
+    try {
+      const docs = []; for (const file of files) docs.push(await readImportJson(file));
+      if (epoch !== ciReadEpoch) return;
+      if (docs.length === 1 && docs[0] && docs[0].app === 'islet-import' && Array.isArray(docs[0].conversations)) { ciData = docs[0]; showCharacterImport(); return; }
+      const unique = new Map();
+      for (const d of docs) {
+        const list = Array.isArray(d) ? d : d && Array.isArray(d.conversations) ? d.conversations : d && d.mapping ? [d] : null;
+        if (!list || !list.length || list.some(c => !c || !c.mapping || typeof c.mapping !== 'object' || Array.isArray(c.mapping))) throw new Error('请选择 GPT 导出的聊天 JSON，或单个 islet-import 文件。');
+        for (const c of list) {
+          const key = c.id || c.conversation_id || c;
+          const old = unique.get(key);
+          if (!old || importTimestamp(c.update_time) >= importTimestamp(old.update_time)) unique.set(key, c);
+        }
+      }
+      ciGptEntries = [...unique.values()].map(c => ({ raw: c, title: String(c.title || '未命名对话'), selected: false }));
+      if (ciGptEntries.length === 1) ciGptEntries[0].selected = true;
+      showGptImports();
+    } catch (e) { if (epoch === ciReadEpoch) toast(e.message || String(e), 6000); }
+  }
+  function showGptImports() { if (ciBusy) return; hide('setup-overlay'); hide('charimport-overlay'); $('gpt-import-search').value = ''; renderGptImports(); show('gpt-import-overlay'); }
+  function renderGptImports() {
+    const q = $('gpt-import-search').value.trim().toLowerCase();
+    const shown = ciGptEntries.map((e, i) => ({ e, i })).filter(({ e }) => e.title.toLowerCase().includes(q));
+    $('gpt-import-count').textContent = `共 ${ciGptEntries.length} 个窗口 · 已选 ${ciGptEntries.filter(e => e.selected).length} 个` + (shown.length > 200 ? ' · 仅显示前 200 个，请搜索标题筛选' : '');
+    $('gpt-import-list').innerHTML = shown.slice(0, 200).map(({ e, i }) => `<label class="toggle-row" style="margin-top:6px;gap:12px"><span style="min-width:0;overflow-wrap:anywhere">${esc(e.title)}<span class="route-note" style="display:block">${importTimestamp(e.raw.create_time) ? esc(fmtEpiDay(importTimestamp(e.raw.create_time))) : '日期未知'}</span></span><input type="checkbox" aria-label="${esc(e.title)}" ${e.selected ? 'checked' : ''} onchange="ciGptEntries[${i}].selected=this.checked;renderGptImports()"></label>`).join('') || '<div class="mem-hint">没有匹配的窗口</div>';
+  }
+  function selectGptImports(value) { ciGptEntries.forEach(e => e.selected = value); renderGptImports(); }
+  function prepareGptImport() {
+    const selected = ciGptEntries.filter(e => e.selected);
+    if (!selected.length) { toast('请先选择要搬的聊天窗口'); return; }
+    try {
+      const conversations = selected.map(e => { try { return gptConversation(e.raw); } catch (err) { throw new Error('「' + e.title + '」：' + err.message + '。请取消该窗口后重试。'); } });
+      ciData = { app: 'islet-import', source: 'chatgpt', character: {}, conversations };
+      showCharacterImport();
+    } catch (e) { toast(e.message || String(e), 8000); }
+  }
+  function showCharacterImport() {
+    try {
+      const d = ciData;
       const ch = d.character || {}, all = ciAllMsgs();
       if (!all.length) { toast('文件里没有可导入的消息'); ciData = null; return; }
       $('ci-name').value = ch.name || '';
       $('ci-persona').value = ch.persona || '';
       $('ci-rel').value = ch.rel || '';
       const chars = all.reduce((n, m) => n + m.content.length, 0);
-      $('ci-info').textContent = `${d.conversations.length} 段对话 · ${all.length} 条消息 · 约 ${(chars / 1e4).toFixed(1)} 万字 · ${fmtEpiDay(all[0].ts || Date.now())} → ${fmtEpiDay(all[all.length - 1].ts || Date.now())}` + ((ch.cards || []).length ? ` · 自带记忆卡 ${ch.cards.length} 条` : '') + ((ch.epis || []).length + (ch.summaries || []).length ? ` · 自带大事记 ${(ch.epis || []).length + (ch.summaries || []).length} 条` : '');
+      $('ci-info').textContent = `${d.conversations.length} 段对话 · ${all.length} 条消息 · 约 ${(chars / 1e4).toFixed(1)} 万字 · ${all[0].ts ? fmtEpiDay(all[0].ts) : '日期未知'} → ${all[all.length - 1].ts ? fmtEpiDay(all[all.length - 1].ts) : '日期未知'}` + ((ch.cards || []).length ? ` · 自带记忆卡 ${ch.cards.length} 条` : '') + ((ch.epis || []).length + (ch.summaries || []).length ? ` · 自带大事记 ${(ch.epis || []).length + (ch.summaries || []).length} 条` : '');
+      const omitted = d.conversations.reduce((n, c) => n + (c.omitted || 0), 0);
+      if (omitted) $('ci-info').textContent += ` · ${omitted} 条含非文字内容，只导入文字及占位说明`;
+      $('ci-reselect').style.display = d.source === 'chatgpt' && ciGptEntries.length ? '' : 'none';
       const sel = $('ci-target');
       sel.innerHTML = '<option value="">新建角色</option>' + companions.map(x => `<option value="${x.id}">并入「${esc(x.name)}」</option>`).join('');
       sel.value = ''; ciToggleTarget();
-      hide('setup-overlay'); show('charimport-overlay');
-    };
-    r.readAsText(file);
+      hide('setup-overlay'); hide('gpt-import-overlay'); show('charimport-overlay');
+    } catch (e) { toast('导入文件结构有误：' + (e.message || e)); ciData = null; }
   }
   function ciToggleTarget() {
     const merging = !!$('ci-target').value;
@@ -4897,11 +4996,11 @@
   }
   function ciAllMsgs() {
     const out = [];
-    (ciData.conversations || []).forEach(c => (c.messages || []).forEach(m => { if (m && (m.role === 'user' || m.role === 'assistant') && m.content) out.push({ role: m.role, content: String(m.content), ts: +m.ts || 0 }); }));
+    (ciData.conversations || []).forEach(c => (c.messages || []).forEach(m => { if (m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim()) out.push({ role: m.role, content: m.content, ts: Number.isFinite(+m.ts) && +m.ts > 0 && +m.ts <= 8640000000000000 ? +m.ts : 0, ...(typeof m.importKey === 'string' ? { importKey: m.importKey } : {}) }); }));
     out.sort((a, b) => a.ts - b.ts);
     return out;
   }
-  function ciMsg(m) { const d = m.ts ? new Date(m.ts) : null; const o = { role: m.role, content: m.content }; if (d) { o.ts = m.ts; o.time = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); } return o; }
+  function ciMsg(m) { const d = m.ts ? new Date(m.ts) : null; const o = { role: m.role, content: m.content }; if (d) { o.ts = m.ts; o.time = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); } if (m.importKey) o.importKey = m.importKey; return o; }
   function fmtBytes(n) { return n < 1048576 ? Math.round(n / 1024) + 'K' : (n / 1048576).toFixed(2) + 'M'; }
   // 按字数切段，只在消息边界切；返回每段的结束下标（不含）
   function histBounds(msgs) {
@@ -4911,51 +5010,84 @@
     return b;
   }
   async function runCharacterImport() {
-    if (!ciData) return;
+    if (!ciData || ciBusy || branchBusy) return;
+    if (isLoading || histBusy) { toast('请等回复或历史提炼结束后再导入'); return; }
     const targetId = $('ci-target').value;
-    let c, isNew = !targetId;
-    if (targetId) {
-      c = companions.find(x => x.id === targetId);
-      if (!c) { toast('角色不存在'); return; }
-      if (c.hist && !c.hist.cleared) { toast('这个角色还有一份原文没提炼完/没清掉，去记忆面板里跑完或清掉，再合并新的'); return; }
-    } else {
-      const name = $('ci-name').value.trim();
-      if (!name) { $('ci-name').focus(); return; }
-      c = { id: genId(), name, persona: $('ci-persona').value.trim(), rel: $('ci-rel').value.trim(), cards: [], epis: [], autoDistill: true, memUpdated: Date.now() };
-      if (c.rel) c.relUpdated = Date.now();
+    const source = targetId && companions.find(x => x.id === targetId), isNew = !targetId;
+    if (targetId && !source) { toast('角色不存在'); return; }
+    const name = $('ci-name').value.trim(); if (isNew && !name) { $('ci-name').focus(); return; }
+    ciBusy = branchBusy = true; $('ci-run').disabled = true; $('ci-run').textContent = '正在核对并导入…';
+    $('msg-input').disabled = true; $('send-btn').disabled = true; renderBranchBar();
+    const staged = []; let fileId = '', committed = false, keepStaged = false;
+    let commitBefore = null;
+    try {
+      if (source && rebalanceJobs.has(source.id)) await rebalanceJobs.get(source.id);
+      const sourceBefore = source ? JSON.stringify(source) : '', indexBefore = JSON.stringify(sessions);
+      const c = source ? JSON.parse(sourceBefore) : { id: genId(), name, persona: $('ci-persona').value.trim(), rel: $('ci-rel').value.trim(), cards: [], epis: [], autoDistill: true, memUpdated: Date.now() };
+      if (isNew && c.rel) c.relUpdated = Date.now();
+      // 用来源 ID 去重；旧导入没有 ID 时，仅用有日期的角色/时间/正文匹配，不误删多次说的「嗯」。
+      const ids = new Set(), signatures = new Set(), legacySignatures = new Set();
+      const signature = m => JSON.stringify([m.role, m.ts, m.content]);
+      const remember = m => { if (m.importKey) ids.add(m.importKey); else if (m.ts) legacySignatures.add(signature(m)); if (m.ts) signatures.add(signature(m)); };
+      if (source) for (const s of riverChunks(c.id)) {
+        const msgs = s.id === currentId ? messages : await loadChunk(s.id);
+        if (!Array.isArray(msgs) || (s.count && s.count !== msgs.length)) throw new Error('现有对话有一块未完整读出，请重试');
+        msgs.forEach(remember);
+      }
+      const incoming = ciAllMsgs(), all = [];
+      for (const m of incoming) {
+        const duplicate = m.importKey ? ids.has(m.importKey) || (m.ts && legacySignatures.has(signature(m))) : m.ts && signatures.has(signature(m));
+        if (!duplicate) { all.push(m); remember(m); }
+      }
+      const skipped = incoming.length - all.length;
+      if (!all.length) { toast(incoming.length ? '这些消息已在这条河里，没有重复导入。' : '没有可导入的消息'); return; }
+      if (source && c.hist && !c.hist.cleared) throw new Error('这个角色还有待处理的历史原文，请先在记忆面板提炼并清理，再追加新记录');
+      const ch = ciData.character || {};
+      (ch.cards || []).forEach(k => { if (!k || !k.t) return; const st = splitCatTag(k.t); const t = st.t.slice(0, 500), cat = MEM_CATS.includes(k.c) ? k.c : st.c, date = normMemoryDate(k.date); if (t && !memDup(c, t)) c.cards.push({ id: genId(), t, d: +k.d || Date.now(), p: 0, c: cat || '', ...(date ? { date } : {}) }); });
+      c.cards.sort((a, b) => b.d - a.d); trimMemCards(c);
+      [].concat(ch.summaries || [], ch.epis || []).forEach(e => { const t = e && (e.text || e.t); if (t) c.epis.push({ id: genId(), sid: '', d: +(e.date || e.d) || Date.now(), t: String(t).slice(0, 600) }); });
+      c.epis.sort((a, b) => b.d - a.d); if (c.epis.length > EPI_MAX) c.epis.length = EPI_MAX;
+      fileId = 'imp_' + genId();
+      await idbPut('imports', { id: fileId, name: c.name, msgs: all, created: Date.now() });
+      const back = await idbGet('imports', fileId);
+      if (!back || JSON.stringify(back.msgs) !== JSON.stringify(all)) throw new Error('历史原文写入校验失败');
+      const bounds = histBounds(all);
+      c.hist = { fileId, total: all.length, chars: all.reduce((n, m) => n + m.content.length, 0), bounds, done: 0, lastSummary: '', model: '' };
+      const bid = source ? activeBranchFor(c.id) : MAIN_BRANCH, bname = source ? branchName(c.id, bid) : '主线';
+      for (let i = 0; i < all.length; i += CHUNK_MAX) {
+        const group = all.slice(i, i + CHUNK_MAX);
+        const meta = { id: genId(), companionId: c.id, branchId: bid, branchName: bname, first: group[0].ts || Date.now(), updated: group[group.length - 1].ts || Date.now(), count: group.length, distilled: group.filter(m => m.role === 'user').length };
+        staged.push(meta);
+        if (!(await storeChunkCold(meta, group.map(ciMsg)))) throw new Error('聊天块写入或读回校验失败');
+      }
+      // 独立的空热尾块用于继续聊天，避免把旧日期的导入块误当成最新块。
+      const end = staged.concat(riverChunks(c.id)).reduce((max, s) => Math.max(max, s.first || 0, s.updated || 0), Date.now()) + 1;
+      const tail = { id: genId(), companionId: c.id, branchId: bid, branchName: bname, first: end, updated: end, count: 0, distilled: 0 };
+      staged.push(tail);
+      if (await storeChunkHot(tail, []) !== 'hot') throw new Error('本机空间不足，无法保存继续聊天的位置');
+      if (JSON.stringify(sessions) !== indexBefore || (source && JSON.stringify(source) !== sourceBefore)) throw new Error('导入期间现有记录发生变化，请重试');
+      const nextCompanions = isNew ? companions.concat(c) : companions.map(x => x.id === c.id ? c : x), nextSessions = sessions.concat(staged);
+      const cRaw = JSON.stringify(nextCompanions), sRaw = JSON.stringify(nextSessions);
+      commitBefore = { islet_companions: localStorage.getItem('islet_companions'), islet_idx: localStorage.getItem('islet_idx') };
+      if (!lsSet('islet_companions', cRaw) || localStorage.getItem('islet_companions') !== cRaw) throw new Error('角色保存失败');
+      if (!lsSet('islet_idx', sRaw) || localStorage.getItem('islet_idx') !== sRaw) throw new Error('会话索引保存失败');
+      companions = nextCompanions; sessions = nextSessions; committed = true;
+      ciData = null; ciGptEntries = []; hide('charimport-overlay');
+      _tailCache = { key: '', msgs: [] }; enterCompanion(c.id);
+      renderAll(); renderDrawerCompanions(); updatePill(); updateStoreMeter();
+      rebalanceChunks(c.id).catch(() => {});
+      await uiAlert(`已${isNew ? '导入' : '并入'}「${c.name}」`, { sub: `新增 ${all.length} 条消息，跳过重复 ${skipped} 条，全部写入并校验完成。\n\n去记忆面板的「历史提炼」分批提炼记忆卡和大事记；共 ${bounds.length} 段，需调用你选择的模型。` });
+    } catch (e) {
+      if (!committed && commitBefore) {
+        try { for (const [key, value] of Object.entries(commitBefore)) if (localStorage.getItem(key) !== value) { if (value == null) localStorage.removeItem(key); else localStorage.setItem(key, value); if (localStorage.getItem(key) !== value) throw new Error('回滚未完成'); } }
+        catch (err) { keepStaged = true; await uiAlert('导入未完成，恢复索引时也遇到了存储错误', { sub: '新副本已保留，请保留原始导出文件并立即导出本机备份。' }); }
+      }
+      toast((committed ? '导入已保存，界面刷新未完成：' : '导入失败，未完成的记录没有加入：') + (e.message || e), 7000);
+    } finally {
+      if (!committed && !keepStaged) { for (const s of staged) await removeChunkStore(s.id); if (fileId) await idbDel('imports', fileId).catch(() => {}); }
+      ciBusy = branchBusy = false; $('ci-run').disabled = false; $('ci-run').textContent = '导入';
+      $('msg-input').disabled = false; $('send-btn').disabled = false; renderBranchBar();
     }
-    const all = ciAllMsgs();
-    const ch = ciData.character || {};
-    // 文件自带的记忆卡（电脑上先提炼过的）与大事记（摘要、小结）
-    (ch.cards || []).forEach(k => { if (!k || !k.t) return; const st = splitCatTag(k.t); const t = st.t.slice(0, 500); const cat = MEM_CATS.includes(k.c) ? k.c : st.c; const date = normMemoryDate(k.date); if (t && !memDup(c, t)) c.cards.push({ id: genId(), t, d: +k.d || Date.now(), p: 0, c: cat || '', ...(date ? { date } : {}) }); });
-    c.cards.sort((a, b) => b.d - a.d); trimMemCards(c);
-    [].concat(ch.summaries || [], ch.epis || []).forEach(e => { const t = e && (e.text || e.t); if (t) c.epis.push({ id: genId(), sid: '', d: +(e.date || e.d) || Date.now(), t: String(t).slice(0, 600) }); });
-    c.epis.sort((a, b) => b.d - a.d); if (c.epis.length > EPI_MAX) c.epis.length = EPI_MAX;
-    // 整段原文进 IndexedDB，供分批提炼
-    const fileId = 'imp_' + c.id;
-    try { await idbPut('imports', { id: fileId, name: c.name, msgs: all, created: Date.now() }); }
-    catch (e) { toast('原文存不进本机数据库：' + ((e && e.message) || e)); return; }
-    const bounds = histBounds(all);
-    c.hist = { fileId, total: all.length, chars: all.reduce((n, m) => n + m.content.length, 0), bounds, done: 0, lastSummary: '', model: '' };
-    if (isNew) companions.push(c);
-    saveCompanions();
-    // 全部原文按 CHUNK_MAX 条一块接成 TA 的河：最新几块进 localStorage，其余直接进 IndexedDB。标记为已提炼，免得自动提炼再跑一遍
-    const groups = []; for (let i = 0; i < all.length; i += CHUNK_MAX) groups.push(all.slice(i, i + CHUNK_MAX));
-    let added = 0;
-    for (let gi = 0; gi < groups.length; gi++) {
-      const g = groups[gi], first = g[0], last = g[g.length - 1];
-      const meta = { id: genId(), title: '', first: first.ts || Date.now(), updated: last.ts || Date.now(), companionId: c.id, branchId: activeBranchFor(c.id), branchName: branchName(c.id, activeBranchFor(c.id)), count: g.length, distilled: g.filter(m => m.role === 'user').length, cold: gi < groups.length - HOT_CHUNKS ? 1 : 0 };
-      const msgs = g.map(ciMsg);
-      if (meta.cold) { try { await idbPut('chunks', { id: meta.id, msgs }); } catch (e) { toast('原文存不进本机数据库'); break; } }
-      else if (!lsSet('islet_s_' + meta.id, JSON.stringify(msgs))) break;
-      sessions.push(meta); added++;
-    }
-    saveIndex();
-    if (!isNew) await rebalanceChunks(c.id);   // 并入已有角色：新老块混一起后重新分冷热，别让热块超额堆在 localStorage 里
-    ciData = null; hide('charimport-overlay');
-    enterCompanion(c.id);
-    renderAll(); renderDrawerCompanions(); updatePill(); updateStoreMeter();
-    await uiAlert(`已${isNew ? '导入' : '并入'}「${c.name}」`, { sub: `记忆卡 ${c.cards.length} 条 · 大事记 ${c.epis.length} 条 · 原文 ${all.length} 条已接成一条对话，往上划能看到第一天。\n\n原文切成 ${bounds.length} 段，去记忆面板的「历史提炼」里分批跑，跑完 TA 就有完整的记忆和编年史了。` });
   }
 
   /* 分批提炼：每段一次请求，结果直接进角色的记忆卡与大事记；进度存在 c.hist 里 */
@@ -5727,7 +5859,7 @@
   const OVERLAY_CLOSE = {
     'drawer-overlay': closeDrawer, 'setup-overlay': closeSettings, 'picker-overlay': closePicker, 'memory-overlay': closeMemory,
     'arena-overlay': closeArena, 'council-overlay': closeCouncil, 'gacha-overlay': closeGacha, 'habit-overlay': closeHabits, 'search-overlay': closeSearch,
-    'msgmenu-overlay': () => hide('msgmenu-overlay'), 'branch-overlay': () => hide('branch-overlay'), 'dlg-overlay': () => closeDlg(null), 'charimport-overlay': () => hide('charimport-overlay'),
+    'msgmenu-overlay': () => hide('msgmenu-overlay'), 'branch-overlay': () => hide('branch-overlay'), 'dlg-overlay': () => closeDlg(null), 'charimport-overlay': closeCharacterImport, 'gpt-import-overlay': closeCharacterImport,
   };
   Object.entries(OVERLAY_CLOSE).forEach(([id, fn]) => $(id).addEventListener('click', e => { if (e.target.id === id) fn(); }));
   // 弹窗里的输入框：回车 = 第一个按钮（确定）；Esc = 取消
