@@ -25,6 +25,7 @@ async function scenario({ needed = max, ignoreNone = false, parallel = 1, abortA
     toolsActive: () => tools, modelSupportsTools: () => true, modelSupportsReasoning: () => false,
     activeToolDefs: () => [{ type: 'function', function: { name: 'read_github', parameters: { type: 'object' } } }],
     withCacheBreakpoints: (_, messages) => messages, apiUrl: () => 'https://mock.test', authHeaders: () => ({}),
+    applyModelRoute: payload => payload, routeError: message => message,
     buildApiMessages: async (messages, sid, extra) => [...messages, ...extra],
     makeServedHandler: (_, model, cb) => served => cb(served), baseModelId: x => x,
     scheduleRender: (h, text) => { h.textEl.textContent = text(); }, renderNow: (h, text) => { h.textEl.textContent = text; },

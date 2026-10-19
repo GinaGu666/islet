@@ -427,6 +427,11 @@
   .mr-badge { font-size: 10px; color: var(--accent); background: var(--accent-weak); border-radius: 6px; padding: 2px 6px; flex-shrink: 0; }
   .mr-check { color: var(--accent); flex-shrink: 0; display: flex; opacity: 0; }
   .model-row.sel .mr-check { opacity: 1; }
+  .route-panel { flex-shrink: 0; margin: 0 20px 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  .route-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; margin-bottom: 7px; }
+  .route-heading button { border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; padding: 3px; }
+  .route-panel select { width: 100%; min-width: 0; font: inherit; font-size: 14px; }
+  .route-note { font-size: 11px; color: var(--ink-3); line-height: 1.5; margin-top: 6px; overflow-wrap: anywhere; }
   .list-empty { padding: 28px; text-align: center; color: var(--ink-3); font-size: 13px; }
   .list-loading { padding: 16px; text-align: center; color: var(--ink-3); font-size: 12.5px; }
 
@@ -873,6 +878,13 @@
     </div>
     <div class="search-wrap">
       <input class="search-box" id="model-search" placeholder="搜索模型，如 glm / opus / gpt…" oninput="renderModelList(this.value)" spellcheck="false">
+    </div>
+    <div class="route-panel" id="route-panel" hidden>
+      <div class="route-heading"><label for="route-select">指定供应商</label><button type="button" onclick="loadRouteOptions()">刷新列表</button></div>
+      <select class="field" id="route-select" onchange="saveRouteSelection()" aria-describedby="route-model route-status route-note"></select>
+      <div class="route-note" id="route-model"></div>
+      <div class="route-note" id="route-status" role="status"></div>
+      <div class="route-note" id="route-note">按模型保存，同模型的角色及提炼等请求共用。指定后不可用会报错，不切换供应商；仍通过 OpenRouter。</div>
     </div>
     <div class="model-list" id="model-list"></div>
   </div>
@@ -1851,6 +1863,7 @@
       settings: {
         system: localStorage.getItem('or_system') || '',
         model: localStorage.getItem('or_model') || '',
+        orRoutes: readModelRoutes(),
         reasoning: localStorage.getItem('or_reasoning') || '',
         tools: localStorage.getItem('islet_tools') || '',
         theme: localStorage.getItem('islet_theme') || 'auto',
@@ -2024,6 +2037,7 @@
         const st = data.settings || {};
         if (st.system != null) localStorage.setItem('or_system', st.system);
         if (st.model) localStorage.setItem('or_model', st.model);
+        localStorage.setItem('islet_or_routes', JSON.stringify(sanitizeModelRoutes(st.orRoutes)));   // 旧备份无此设置，恢复自动路由
         if (st.reasoning) localStorage.setItem('or_reasoning', st.reasoning);
         if (st.tools) localStorage.setItem('islet_tools', st.tools);
         if (st.theme) localStorage.setItem('islet_theme', st.theme);
@@ -2717,9 +2731,70 @@
   }
 
   let pickerCb = null;   // 临时回调模式：选完只执行回调（外部评审等场景），不绑定角色、不改全局
-  function openPickerFor(cb, hint) { pickerCb = cb; show('picker-overlay'); const pf = $('picker-for'); if (pf) pf.textContent = hint || ''; const s = $('model-search'); s.value = ''; renderModelList(''); setTimeout(() => s.focus(), 300); }
-  function openPicker() { pickerCb = null; show('picker-overlay'); const pf = $('picker-for'); if (pf) pf.textContent = companions.length ? ' · 固定给「' + activeCompanion().name + '」' : ''; const s = $('model-search'); s.value = ''; renderModelList(''); setTimeout(() => s.focus(), 300); }
-  function closePicker() { pickerCb = null; hide('picker-overlay'); }
+  function openPickerFor(cb, hint) { pickerCb = cb; show('picker-overlay'); const pf = $('picker-for'); if (pf) pf.textContent = hint || ''; const s = $('model-search'); s.value = ''; renderModelList(''); loadRouteOptions(); setTimeout(() => s.focus(), 300); }
+  function openPicker() { pickerCb = null; show('picker-overlay'); const pf = $('picker-for'); if (pf) pf.textContent = companions.length ? ' · 固定给「' + activeCompanion().name + '」' : ''; const s = $('model-search'); s.value = ''; renderModelList(''); loadRouteOptions(); setTimeout(() => s.focus(), 300); }
+  function closePicker() { pickerCb = null; if (routeController) routeController.abort(); hide('picker-overlay'); }
+
+  // 供应商按模型固定，不从模型作者名猜测；不影响 CC。公开端点目录无需发送任何钥匙或聊天内容。
+  function routingModel(id) { const s = typeof id === 'string' ? id.split(':')[0].trim() : ''; return /^[a-z0-9._-]+\/[a-z0-9._-]+$/i.test(s) ? s : ''; }
+  function validRoute(s) { return typeof s === 'string' && /^[a-z0-9][a-z0-9_-]{0,79}$/.test(s); }
+  function sanitizeModelRoutes(value) {
+    const out = {};
+    if (value && typeof value === 'object' && !Array.isArray(value)) Object.entries(value).slice(0, 1000).forEach(([m, p]) => { if (routingModel(m) === m && m && validRoute(p)) out[m] = p; });
+    return out;
+  }
+  function readModelRoutes() { try { return sanitizeModelRoutes(JSON.parse(localStorage.getItem('islet_or_routes') || '{}')); } catch (e) { return {}; } }
+  function modelRoute(model) { return readModelRoutes()[routingModel(model)] || ''; }
+  function routeName(slug) { return ({ anthropic: 'Anthropic', 'claude-on-aws': 'Claude Platform on AWS', 'amazon-bedrock': 'Amazon Bedrock', 'google-vertex': 'Google Vertex', azure: 'Azure' })[slug] || slug; }
+  function applyModelRoute(payload, model) { if (provider === 'or') { const p = modelRoute(model); if (p) payload.provider = { only: [p], allow_fallbacks: false }; } return payload; }
+  function routeError(message, payload) { const p = payload.provider && payload.provider.only && payload.provider.only[0]; return p ? '已指定 ' + routeName(p) + '，未切换供应商：' + message : message; }
+  let routeController = null;
+  function routeOption(value, label) { const o = document.createElement('option'); o.value = value; o.textContent = label; return o; }
+  async function loadRouteOptions() {
+    if (routeController) routeController.abort();
+    const panel = $('route-panel'); panel.hidden = provider !== 'or' || !!pickerCb;
+    if (panel.hidden) return;
+    const model = routingModel(selectedModel), sel = $('route-select'), saved = modelRoute(model);
+    panel.dataset.model = model;
+    sel.replaceChildren(routeOption('', '自动选择（OpenRouter）'));
+    if (saved) sel.appendChild(routeOption(saved, routeName(saved) + '（已指定）'));
+    sel.value = saved;
+    $('route-model').textContent = '当前模型：' + prettyName(selectedModel);
+    $('route-status').textContent = '正在读取可选供应商…';
+    if (!model) { $('route-status').textContent = '这个模型标识暂不支持读取供应商。'; return; }
+    const controller = new AbortController(); routeController = controller;
+    const timer = setTimeout(() => controller.abort(), 10000);
+    const current = () => routeController === controller && provider === 'or' && !pickerCb && routingModel(selectedModel) === model && $('picker-overlay').classList.contains('show');
+    try {
+      const res = await fetch(OR_MODELS_URL + '/' + model.split('/').map(encodeURIComponent).join('/') + '/endpoints', { signal: controller.signal, credentials: 'omit' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const j = await res.json();
+      if (!j.data || !Array.isArray(j.data.endpoints)) throw new Error('返回的不是供应商列表');
+      if (!current()) return;
+      const routes = new Map();
+      j.data.endpoints.forEach(e => {
+        const slug = e && typeof e.tag === 'string' ? e.tag.split('/')[0] : '';
+        if (validRoute(slug)) routes.set(slug, routeName(slug) !== slug ? routeName(slug) : (cleanProviderName(e.provider_name) || slug));
+      });
+      const chosen = modelRoute(model);   // 用户可能已在等待目录期间切回自动，不能用旧快照覆盖
+      sel.replaceChildren(routeOption('', '自动选择（OpenRouter）'));
+      [...routes].sort((a, b) => (a[0] === 'anthropic' ? -1 : b[0] === 'anthropic' ? 1 : a[1].localeCompare(b[1]))).forEach(([slug, name]) => sel.appendChild(routeOption(slug, name + (slug === 'anthropic' ? '（官方）' : ''))));
+      if (chosen && !routes.has(chosen)) sel.appendChild(routeOption(chosen, routeName(chosen) + '（已保存，当前列表未提供）'));
+      sel.value = chosen;
+      $('route-status').textContent = routes.size ? (chosen && !routes.has(chosen) ? '已保存的供应商不在当前列表中；设置仍保留，不会自动切换。' : '选择后立即保存。先选模型，再为当前模型指定供应商。') : '暂无可选供应商；已保存的设置仍保留。';
+    } catch (e) {
+      if (current()) $('route-status').textContent = '供应商列表未读到，可刷新重试；已保存的选择不变。';
+    } finally { clearTimeout(timer); }
+  }
+  function saveRouteSelection() {
+    const sel = $('route-select'), model = $('route-panel').dataset.model, chosen = sel.value;
+    if (provider !== 'or' || pickerCb || model !== routingModel(selectedModel) || (chosen && !validRoute(chosen))) return;
+    if (isLoading) { sel.value = modelRoute(model); toast('等这条回复结束后再换供应商'); return; }
+    const routes = readModelRoutes(); if (chosen) routes[model] = chosen; else delete routes[model];
+    if (!lsSet('islet_or_routes', JSON.stringify(routes))) { sel.value = modelRoute(model); return; }
+    updatePill();
+    $('route-status').textContent = chosen ? '已指定 ' + routeName(chosen) + '；不可用会报错，不切换供应商。' : '已恢复自动选择。';
+  }
 
   function renderModelList(q) {
     q = (q || '').trim().toLowerCase();
@@ -2993,7 +3068,7 @@
     scrollToBottom();
   }
 
-  function replyModelLabel(model, providerName) { return prettyName(model || selectedModel) + (providerName === undefined ? '' : ' · ' + (providerName || '供应商未知')); }
+  function replyModelLabel(model) { return prettyName(model || selectedModel); }   // 供应商只在选择菜单里显示，旧消息中的元数据保留
   function setReplyProvider(h, model, providerName) {
     const el = h && h.row && h.row.querySelector('.model');
     if (el) { el.textContent = replyModelLabel(model, providerName); el.title = el.textContent; }
@@ -3394,12 +3469,13 @@
   function companionModel(c) { return (provider === 'or' && c && c.model) || selectedModel; }
   // 非流式单次请求，返回正文；失败抛错。提炼 / 整理 / 出题这类「问一句拿结果」的都走这里
   async function chatOnce(sys, user, model, maxTokens, opts) {
-    const body = JSON.stringify({ model, messages: sysUserMsgs(sys, user), max_tokens: maxTokens || 2048, stream: false });
+    const payload = applyModelRoute({ model, messages: sysUserMsgs(sys, user), max_tokens: maxTokens || 2048, stream: false }, model);
+    const body = JSON.stringify(payload);
     const init = { method: 'POST', headers: authHeaders(), body };
     // keepalive 让页面关闭后请求也能发完；但它限制 body ≤64KB，超了会直接被拒，所以按字节数判断
     if (opts && opts.keepalive) init.keepalive = new Blob([body]).size < 60000;
     const res = await fetch(apiUrl(), init);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (!res.ok) throw new Error(routeError('HTTP ' + res.status, payload));
     const j = await res.json();
     const out = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
     if (out == null) throw new Error('空回复');
@@ -3682,7 +3758,7 @@
     const guard = (provider === 'cc' && opts && opts.ghostGuard) ? makeGhostGuard(onContent) : null;   // 代笔拦截：只在 CC 通道 + 正式聊天启用
     try {
       // max_tokens：OpenRouter 会按此值预扣余额，不设则按模型最大输出预估，余额少时会被拒
-      const payload = { model: (provider === 'or' && webOn) ? model + ':online' : model, messages: provider === 'or' ? withCacheBreakpoints(model, msgs) : flattenTails(msgs), max_tokens: 8192, stream: true };
+      const payload = applyModelRoute({ model: (provider === 'or' && webOn) ? model + ':online' : model, messages: provider === 'or' ? withCacheBreakpoints(model, msgs) : flattenTails(msgs), max_tokens: 8192, stream: true }, model);
       if (provider === 'or') payload.stream_options = { include_usage: true };
       // 开关开：请求思考；开关关：显式禁用（不发的话 GLM 等混合推理模型会按默认思考，照样计费）
       // 例外：Fable/Mythos 这类强制思考的模型没法真正关思考——传 enabled:false 有的 provider 会报错，
@@ -3705,10 +3781,10 @@
         if (/reasoning/i.test(msg) && payload.reasoning && payload.reasoning.enabled !== true) delete payload.reasoning;
         // 自建端点（传话员）不认 tools 时未必会在报错里点名，4xx 一律先按「不吃工具」降级试一次
         else if (payload.tools && (/tool/i.test(msg) || (provider === 'cc' && res.status >= 400 && res.status < 500))) { delete payload.tools; delete payload.tool_choice; toolsDropped = true; }
-        else return { ended: 'http', error: msg };
+        else return { ended: 'http', error: routeError(msg, payload) };
         res = await fetch(apiUrl(), { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
       }
-      if (!res.ok) { const e2 = await res.json().catch(() => ({})); return { ended: 'http', error: (e2 && e2.error && e2.error.message) || ('HTTP ' + res.status) }; }
+      if (!res.ok) { const e2 = await res.json().catch(() => ({})); return { ended: 'http', error: routeError((e2 && e2.error && e2.error.message) || ('HTTP ' + res.status), payload) }; }
       const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
       while (true) {
         const { done, value } = await reader.read();
@@ -3766,24 +3842,6 @@
   }
 
   function cleanProviderName(value) { return typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120) : ''; }
-  // 只查询本条生成的用量元数据；不重发对话，不再次调用模型。最多等两秒，失败不影响正文。
-  async function lookupGenerationProvider(id, key, signal) {
-    if (!/^gen-[0-9A-Za-z-]{1,124}$/.test(id || '') || !key || (signal && signal.aborted)) return '';
-    const controller = new AbortController(), abort = () => controller.abort();
-    if (signal) signal.addEventListener('abort', abort, { once: true });
-    const timer = setTimeout(abort, 2000);
-    try {
-      for (let attempt = 0; attempt < 2 && !controller.signal.aborted; attempt++) {
-        const res = await fetch('https://openrouter.ai/api/v1/generation?id=' + encodeURIComponent(id), { method: 'GET', headers: { Authorization: 'Bearer ' + key }, credentials: 'omit', signal: controller.signal });
-        if (res.status === 404 && attempt === 0) { await new Promise(resolve => setTimeout(resolve, 250)); continue; }   // 元数据可能稍晚到
-        if (!res.ok) return '';
-        const data = await res.json();
-        return cleanProviderName(data && data.data && data.data.provider_name);
-      }
-    } catch (e) { /* 元数据不可用时保留正常回复，显示未知 */ }
-    finally { clearTimeout(timer); if (signal) signal.removeEventListener('abort', abort); }
-    return '';
-  }
 
   /* ---------- 模型路由提醒 ---------- */
   // 比较前先去掉 :free / :nitro / :floor 等变体后缀，并统一 . 与 - 的写法，避免同一模型的写法差异误报
@@ -3951,7 +4009,7 @@
 
   async function generateAssistant() {
     const sid = currentId, model = selectedModel, msgsRef = messages;   // 快照，切走后不串台
-    const sourceIsOR = provider === 'or', sourceKey = sourceIsOR ? apiKey : '';
+    const sourceIsOR = provider === 'or';
     setLoading(true);
     const h = addAi('', '', null, model, nowTime(), false);
     h.row.dataset.midx = msgsRef.length; h.row.dataset.sid = sid;
@@ -4025,7 +4083,6 @@
     h.textEl.classList.remove('cursor');
     if (contentText) renderNow(h, contentText);
     if (sourceIsOR) {
-      if (!providerName && generationId) providerName = await lookupGenerationProvider(generationId, sourceKey, myAbort && myAbort.signal);
       setReplyProvider(h, servedModel || model, providerName);
     }
     if (thinkStart != null && finalSec == null) { finalSec = ((firstContentAt || performance.now()) - thinkStart) / 1000; h.thinkLbl.textContent = `已思考 ${finalSec.toFixed(1)}s`; }
@@ -4056,7 +4113,7 @@
     h.textEl.classList.add('cursor');
     let contentText = last.content || '';
     const sid = currentId, msgsRef = messages;   // 快照，切走后不串台
-    const sourceIsOR = provider === 'or', sourceKey = sourceIsOR ? apiKey : '';
+    const sourceIsOR = provider === 'or';
     let continued = false, generationId = '', providerName = '', servedModel = null;
     const onContent = c => { continued = true; contentText += c; last.content = contentText; scheduleRender(h, () => contentText); };
 
@@ -4079,7 +4136,6 @@
     h.textEl.classList.remove('cursor');
     renderNow(h, contentText);
     if (continued) {
-      if (sourceIsOR && !providerName && generationId) providerName = await lookupGenerationProvider(generationId, sourceKey, myAbort && myAbort.signal);
       last.providerName = sourceIsOR ? providerName : undefined;
       last.generationId = sourceIsOR && generationId ? generationId : undefined;
       if (servedModel) { last.model = servedModel; last.reqModel = baseModelId(servedModel) !== baseModelId(model) ? model : undefined; }
