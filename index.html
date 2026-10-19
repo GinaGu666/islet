@@ -399,6 +399,7 @@
   .field { width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink); font-size: 14.5px; padding: 12px 14px; outline: none; font-family: inherit; transition: border-color .15s; }
   .field:focus { border-color: var(--accent-line); }
   textarea.field { resize: none; height: 84px; line-height: 1.5; }
+  textarea.field.relationship { min-height: 84px; overflow: hidden; overflow-wrap: anywhere; }
   input.field.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .02em; }
   .toggle-row { display: flex; align-items: center; justify-content: space-between; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; margin-top: 16px; }
   .toggle-row .tg-main { font-size: 14.5px; color: var(--ink); }
@@ -1084,7 +1085,7 @@
         <div class="field-label">这个角色是谁（可以先空着，导入后在记忆面板补）</div>
         <textarea class="field persona" id="ci-persona" spellcheck="false"></textarea>
         <div class="field-label">你们现在的关系状态</div>
-        <input class="field" id="ci-rel" spellcheck="false">
+        <textarea class="field relationship" id="ci-rel" rows="3" oninput="fitRelationshipField(this)" spellcheck="false"></textarea>
       </div>
       <div class="mem-hint" style="margin-top:12px">全部原文都会接成 TA 的一条对话，往上划能一直看到第一天；导入后在记忆面板里分批提炼成记忆卡和大事记。</div>
       <button class="btn-primary" id="ci-run" onclick="runCharacterImport()">导入</button>
@@ -1130,7 +1131,7 @@
       </button>
       <div class="distill-status" id="persona-status"></div>
       <div class="field-label">你们现在的关系状态 <span style="text-transform:none;opacity:.6">（提炼时自动更新，也可手改）</span></div>
-      <input class="field" id="rel-input" placeholder="描述「我们现在在哪里」，不是「你是谁」…" spellcheck="false">
+      <textarea class="field relationship" id="rel-input" rows="3" oninput="fitRelationshipField(this)" placeholder="描述「我们现在在哪里」，不是「你是谁」…" spellcheck="false"></textarea>
       <div class="mem-hint">只属于这个角色。留空也行——空白起步、靠记忆长成 TA 自己。</div>
 
       <div class="field-head">
@@ -4750,7 +4751,7 @@
     $('companion-name-input').value = c.name;
     paintAva($('ava-big'), c); { const cl = $('ava-clear'); if (cl) cl.style.display = c.avatar ? '' : 'none'; }
     $('persona-input').value = c.persona || '';
-    const _ri = $('rel-input'); if (_ri) _ri.value = c.rel || '';
+    setRelationshipField('rel-input', c.rel || '');
     memQuery = ''; memFilter = '';
     const _ms = $('mem-search'); if (_ms) _ms.value = '';
     renderMemCards();
@@ -4800,7 +4801,7 @@
     const r = await distillMemory(slice, target, prevEpi ? prevEpi.t : '');
     btn.disabled = false;
     if (r == null) { $('distill-status').textContent = '提炼失败，请重试'; return; }
-    if (r.relation) { target.rel = r.relation; target.relUpdated = Date.now(); const ri = $('rel-input'); if (ri) ri.value = r.relation; }
+    if (r.relation) { target.rel = r.relation; target.relUpdated = Date.now(); setRelationshipField('rel-input', r.relation); }
     saveCompanions(); renderMemCards();
     if (s) { s.distilled = userTurns; saveIndex(); }
     if (r.summary) { epiUpsert(target, dk.key, r.summary, dk.ts); saveCompanions(); renderEpiList(); }
@@ -4978,7 +4979,7 @@
       if (!all.length) { toast('文件里没有可导入的消息'); ciData = null; return; }
       $('ci-name').value = ch.name || '';
       $('ci-persona').value = ch.persona || '';
-      $('ci-rel').value = ch.rel || '';
+      setRelationshipField('ci-rel', ch.rel || '');
       const chars = all.reduce((n, m) => n + m.content.length, 0);
       $('ci-info').textContent = `${d.conversations.length} 段对话 · ${all.length} 条消息 · 约 ${(chars / 1e4).toFixed(1)} 万字 · ${all[0].ts ? fmtEpiDay(all[0].ts) : '日期未知'} → ${all[all.length - 1].ts ? fmtEpiDay(all[all.length - 1].ts) : '日期未知'}` + ((ch.cards || []).length ? ` · 自带记忆卡 ${ch.cards.length} 条` : '') + ((ch.epis || []).length + (ch.summaries || []).length ? ` · 自带大事记 ${(ch.epis || []).length + (ch.summaries || []).length} 条` : '');
       const omitted = d.conversations.reduce((n, c) => n + (c.omitted || 0), 0);
@@ -5201,7 +5202,7 @@
         h.failedAt = null;
         cardLines.forEach(l => { if (added < 8 && addMemCard(c, l)) { memCardsOf(c)[0].d = endTs; added++; } });   // 卡片的日期用这一段的时间，不是今天
         if (summary) { epiOf(c).push({ id: genId(), sid: '', d: endTs, t: summary, h: 1 }); epiOf(c).sort((a, b) => b.d - a.d); if (epiOf(c).length > EPI_MAX) epiOf(c).length = EPI_MAX; }
-        if (relation) { c.rel = relation; c.relUpdated = Date.now(); const ri = $('rel-input'); if (ri) ri.value = relation; }
+        if (relation) { c.rel = relation; c.relUpdated = Date.now(); setRelationshipField('rel-input', relation); }
         h.lastSummary = summary || h.lastSummary; h.done = i + 1; addedAll += added;
         saveCompanions(); renderMemCards(); renderEpiList(); renderHistBlock();
       }
@@ -5852,7 +5853,16 @@
     const away = c.scrollHeight - c.scrollTop - c.clientHeight > c.clientHeight / 3;
     $('to-bottom').classList.toggle('show', away);
   }, { passive: true });
-  function show(id) { $(id).classList.add('show'); }
+  function fitRelationshipField(el) {
+    if (!el || !el.clientWidth) return;
+    el.style.height = 'auto';
+    el.style.height = Math.ceil(el.scrollHeight + 2) + 'px';   // scrollHeight 包含 padding，不含两侧 1px 边框
+  }
+  function fitRelationshipFields() { document.querySelectorAll('textarea.relationship').forEach(fitRelationshipField); }
+  function setRelationshipField(id, value) { const el = $(id); if (el) { el.value = value; fitRelationshipField(el); } }
+  window.addEventListener('resize', () => requestAnimationFrame(fitRelationshipFields));
+  if (document.fonts) { document.fonts.ready.then(fitRelationshipFields); document.fonts.addEventListener('loadingdone', fitRelationshipFields); }
+  function show(id) { $(id).classList.add('show'); if (id === 'memory-overlay' || id === 'charimport-overlay') requestAnimationFrame(fitRelationshipFields); }
   function hide(id) { $(id).classList.remove('show'); }
 
   // 点遮罩关闭：弹层 id → 关闭函数
