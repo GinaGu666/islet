@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" id="meta-theme" content="#ECE9E3">
+<meta name="theme-color" id="meta-theme" content="#E7EBE7">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="islet">
@@ -31,22 +31,22 @@
   }
 
   :root {
-    --bg:        #ECE9E3;   /* 米灰：一堵素墙，暖不过头、灰不发冷 */
-    --card:      #F6F4F0;   /* 抽屉、弹层、输入框：比墙亮半档的同一种灰 */
+    --bg:        #E7EBE7;   /* 冷灰绿：保留素墙的柔和，去掉米灰里的棕黄 */
+    --card:      #F2F5F1;   /* 抽屉、弹层、输入框：同一灰绿里亮半档 */
     --user:      #FFFFFF;   /* 你的气泡：整个界面里唯一一张白纸 */
-    --ink:       #2B2A28;   /* 墨：接近黑，但不是 #000，和石墨同宗 */
-    --ink-2:     #6E6B66;
-    --ink-3:     #9E9A93;
-    --accent:    #3B3A37;   /* 石墨：所有按钮、开关、链接只有这一种颜色 */
-    --on-accent: #FFFFFF;   /* 石墨上的字 */
-    --accent-weak: rgba(59,58,55,0.08);
-    --accent-line: rgba(59,58,55,0.30);
-    --line:      rgba(43,42,40,0.10);
-    --code-bg:   #E2DFD8;
-    --code-head: rgba(43,42,40,0.04);
-    --scrim:     rgba(43,42,40,0.36);
+    --ink:       #29322D;   /* 深灰墨绿，保持阅读对比 */
+    --ink-2:     #5D6B62;
+    --ink-3:     #7A887F;
+    --accent:    #3D4D43;   /* 低饱和深灰绿：按钮、开关和链接 */
+    --on-accent: #FFFFFF;   /* 深灰绿上的字 */
+    --accent-weak: rgba(61,77,67,0.08);
+    --accent-line: rgba(61,77,67,0.30);
+    --line:      rgba(41,50,45,0.10);
+    --code-bg:   #DCE3DB;
+    --code-head: rgba(41,50,45,0.04);
+    --scrim:     rgba(41,50,45,0.36);
     --user-ink:  var(--ink);
-    --danger:    #A8473F;   /* 砖红：只给「删除」和「报错」，石墨主题里唯一的警示色 */
+    --danger:    #A8473F;   /* 砖红：只给「删除」和「报错」的警示色 */
     --radius:    20px;
     --radius-sm: 12px;
     --safe-top:    env(safe-area-inset-top, 0px);
@@ -77,42 +77,42 @@
   :root[data-aifont="mono"] .bubble,
   :root[data-aifont="mono"] .think-body-inner { font-family: var(--mono) !important; }
 
-  /* 深色是同一间屋子关了灯：墙变石墨，石墨变浅灰——按钮和你的字互换材质，其余关系不变 */
+  /* 深色沿用冷灰绿：降低亮度，保留相同的层次关系 */
   :root[data-theme="dark"] {
-    --bg:        #1F1E1C;
-    --card:      #292825;
-    --user:      #34322F;
-    --user-ink:  #E8E5DF;
-    --ink:       #E8E5DF;
-    --ink-2:     #A5A29B;
-    --ink-3:     #726F69;
-    --accent:    #DAD7D0;
-    --on-accent: #1F1E1C;
-    --accent-weak: rgba(218,215,208,0.10);
-    --accent-line: rgba(218,215,208,0.30);
-    --line:      rgba(232,229,223,0.10);
-    --code-bg:   #161514;
-    --code-head: rgba(232,229,223,0.05);
+    --bg:        #1D2420;
+    --card:      #27302A;
+    --user:      #323E36;
+    --user-ink:  #E5EDE6;
+    --ink:       #E5EDE6;
+    --ink-2:     #A0AEA4;
+    --ink-3:     #738579;
+    --accent:    #D0DED3;
+    --on-accent: #1D2420;
+    --accent-weak: rgba(208,222,211,0.10);
+    --accent-line: rgba(208,222,211,0.30);
+    --line:      rgba(229,237,230,0.10);
+    --code-bg:   #151B17;
+    --code-head: rgba(229,237,230,0.05);
     --scrim:     rgba(0,0,0,0.5);
     --danger:    #E09189;
     color-scheme: dark;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg:        #1F1E1C;
-      --card:      #292825;
-      --user:      #34322F;
-      --user-ink:  #E8E5DF;
-      --ink:       #E8E5DF;
-      --ink-2:     #A5A29B;
-      --ink-3:     #726F69;
-      --accent:    #DAD7D0;
-      --on-accent: #1F1E1C;
-      --accent-weak: rgba(218,215,208,0.10);
-      --accent-line: rgba(218,215,208,0.30);
-      --line:      rgba(232,229,223,0.10);
-      --code-bg:   #161514;
-      --code-head: rgba(232,229,223,0.05);
+      --bg:        #1D2420;
+      --card:      #27302A;
+      --user:      #323E36;
+      --user-ink:  #E5EDE6;
+      --ink:       #E5EDE6;
+      --ink-2:     #A0AEA4;
+      --ink-3:     #738579;
+      --accent:    #D0DED3;
+      --on-accent: #1D2420;
+      --accent-weak: rgba(208,222,211,0.10);
+      --accent-line: rgba(208,222,211,0.30);
+      --line:      rgba(229,237,230,0.10);
+      --code-bg:   #151B17;
+      --code-head: rgba(229,237,230,0.05);
       --scrim:     rgba(0,0,0,0.5);
       --danger:    #E09189;
       color-scheme: dark;
@@ -1304,7 +1304,7 @@
     if (aiFont === 'serif') el.removeAttribute('data-aifont');
     else el.setAttribute('data-aifont', aiFont);
     const meta = document.getElementById('meta-theme');
-    if (meta) meta.content = effectiveTheme() === 'dark' ? '#1F1E1C' : '#ECE9E3';
+    if (meta) meta.content = effectiveTheme() === 'dark' ? '#1D2420' : '#E7EBE7';
   }
   function setTheme(m) { themeMode = m; localStorage.setItem('islet_theme', m); applyTheme(); renderThemeTabs(); }
   function setFontSize(m) { fontSize = m; localStorage.setItem('islet_fontsize', m); applyTheme(); renderThemeTabs(); }
