@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" id="meta-theme" content="#E7EBE7">
+<meta name="theme-color" id="meta-theme" content="#E8EAE8">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="islet">
@@ -31,8 +31,8 @@
   }
 
   :root {
-    --bg:        #E7EBE7;   /* 冷灰绿：保留素墙的柔和，去掉米灰里的棕黄 */
-    --card:      #F2F5F1;   /* 抽屉、弹层、输入框：同一灰绿里亮半档 */
+    --bg:        #E8EAE8;   /* 偏冷的浅灰，只留很淡的绿意 */
+    --card:      #F3F4F2;   /* 抽屉、弹层、输入框：同一冷灰里亮半档 */
     --user:      #FFFFFF;   /* 你的气泡：整个界面里唯一一张白纸 */
     --ink:       #29322D;   /* 深灰墨绿，保持阅读对比 */
     --ink-2:     #5D6B62;
@@ -1304,7 +1304,7 @@
     if (aiFont === 'serif') el.removeAttribute('data-aifont');
     else el.setAttribute('data-aifont', aiFont);
     const meta = document.getElementById('meta-theme');
-    if (meta) meta.content = effectiveTheme() === 'dark' ? '#1D2420' : '#E7EBE7';
+    if (meta) meta.content = effectiveTheme() === 'dark' ? '#1D2420' : '#E8EAE8';
   }
   function setTheme(m) { themeMode = m; localStorage.setItem('islet_theme', m); applyTheme(); renderThemeTabs(); }
   function setFontSize(m) { fontSize = m; localStorage.setItem('islet_fontsize', m); applyTheme(); renderThemeTabs(); }
