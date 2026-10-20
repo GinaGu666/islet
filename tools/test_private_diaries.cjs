@@ -32,16 +32,31 @@ async function app(storage, db = new IDBFactory()) {
   r(`const realSet=lsSet; lsSet=()=>false; toggleDiarySetting(false); lsSet=realSet`); assert(r('editingCompanion().diaryEnabled')); assert(a.w.document.querySelector('#diary-toggle').checked);
   const secret = 'PRIVATE ONLY <img src=x onerror=alert(1)>\n今天想记住的细节。'; a.w.secret = secret;
   const today = r('dayKey()'), yesterday = r(`dayKey(new Date(Date.now()-864e5))`);
-  let out = await a.tool('write_diary',{title:'秘密标题',body:secret}); assert(JSON.parse(out.result).saved); assert.deepEqual(plain(out.args),{});
+  // Scheduling a diary contains no private draft; the independent request starts only after the reply is saved.
+  r(`globalThis.chatRounds=0;globalThis.diaryRelease=null;globalThis.diaryInput='';globalThis.diaryStarts=0;
+    chatOnce=async(sys,user)=>{diaryStarts++;diaryInput=user;if(isLoading||messages[messages.length-1].content!=='晚安，明天见。')throw Error('Diary started before chat finished');return new Promise(resolve=>{diaryRelease=resolve})};
+    streamCompletion=async(model,msgs,signal,onReason,onContent)=>{
+      onReason('先好好说晚安，日记留到之后。');
+      if(chatRounds++===0)return {ended:'done',finish:'tool_calls',toolCalls:[{id:'q',name:'write_diary',args:JSON.stringify({date:dayKey(),title:'IGNORE',body:'IGNORE THIS LEGACY DRAFT'})}]};
+      if(diaryStarts)throw Error('Diary blocked final reply');onContent('晚安，明天见。');return {ended:'done',finish:'stop'};
+    }`);
+  assert(!r(`JSON.stringify(DIARY_TOOLS[0].function.parameters)`).includes('body'));
+  await r('generateAssistant()');await pause();assert.equal(r('isLoading'),false);assert(r('!!diaryRelease'));assert.equal(r('diaryStarts'),1);assert(r('diaryInput').includes('晚安，明天见。'));assert(!r('diaryInput').includes('IGNORE'));
+  assert.equal((await r('allDiaries()')).length,0);assert.equal(a.w.document.querySelector('#diary-status').dataset.phase,'deciding');
+  assert(r('messages[messages.length-1].thinking').includes('先好好说晚安'));assert(!JSON.stringify(plain(r('messages'))).includes('IGNORE THIS'));
+  a.w.diaryOutput=JSON.stringify({write:true,title:'秘密标题',body:secret});r('diaryRelease(diaryOutput)');await r(`diaryWriteQueues.get('c1')`);
+  r(`globalThis.writeHandle=addAi('','',null,'qa','',false);writeHandle.row.dataset.sid='s1'`);
+  let out = await a.tool('write_diary',{},'s1','writeHandle');assert(JSON.parse(out.result).saved);assert.deepEqual(plain(out.args),{});assert.equal(r('diaryStarts'),1);
   assert.equal(a.w.document.querySelector('#diary-status').dataset.phase,'saved');assert(!a.w.document.querySelector('#diary-status').textContent.includes('秘密标题'));
   assert(!a.w.document.body.textContent.includes(secret)); assert(!JSON.stringify(a.storage()).includes('PRIVATE ONLY'));
-  out = await a.tool('write_diary',{title:'第二版',body:'不能覆盖'}); assert.equal(JSON.parse(out.result).title,'秘密标题');
+  out = await a.tool('write_diary',{title:'第二版',body:'不能覆盖'},'s1','writeHandle');assert(JSON.parse(out.result).saved);assert.equal((await r('allDiaries()'))[0].entry.title,'秘密标题');
   out = await a.tool('read_diary',{date:today}); assert.equal(JSON.parse(out.result).body,secret); assert(!a.w.document.body.textContent.includes('PRIVATE ONLY'));
   assert(!JSON.stringify(await r(`buildApiMessages(messages,'s1')`)).includes('PRIVATE ONLY'));
   out = await a.tool('read_diary',{date:today},'s2'); assert(out.result.includes('未开启'));
   r(`selectMemoryCompanion('c2'); toggleDiarySetting(true); stopDiaryJobs('c2'); selectMemoryCompanion('c1')`);
   out = await a.tool('read_diary',{date:today},'s2'); assert(out.result.includes('没有日记'));
-  for (const args of [{date:'2026-02-30',title:'x',body:'x'},{date:'9999-12-31',title:'x',body:'x'},{title:'x',body:'x'.repeat(3001)}]) assert((await a.tool('write_diary',args)).result.includes('出错'));
+  for (const args of [{date:'2026-02-30'},{date:'9999-12-31'}]) assert((await a.tool('write_diary',args,'s1','writeHandle')).result.includes('出错'));
+  assert.throws(()=>r(`diaryEntry('x','x'.repeat(3001))`),/3000/);
   r('globalThis.cancelled=new AbortController();cancelled.abort()'); assert((await a.tool('read_diary',{date:today},'s1','null','cancelled.signal')).result.includes('取消'));
   assert((await a.tool('read_diary',{},'unknown')).result.includes('未开启'));
   r(`globalThis.handle=addAi('给你看这一天。','',null,'qa','',false)`);
@@ -116,8 +131,10 @@ async function app(storage, db = new IDBFactory()) {
   await q(`catchUpDiary('c1')`); assert.equal(q('n'),1); assert.equal(b.w.document.querySelectorAll('.diary-share').length,0); assert(!JSON.stringify(b.storage()).includes('藏起来的日记'));
   await q('deleteCompanionDiaries("c1")'); q(`chatOnce=async()=>{n++;return '{"write":false}'}`); await q(`catchUpDiary('c1')`); await q(`catchUpDiary('c1')`); assert.equal(q('n'),2); assert.equal((await q('allDiaries()'))[0].entry,null);
   assert.equal(b.w.document.querySelector('#diary-status').dataset.phase,'skipped');assert(b.w.document.querySelector('#diary-status-hint').textContent.includes('可以关闭'));
-  // A skip may be replaced by an explicit diary; existing written content always wins concurrent decisions.
-  b.w.prior = yesterday; await b.tool('write_diary',{date:yesterday,title:'主动写',body:'稍后还是想写下来'});
+  q(`globalThis.skipHandle=addAi('','',null,'qa','',false);skipHandle.row.dataset.sid='s1'`);
+  const decided=await b.tool('write_diary',{date:yesterday},'s1','skipHandle');assert(JSON.parse(decided.result).decided);assert(!q('skipHandle.diaryRequests'));assert.equal(q('n'),2);
+  // Atomic storage never overwrites existing written content, even if another job decided to skip.
+  b.w.prior = yesterday; await q(`persistDiaryDecision(companions[0],prior,{title:'主动写',body:'稍后还是想写下来'})`);
   await q(`persistDiaryDecision(companions[0],prior,null)`); assert.equal((await q('allDiaries()'))[0].entry.title,'主动写');
   await q('deleteCompanionDiaries("c1")'); q(`chatOnce=async()=>{n++;throw Error('temporary')}`); await q(`catchUpDiary('c1')`); await q(`catchUpDiary('c1')`); assert.equal(q('n'),3); assert.equal((await q('allDiaries()')).length,0);
   await q('renderDiaryStatus()');assert.equal(b.w.document.querySelector('#diary-status').dataset.phase,'failed');
@@ -138,11 +155,43 @@ async function app(storage, db = new IDBFactory()) {
   s(`globalThis.releases=[];idbGet=(store,id)=>store==='diaries'&&id.startsWith('c1|')?new Promise(resolve=>releases.push(resolve)):realGet(store,id)`);
   const slow=s('renderDiaryStatus()');s(`switchCompanion('c2');releases.forEach(resolve=>resolve({entry:{title:'PRIVATE TITLE',body:'PRIVATE BODY'}}))`);await slow;await pause();assert.equal(status.w.document.querySelector('#diary-status').style.display,'none');
   s('idbGet=realGet');
-  s(`switchCompanion('c1');globalThis.realPersist=persistDiaryDecision;globalThis.saveRelease=null;persistDiaryDecision=async(...args)=>{await new Promise(resolve=>{saveRelease=resolve});return realPersist(...args)}`);
-  const saving=status.tool('write_diary',{date:yesterday,title:'PRIVATE TITLE',body:'PRIVATE BODY'});await pause();assert(s('!!saveRelease'));
+  status.w.statusDay=yesterday;
+  s(`switchCompanion('c1');messages.push({role:'user',content:'昨天聊过的事情',ts:new Date(statusDay+'T12:00:00').getTime()});saveCurrent();
+    globalThis.realPersist=persistDiaryDecision;globalThis.saveRelease=null;persistDiaryDecision=async(...args)=>{await new Promise(resolve=>{saveRelease=resolve});return realPersist(...args)};
+    chatOnce=async()=>'{"write":true,"title":"PRIVATE TITLE","body":"PRIVATE BODY"}'`);
+  const saving=s(`catchUpDiary('c1',{date:statusDay,sid:currentId,branchId:activeBranchFor('c1'),model:companionModel(companions[0]),epoch:diaryEpochs.get('c1')||0})`);await pause();assert(s('!!saveRelease'));
   assert.equal(status.w.document.querySelector('#diary-status').dataset.phase,'saving');assert(!status.w.document.querySelector('#diary-status-hint').textContent.includes('可以关闭'));
   s('saveRelease()');await saving;assert.equal(status.w.document.querySelector('#diary-status').dataset.phase,'saved');assert(!status.w.document.querySelector('#diary-status').textContent.includes('PRIVATE'));
   s('persistDiaryDecision=realPersist');
-  for(const x of [a,reload,restored,b,status]) assert.deepEqual(x.errors,[]);
-  console.log('PASS: private diary isolation, per-round reasoning privacy and ordinary reasoning; dated idle/busy/save/skip/failure/unknown status, no early completion, reload and slow-read role isolation; default-off/no requests, date bounds, cancellation/no overwrite/sharing, backup/restore, cold-branch decisions/skip dedupe/backoff and deletion isolation.');
+  // Aborted/incomplete chat never launches a new diary request; ordinary chat adds no background request.
+  const cancelled=await app(), z=cancelled.run;
+  z(`companions[0].diaryEnabled=true;globalThis.n=0;globalThis.round=0;chatOnce=async()=>{n++;throw Error('Must not request')};
+    streamCompletion=async(model,msgs,signal,onReason,onContent)=>{
+      onReason('正常的聊天思考');if(round++===0)return {ended:'done',finish:'tool_calls',toolCalls:[{id:'q',name:'write_diary',args:'{}'}]};return {ended:'aborted'};
+    }`);
+  await z('generateAssistant()');await pause();assert.equal(z('n'),0);assert.equal(z('diaryWriteQueues.size'),0);assert.equal((await z('allDiaries()')).length,0);
+  z(`streamCompletion=async(model,msgs,signal,onReason,onContent)=>{onReason('普通思考');onContent('普通聊天');return {ended:'done',finish:'stop'}}`);
+  await z('generateAssistant()');assert.equal(z('n'),0);assert.equal(z('messages[messages.length-1].thinking'),'普通思考');
+  // Turning off then back on invalidates an explicit task waiting behind an older daily job.
+  cancelled.w.oldDay=yesterday;
+  z(`companions[0].diarySinceDay=oldDay;messages.push({role:'user',content:'昨天的聊天',ts:new Date(oldDay+'T12:00:00').getTime()});saveCurrent();
+    globalThis.oldRelease=null;chatOnce=()=>{n++;return new Promise(resolve=>{oldRelease=resolve})}`);
+  const older=z(`catchUpDiary('c1')`);await pause();assert(z('!!oldRelease'));
+  z(`round=0;streamCompletion=async(model,msgs,signal,onReason,onContent)=>{
+    if(round++===0)return {ended:'done',finish:'tool_calls',toolCalls:[{id:'q',name:'write_diary',args:'{}'}]};onContent('晚安');return {ended:'done',finish:'stop'};
+  }`);
+  await z('generateAssistant()');assert(z('diaryWriteQueues.has("c1")'));
+  z(`editingCompanionId='c1';toggleDiarySetting(false);toggleDiarySetting(true);oldRelease('{"write":true,"title":"old","body":"cancelled"}')`);await older;await z(`diaryWriteQueues.get('c1')`);assert.equal(z('n'),1);assert.equal((await z('allDiaries()')).length,0);
+  // Reading can be stopped while a background job continues independently; switching roles cannot redirect it.
+  const independent=await app(), t=independent.run;
+  t(`companions[0].diaryEnabled=true;globalThis.round=0;globalThis.releaseBg=null;globalThis.bgInput='';
+    chatOnce=(sys,user)=>{bgInput=user;return new Promise(resolve=>{releaseBg=resolve})};
+    streamCompletion=async(model,msgs,signal,onReason,onContent)=>{
+      if(round++===0)return {ended:'done',finish:'tool_calls',toolCalls:[{id:'q',name:'write_diary',args:'{}'}]};onContent('先好好睡吧。');return {ended:'done',finish:'stop'};
+    }`);
+  await t('generateAssistant()');await pause();assert(t('!!releaseBg'));assert(t('bgInput').includes('先好好睡吧。'));
+  t('globalThis.readAbort=new AbortController()');const read=independent.tool('read_diary',{date:today},'s1','null','readAbort.signal');t('readAbort.abort()');assert((await read).result.includes('取消'));assert(!t(`diaryControllers.get('c1').signal.aborted`));
+  t(`switchCompanion('c2');releaseBg('{"write":true,"title":"独立后台","body":"只有 c1 的日记"}')`);await t(`diaryWriteQueues.get('c1')`);assert.equal((await t('allDiaries()'))[0].companionId,'c1');assert.equal(t('activeCompanionId'),'c2');assert.equal(independent.w.document.querySelector('#diary-status').style.display,'none');
+  for(const x of [a,reload,restored,b,status,cancelled,independent]) assert.deepEqual(x.errors,[]);
+  console.log('PASS: date-only diary intent, reply-before-background ordering, final response in bounded diary context, ordinary reasoning retained, no draft in chat/logs; aborted chat/no extra ordinary requests, queued epoch cancellation, independent read cancellation and role switch; daily dedupe/skip/privacy, dated status, backup/restore, storage bounds and deletion isolation.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>contexts.forEach(d=>d.window.close()));
