@@ -437,8 +437,11 @@
   .diary-share { box-sizing: border-box; width: 100%; margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--card); }
   .diary-share summary { cursor: pointer; color: var(--ink-2); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
   .diary-share-body { padding-top: 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--serif); font-size: var(--fs-ai); line-height: 1.8; }
-  .diary-status { flex-shrink: 0; padding: 6px 16px; border-top: 1px solid var(--line); text-align: center; background: var(--bg); color: var(--ink-2); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+  .diary-status { position: relative; flex-shrink: 0; padding: 6px 48px; border-top: 1px solid var(--line); text-align: center; background: var(--bg); color: var(--ink-2); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
   .diary-status small { display: block; color: var(--ink-3); font-size: 10px; }
+  .diary-status-dismiss { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ink-3); font: inherit; font-size: 22px; line-height: 1; cursor: pointer; }
+  .diary-status-dismiss:active { background: var(--card); color: var(--ink); }
+  .diary-status-dismiss:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; }
   .list-loading { padding: 16px; text-align: center; color: var(--ink-3); font-size: 12.5px; }
 
   /* token 底栏 */
@@ -620,7 +623,7 @@
   </div>
 </div>
 <div class="token-bar" id="token-bar" style="display:none"></div>
-<div class="diary-status" id="diary-status" role="status" aria-live="polite" style="display:none"><span id="diary-status-text"></span><small id="diary-status-hint"></small></div>
+<div class="diary-status" id="diary-status" role="status" aria-live="polite" style="display:none"><span id="diary-status-text"></span><small id="diary-status-hint"></small><button class="diary-status-dismiss" id="diary-status-dismiss" type="button" onclick="dismissDiaryStatus()" aria-label="收起日记状态提示" title="只收起提示，日记照常运行">×</button></div>
 
 <div class="edit-bar hidden" id="edit-bar"><span>✎ 编辑消息 · 发送后将从这里重新生成</span><button class="x" type="button" onclick="cancelEdit()">取消</button></div>
 <div class="img-strip" id="img-strip"></div>
@@ -1200,6 +1203,7 @@
         <label class="switch"><input type="checkbox" id="diary-toggle" onchange="toggleDiarySetting(this.checked)"><span class="slider"></span></label>
       </div>
       <div class="mem-hint" id="diary-hint">需使用 OpenRouter 并开启小工具。聊天回复结束后，在后台单独判断、生成日记；未处理的旧日会在下次打开或聊天时补判。普通聊天的思考仍可回看；私下翻日记的思考不公开。无日记列表；本机完整备份仍包含日记。开关立即保存，关闭保留已有日记。</div>
+      <button class="comp-tab" id="diary-status-restore" type="button" onclick="restoreDiaryStatus()" style="display:none">重新显示日记状态提示</button>
 
       <button class="btn-primary" onclick="saveMemory()">保存</button>
       <div class="form-note">记忆只存在本机浏览器，随时可改可删；对话时用的是当前角色的人设与记忆</div>
@@ -3254,13 +3258,26 @@
     diaryStatuses.set(c.id, { date, phase, seenDay: dayKey() });
     if (c.id === activeCompanionId) renderDiaryStatus();
   }
+  function updateDiaryStatusRestore() {
+    const c = editingCompanion(), button = $('diary-status-restore');
+    if (button) button.style.display = c && c.diaryEnabled === true && c.diaryStatusHidden === true ? '' : 'none';
+  }
+  function setDiaryStatusHidden(c, hidden) {
+    if (!c || !companions.includes(c)) return false;
+    const old = c.diaryStatusHidden;
+    c.diaryStatusHidden = hidden;
+    if (!lsSet('islet_companions', JSON.stringify(companions))) { if (old === undefined) delete c.diaryStatusHidden; else c.diaryStatusHidden = old; return false; }
+    renderDiaryStatus(); updateDiaryStatusRestore(); return true;
+  }
+  function dismissDiaryStatus() { setDiaryStatusHidden(activeCompanion(), true); }
+  function restoreDiaryStatus() { if (setDiaryStatusHidden(editingCompanion(), false)) toast('该角色的日记状态提示已恢复'); }
   async function renderDiaryStatus() {
     const rev = ++diaryStatusRevision, box = $('diary-status'), c = companions.find(x => x.id === activeCompanionId);
     if (!box) return;
-    if (!c || c.diaryEnabled !== true || diaryRestoring || diaryDeleted.has(c)) { box.style.display = 'none'; return; }
+    if (!c || c.diaryEnabled !== true || c.diaryStatusHidden === true || diaryRestoring || diaryDeleted.has(c)) { box.style.display = 'none'; return; }
     box.style.display = '';
     const draw = (phase, date) => {
-      if (rev !== diaryStatusRevision || !companions.includes(c) || c.id !== activeCompanionId || c.diaryEnabled !== true) return;
+      if (rev !== diaryStatusRevision || !companions.includes(c) || c.id !== activeCompanionId || c.diaryEnabled !== true || c.diaryStatusHidden === true) return;
       const labels = { checking: '正在确认保存状态', idle: '今天尚未写', queued: '等待聊天结束后处理', deciding: '正在判断要不要写', saving: '正在保存', saved: '已保存', skipped: 'TA 决定不写', failed: '尚未完成', unavailable: '暂不可用', unknown: '无法确认是否保存' };
       const busy = ['queued', 'deciding', 'saving'].includes(phase);
       $('diary-status-text').textContent = (date ? date + ' 日记' : '私密日记') + ' · ' + labels[phase];
@@ -3301,6 +3318,7 @@
     if (!on) stopDiaryJobs(c.id);
     else scheduleDiaryCatchup(c.id);
     diaryStatuses.delete(c.id); renderDiaryStatus();
+    updateDiaryStatusRestore();
     toast(on ? '私密日记已开启' : '私密日记已关闭，已有日记保留');
   }
   function diaryEntry(title, body) {
@@ -5103,6 +5121,7 @@
     renderHistBlock();
     $('autodistill-toggle').checked = c.autoDistill !== false;
     $('diary-toggle').checked = c.diaryEnabled === true;
+    updateDiaryStatusRestore();
     $('distill-status').textContent = '';
     updateMemCount();
   }
