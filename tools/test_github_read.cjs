@@ -11,6 +11,7 @@ let data, status = 200, calls = [], labels = [];
 const file = text => ({ type: 'file', sha: 'test-sha', encoding: 'base64', size: Buffer.byteLength(text), content: Buffer.from(text).toString('base64') });
 const context = vm.createContext({
   AbortController, TextDecoder, Uint8Array, atob, setTimeout, clearTimeout,
+  DIARY_TOOL_NAMES: new Set(['write_diary', 'read_diary', 'share_diary']),
   sessionCompanion: () => ({ id: 'test', name: '测试角色' }),
   logTool: (_, label) => labels.push(label),
   fetch: async (url, options) => { calls.push({ url, options }); return { ok: status === 200, status, json: async () => data }; },
