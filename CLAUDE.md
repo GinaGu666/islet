@@ -15,6 +15,9 @@
   - 每个角色**最新一块**在 localStorage（`islet_s_<块id>`，同步读写），其余块都在 IndexedDB 的 `chunks` 表（`cold: 1`）。`rebalanceChunks()` 负责把老块挪进去，挪之前读回核对一字不差才删 localStorage 里的副本。
   - 角色、记忆卡、大事记：`islet_companions`。共享档案：`islet_about`（模型改过的旧版在 `islet_about_hist`）。打卡 `islet_habits`，名场面 `islet_quotes`，活动 `islet_arena`。
   - 图片 / 文件附件在 IndexedDB 的 `imgs` / `files`；导入角色的整段原文在 `imports`。
+  - 私密日记在 IndexedDB `diaries`，按角色 + 本机日期存储（`entry:null` 表示当天决定不写）。角色的 `diaryEnabled` 必须严格为 true 才开启，默认关闭；`diarySinceDay` 限制自动补判不回溯开启之前。OpenRouter + 小工具可用时，模型在收尾时自行写，或下次打开/聊天时每次最多补判一个旧日。关闭保留旧日记，并取消正在生成的补判。
+  - `write_diary` / `read_diary` / `share_diary` 只操作请求所属角色。私密参数、读取结果和开启期间的聊天 reasoning 不进入聊天存储/日志；只有显式分享的日期快照 `message.diaryShares` 进入聊天和后续上下文。不要增加直接翻阅私密正文的 UI，也不要把所有日记自动塞进模型上下文。
+  - 完整备份含 `diaries` 和已分享快照（本机存储和备份并非加密隐私边界）；旧备份缺少 diaries 时按空列表覆盖。恢复日记要先校验、用事务原子替换；删除角色一并删除其日记，删除分支不删除角色日记。
   - API Key（`or_key`）、传话员门禁（`cc_key`）、Notion 钥匙（`islet_notion_key`）只在本机，**刻意不进备份文件，也不写进代码**。
   - `lsSet()` 写 localStorage 失败会弹窗提醒备份。设置里的存储表仍按硬编码的 5 MB 算百分比，没换成 `navigator.storage.estimate()`（待办，需她同意再动）。
 - **备份 / 归档**：导出备份 = 全量（`app: 'islet'`，v2 起带附件）；归档 = 把久未活动的旧块导出成 `islet-archive` 文件、她确认文件存好了才从本机删；两种都能导回来，格式要保持向后兼容，她手上有旧文件。导入时一块都不能静默丢：localStorage 放不下就进 IndexedDB，两边都不行就报出来、不进索引。
