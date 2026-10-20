@@ -1196,7 +1196,7 @@
         <div><div class="tg-main">私密日记</div><div class="tg-sub">默认关闭。由 TA 决定写不写、分享哪一天；开启后会增加 token 用量</div></div>
         <label class="switch"><input type="checkbox" id="diary-toggle" onchange="toggleDiarySetting(this.checked)"><span class="slider"></span></label>
       </div>
-      <div class="mem-hint" id="diary-hint">需使用 OpenRouter 并开启小工具。收尾时可写，未收尾的旧一天会在下次打开或聊天时补判。开启期间隐藏聊天思考过程，避免日记内容外露。无日记列表；本机完整备份仍包含日记。开关立即保存，关闭保留已有日记。</div>
+      <div class="mem-hint" id="diary-hint">需使用 OpenRouter 并开启小工具。收尾时可写，未收尾的旧一天会在下次打开或聊天时补判。普通聊天的思考仍可回看；涉及私密日记的部分不公开。无日记列表；本机完整备份仍包含日记。开关立即保存，关闭保留已有日记。</div>
 
       <button class="btn-primary" onclick="saveMemory()">保存</button>
       <div class="form-note">记忆只存在本机浏览器，随时可改可删；对话时用的是当前角色的人设与记忆</div>
@@ -3156,7 +3156,7 @@
       return null;
     }
     scrollToBottom();
-    return { row, thinkEl, thinkBody: thinkEl.querySelector('.think-body-inner'), thinkLbl: thinkEl.querySelector('.lbl'), textEl: row.querySelector('.ai-text'), toolLog: row.querySelector('.tool-log'), diaryPrivate: diaryReady(_c), _raf: null };
+    return { row, thinkEl, thinkBody: thinkEl.querySelector('.think-body-inner'), thinkLbl: thinkEl.querySelector('.lbl'), textEl: row.querySelector('.ai-text'), toolLog: row.querySelector('.tool-log'), _raf: null };
   }
 
   /* ---------- Markdown ---------- */
@@ -4250,9 +4250,17 @@
     h.textEl.classList.add('cursor');
 
     let contentText = '', reasoningText = '', thinkStart = null, firstContentAt = null, finalSec = null, timer = null;
+    let holdReason = false, pendingReason = '', diaryReasonPrivate = false;
     const startTimer = () => { timer = setInterval(() => { h.thinkLbl.textContent = `思考中… ${((performance.now() - thinkStart) / 1000).toFixed(1)}s`; }, 100); };
     const stopTimer = () => { if (timer) { clearInterval(timer); timer = null; } };
-    const onReason = r => { if (h.diaryPrivate) return; if (contentText === '' && h.textEl.textContent) h.textEl.textContent = ''; if (thinkStart == null) { thinkStart = performance.now(); h.thinkEl.classList.remove('hidden'); startTimer(); } reasoningText += r; h.thinkBody.textContent = reasoningText; maybeScroll(); };
+    const onReason = r => {
+      if (diaryReasonPrivate) return;
+      if (contentText === '' && h.textEl.textContent) h.textEl.textContent = '';
+      if (thinkStart == null) { thinkStart = performance.now(); h.thinkEl.classList.remove('hidden'); startTimer(); }
+      if (holdReason) pendingReason += r; else reasoningText += r;
+      h.thinkBody.textContent = reasoningText + (pendingReason ? (reasoningText ? '\n\n' : '') + '正在思考…' : '');
+      maybeScroll();
+    };
     const onContent = c => {
       if (firstContentAt == null) { firstContentAt = performance.now(); if (thinkStart != null) { stopTimer(); finalSec = (firstContentAt - thinkStart) / 1000; h.thinkLbl.textContent = `已思考 ${finalSec.toFixed(1)}s`; h.thinkEl.classList.remove('open'); } }
       contentText += c; scheduleRender(h, () => contentText);
@@ -4266,7 +4274,18 @@
     let rounds = 0, roundStart = 0;
     while (true) {
       myAbort = currentAbort = new AbortController();
+      // 工具选择在思考之后才到：先暂存这一轮，确认不是日记调用后再公开，避免先闪出正文再隐藏。
+      holdReason = !diaryReasonPrivate && !!(tools && tools.some(t => /^(write_diary|read_diary|share_diary)$/.test(t.function.name)));
+      pendingReason = '';
       const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid, extra), myAbort.signal, onReason, onContent, onServed, { ghostGuard: true, tools, toolChoice: rounds >= MAX_TOOL_ROUNDS ? 'none' : 'auto' });
+      if (holdReason) {
+        const privateCall = (res.toolCalls || []).some(t => /^(write_diary|read_diary|share_diary)$/.test(t.name));
+        if (privateCall) diaryReasonPrivate = true;   // 后续轮次已经接触日记，也不公开思考
+        else if (res.ended === 'done' && (!res.finish || ['stop', 'tool_calls'].includes(res.finish))) reasoningText += pendingReason;
+        pendingReason = ''; h.thinkBody.textContent = reasoningText;
+        if (!reasoningText) { stopTimer(); thinkStart = null; finalSec = null; h.thinkEl.classList.add('hidden'); }
+        else if (privateCall) stopTimer();
+      }
       generationId = res.generationId || ''; providerName = res.providerName || '';   // 每次请求独立，不能沿用上一轮工具请求的供应商
       if (res.usage) lastUsage = res.usage;
       if (res.toolsDropped) tools = null;   // 这个模型不吃工具，后面几轮别再带

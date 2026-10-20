@@ -60,8 +60,35 @@ async function app(storage, db = new IDBFactory()) {
   await r('generateAssistant()'); const generated = plain(r('messages[messages.length-1]'));
   assert.equal(generated.thinking,null); assert(!JSON.stringify(generated.tools).includes('PRIVATE ONLY')); assert(generated.tools.every(t=>Object.keys(t.args).length===0)); assert.equal(generated.diaryShares[0].body,secret);
   assert(JSON.stringify(await r(`buildApiMessages(messages,'s1')`)).includes('PRIVATE ONLY'));
+  // The diary switch must not suppress ordinary reasoning, including the reply after a diary operation.
+  r(`streamCompletion=async(model,msgs,signal,onReason,onContent)=>{
+    onReason('普通聊天的思考，应该保留。');
+    globalThis.reasonHeld=!$('chat').lastElementChild.querySelector('.think-body-inner').textContent.includes('普通聊天的思考');
+    onContent('今天也很开心。');return {ended:'done',finish:'stop'};
+  }`);
+  await r('generateAssistant()'); assert(r('reasonHeld'));
+  assert.equal(r('messages[messages.length-1].thinking'),'普通聊天的思考，应该保留。');
+  assert.equal(a.w.document.querySelector('#chat').lastElementChild.querySelector('.think-body-inner').textContent,'普通聊天的思考，应该保留。');
+  assert(!a.w.document.querySelector('#chat').lastElementChild.querySelector('.think').classList.contains('hidden'));
+  // Retain already-public reasoning from an ordinary tool round, but never flash/save the diary round.
+  r(`globalThis.round=0;globalThis.privateFlashed=false;streamCompletion=async(model,msgs,signal,onReason,onContent)=>{
+    if(round++===0){onReason('先回想一下公开的聊天。');return {ended:'done',finish:'tool_calls',toolCalls:[{id:'c',name:'recall',args:'{"query":"海边"}'}]}}
+    onReason(secret);privateFlashed=privateFlashed||$('chat').lastElementChild.textContent.includes(secret);
+    if(round===2)return {ended:'done',finish:'tool_calls',toolCalls:[{id:'d',name:'read_diary',args:JSON.stringify({date:dayKey()})}]};
+    onContent('有些想法我先留着。');return {ended:'done',finish:'stop'};
+  }`);
+  await r('generateAssistant()'); assert(!r('privateFlashed')); assert.equal(r('messages[messages.length-1].thinking'),'先回想一下公开的聊天。');
+  // An interrupted round is undecided: it might have been about to write a private diary.
+  r(`streamCompletion=async(model,msgs,signal,onReason)=>{onReason(secret);return {ended:'aborted'}}`);
+  const beforeAbort=r('messages.length');await r('generateAssistant()');assert.equal(r('messages.length'),beforeAbort);
+  assert(!a.w.document.querySelector('#chat').lastElementChild.textContent.includes(secret));
   // Turning off preserves records and already-shared messages while removing all future diary tools.
   r('toggleDiarySetting(false)'); assert(!names().includes('write_diary')); assert.equal((await r('allDiaries()')).length,1);
+  r(`streamCompletion=async(model,msgs,signal,onReason,onContent)=>{
+    onReason('日记关闭时仍实时显示。');globalThis.liveReason=$('chat').lastElementChild.querySelector('.think-body-inner').textContent==='日记关闭时仍实时显示。';
+    onContent('普通回复');return {ended:'done',finish:'stop'};
+  }`);
+  await r('generateAssistant()'); assert(r('liveReason')); assert.equal(r('messages[messages.length-1].thinking'),'日记关闭时仍实时显示。');
   const reload = await app(a.storage(),a.db); assert.equal(reload.w.document.querySelector('.diary-share-body').textContent,secret); assert(!reload.run('activeCompanion().diaryEnabled'));
   await r('exportBackup()'); const backup = JSON.parse(a.w.download.content); assert.equal(backup.diaries[0].entry.body,secret);
   const restored = await app(); restored.w.qaBackup={files:[new restored.w.File([JSON.stringify(backup)],'backup.json')],value:'x'}; restored.run('importBackup(qaBackup)'); await pause(); await pause();
@@ -96,5 +123,5 @@ async function app(storage, db = new IDBFactory()) {
   await q(`idbPut('diaries',{id:'c2|'+dayKey(),companionId:'c2',date:dayKey(),entry:{title:'two',body:'keep'},decidedAt:1})`);
   await q(`deleteCompanion('c1')`); assert.equal(q('companions.length'),1); assert.equal((await q('allDiaries()'))[0].companionId,'c2');
   for(const x of [a,reload,restored,b]) assert.deepEqual(x.errors,[]);
-  console.log('PASS: default-off/no requests, per-role controls, private write/read, date bounds, cancellation, no overwrite, explicit safe sharing, sanitized generation logs/reasoning, reload/backup/restore, atomic replacement failure, cold-branch daily decisions/skip dedupe/backoff, no historical backfill, disable during generation, and role deletion isolation.');
+  console.log('PASS: default-off/no requests, per-role controls, private write/read, date bounds, cancellation, no overwrite, explicit safe sharing, normal reasoning preserved after diary use, per-round private reasoning never flashed/saved, interrupted reasoning discarded, diaries-off live reasoning, sanitized logs, reload/backup/restore, atomic replacement failure, cold-branch daily decisions/skip dedupe/backoff, disable during generation, and deletion isolation.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>contexts.forEach(d=>d.window.close()));
