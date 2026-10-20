@@ -19,10 +19,12 @@ async function app(storage, db = new IDBFactory()) {
 }
 (async () => {
   const a = await app(), r = a.run;
+  assert.equal(a.w.document.querySelector('#diary-status').style.display,'none');
   const names = () => plain(r(`activeToolDefs('s1').map(t=>t.function.name)`));
   assert(!names().includes('write_diary')); assert(!r(`buildSystemContent('s1')`).includes('## 私密日记'));
   r(`chatOnce=async()=>{throw Error('Disabled diaries must never request')}; scheduleDiaryCatchup('c1')`); await r(`catchUpDiary('c1')`); assert.equal(r('diaryTimers.size'),0);
   r(`openMemory(); toggleDiarySetting(true); stopDiaryJobs('c1')`);
+  await r('renderDiaryStatus()');assert.equal(a.w.document.querySelector('#diary-status').dataset.phase,'idle');assert(a.w.document.querySelector('#diary-status-hint').textContent.includes('可以关闭'));
   assert.equal(JSON.parse(a.w.localStorage.islet_companions)[0].diaryEnabled,true); assert.equal(r('editingCompanion().diarySinceDay'),r('dayKey()')); assert(names().includes('share_diary'));
   assert(!plain(r(`activeToolDefs('s2').map(t=>t.function.name)`)).includes('write_diary'));
   r(`provider='cc'`); assert(!names().includes('read_diary')); r(`provider='or'; toolsEnabled=false`); assert(!names().includes('read_diary')); r('toolsEnabled=true');
@@ -31,6 +33,7 @@ async function app(storage, db = new IDBFactory()) {
   const secret = 'PRIVATE ONLY <img src=x onerror=alert(1)>\n今天想记住的细节。'; a.w.secret = secret;
   const today = r('dayKey()'), yesterday = r(`dayKey(new Date(Date.now()-864e5))`);
   let out = await a.tool('write_diary',{title:'秘密标题',body:secret}); assert(JSON.parse(out.result).saved); assert.deepEqual(plain(out.args),{});
+  assert.equal(a.w.document.querySelector('#diary-status').dataset.phase,'saved');assert(!a.w.document.querySelector('#diary-status').textContent.includes('秘密标题'));
   assert(!a.w.document.body.textContent.includes(secret)); assert(!JSON.stringify(a.storage()).includes('PRIVATE ONLY'));
   out = await a.tool('write_diary',{title:'第二版',body:'不能覆盖'}); assert.equal(JSON.parse(out.result).title,'秘密标题');
   out = await a.tool('read_diary',{date:today}); assert.equal(JSON.parse(out.result).body,secret); assert(!a.w.document.body.textContent.includes('PRIVATE ONLY'));
@@ -109,19 +112,37 @@ async function app(storage, db = new IDBFactory()) {
   `);
   await q(`idbPut('chunks',{id:'cold',msgs:[{role:'user',content:'昨天相处的尾声',ts},{role:'assistant',content:'晚安',ts:ts+1}]})`);
   await Promise.all([q(`catchUpDiary('c1')`),q(`catchUpDiary('c1')`)]); assert.equal(q('n'),1); assert(q('inputs[0].user').includes('昨天相处')); assert(!q('inputs[0].user').includes('ALTERNATE')); assert(q('inputs[0].signal'));
+  assert.equal(b.w.document.querySelector('#diary-status').dataset.phase,'saved');assert(b.w.document.querySelector('#diary-status-text').textContent.includes(yesterday));
   await q(`catchUpDiary('c1')`); assert.equal(q('n'),1); assert.equal(b.w.document.querySelectorAll('.diary-share').length,0); assert(!JSON.stringify(b.storage()).includes('藏起来的日记'));
   await q('deleteCompanionDiaries("c1")'); q(`chatOnce=async()=>{n++;return '{"write":false}'}`); await q(`catchUpDiary('c1')`); await q(`catchUpDiary('c1')`); assert.equal(q('n'),2); assert.equal((await q('allDiaries()'))[0].entry,null);
+  assert.equal(b.w.document.querySelector('#diary-status').dataset.phase,'skipped');assert(b.w.document.querySelector('#diary-status-hint').textContent.includes('可以关闭'));
   // A skip may be replaced by an explicit diary; existing written content always wins concurrent decisions.
   b.w.prior = yesterday; await b.tool('write_diary',{date:yesterday,title:'主动写',body:'稍后还是想写下来'});
   await q(`persistDiaryDecision(companions[0],prior,null)`); assert.equal((await q('allDiaries()'))[0].entry.title,'主动写');
   await q('deleteCompanionDiaries("c1")'); q(`chatOnce=async()=>{n++;throw Error('temporary')}`); await q(`catchUpDiary('c1')`); await q(`catchUpDiary('c1')`); assert.equal(q('n'),3); assert.equal((await q('allDiaries()')).length,0);
+  await q('renderDiaryStatus()');assert.equal(b.w.document.querySelector('#diary-status').dataset.phase,'failed');
   // Disabling while the server is still generating prevents a late private write.
   q(`diaryFailures.clear();globalThis.release=null;chatOnce=()=>new Promise(resolve=>{release=resolve})`); const pending=q(`catchUpDiary('c1')`); await pause(); assert(q('!!release'));
+  assert.equal(b.w.document.querySelector('#diary-status').dataset.phase,'deciding');assert(b.w.document.querySelector('#diary-status-hint').textContent.includes('保留页面'));
   q(`editingCompanionId='c1';toggleDiarySetting(false);release('{"write":true,"title":"late","body":"must not save"}')`); await pending; assert.equal((await q('allDiaries()')).length,0);
+  assert.equal(b.w.document.querySelector('#diary-status').style.display,'none');
   // A fresh activation never backfills old history, and current-day messages do not cost an extra request.
   q(`toggleDiarySetting(true);stopDiaryJobs('c1');chatOnce=async()=>{throw Error('No backfill allowed')}`); await q(`catchUpDiary('c1')`); assert.equal((await q('allDiaries()')).length,0);
   await q(`idbPut('diaries',{id:'c2|'+dayKey(),companionId:'c2',date:dayKey(),entry:{title:'two',body:'keep'},decidedAt:1})`);
   await q(`deleteCompanion('c1')`); assert.equal(q('companions.length'),1); assert.equal((await q('allDiaries()'))[0].companionId,'c2');
-  for(const x of [a,reload,restored,b]) assert.deepEqual(x.errors,[]);
-  console.log('PASS: default-off/no requests, per-role controls, private write/read, date bounds, cancellation, no overwrite, explicit safe sharing, normal reasoning preserved after diary use, per-round private reasoning never flashed/saved, interrupted reasoning discarded, diaries-off live reasoning, sanitized logs, reload/backup/restore, atomic replacement failure, cold-branch daily decisions/skip dedupe/backoff, disable during generation, and deletion isolation.');
+  // Reload consults durable storage. Failed/slow storage never invents completion or leaks across roles.
+  const status=await app(a.storage(),a.db), s=status.run;
+  s(`companions[0].diaryEnabled=true;companions[1].diaryEnabled=false`);await s('renderDiaryStatus()');assert.equal(status.w.document.querySelector('#diary-status').dataset.phase,'saved');
+  s('setLoading(true)');await s('renderDiaryStatus()');assert(status.w.document.querySelector('#diary-status-hint').textContent.includes('回复还在生成'));s('setLoading(false)');
+  s(`globalThis.realGet=idbGet;diaryStatuses.clear();idbGet=async()=>{throw Error('read failure')}`);await s('renderDiaryStatus()');assert.equal(status.w.document.querySelector('#diary-status').dataset.phase,'unknown');
+  s(`globalThis.releases=[];idbGet=(store,id)=>store==='diaries'&&id.startsWith('c1|')?new Promise(resolve=>releases.push(resolve)):realGet(store,id)`);
+  const slow=s('renderDiaryStatus()');s(`switchCompanion('c2');releases.forEach(resolve=>resolve({entry:{title:'PRIVATE TITLE',body:'PRIVATE BODY'}}))`);await slow;await pause();assert.equal(status.w.document.querySelector('#diary-status').style.display,'none');
+  s('idbGet=realGet');
+  s(`switchCompanion('c1');globalThis.realPersist=persistDiaryDecision;globalThis.saveRelease=null;persistDiaryDecision=async(...args)=>{await new Promise(resolve=>{saveRelease=resolve});return realPersist(...args)}`);
+  const saving=status.tool('write_diary',{date:yesterday,title:'PRIVATE TITLE',body:'PRIVATE BODY'});await pause();assert(s('!!saveRelease'));
+  assert.equal(status.w.document.querySelector('#diary-status').dataset.phase,'saving');assert(!status.w.document.querySelector('#diary-status-hint').textContent.includes('可以关闭'));
+  s('saveRelease()');await saving;assert.equal(status.w.document.querySelector('#diary-status').dataset.phase,'saved');assert(!status.w.document.querySelector('#diary-status').textContent.includes('PRIVATE'));
+  s('persistDiaryDecision=realPersist');
+  for(const x of [a,reload,restored,b,status]) assert.deepEqual(x.errors,[]);
+  console.log('PASS: private diary isolation, per-round reasoning privacy and ordinary reasoning; dated idle/busy/save/skip/failure/unknown status, no early completion, reload and slow-read role isolation; default-off/no requests, date bounds, cancellation/no overwrite/sharing, backup/restore, cold-branch decisions/skip dedupe/backoff and deletion isolation.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>contexts.forEach(d=>d.window.close()));
