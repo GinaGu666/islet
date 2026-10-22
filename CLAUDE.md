@@ -12,7 +12,7 @@
 - 功能：多角色（companions），每个角色各自的人设、关系状态、记忆卡、大事记，加一份共享的「关于你」；一条河（见下）；跨角色消息搜索；打卡；名场面；议事厅（多角色轮流发言 + 纪要）；活动（多角色同题竞技 + 评审）；随机掉落；传纸条；图片与文件附件；本地小工具（function calling：记忆卡、翻旧对话、打卡、名场面、改「关于你」、Notion）；主题 / 字号 / 字体；小熊；prompt caching 断点；归档与备份。
 - **一条河**：每个角色一条不断的对话，底下按「块」存（`CHUNK_MAX` = 500 条一块）。索引 `islet_idx` 里每项是一块，同一角色的块按 `first` 接成一条河，界面上看不到块的边界。
 - 用户气泡用 `renderInline(esc(text))` 显示斜体、粗体等行内格式，保留原换行；必须先转义 HTML。存储、发送、编辑和复制仍使用原始消息文本。
-- 西文 `IsletLatin` 为正体、斜体和粗斜体分别声明本机字形，优先 Iowan Old Style，回落 Georgia / Times New Roman；不要把正体当作斜体字形注册。斜体段使用自然字距，中文回落与用户选择的黑体/等宽设置照常保留，不新增字体下载。
+- 西文正体 `IsletLatin` 仍用本机 Iowan / Georgia；默认阅读字体的英文斜体与粗斜体改用 `IsletItalic`，内嵌未改动的 Lora Latin WOFF2（@fontsource/lora 5.3.0，400/700），不依赖本机字体匹配或额外网络请求。完整 OFL 版权/许可随字体写在 HTML 的 CSS 注释里，单独复制页面也须保留。斜体自然字距，中文回落与黑体/等宽选择保留。
 - **存储现状**：
   - 每个角色**最新一块**在 localStorage（`islet_s_<块id>`，同步读写），其余块都在 IndexedDB 的 `chunks` 表（`cold: 1`）。`rebalanceChunks()` 负责把老块挪进去，挪之前读回核对一字不差才删 localStorage 里的副本。
   - 角色、记忆卡、大事记：`islet_companions`。共享档案：`islet_about`（模型改过的旧版在 `islet_about_hist`）。打卡 `islet_habits`，名场面 `islet_quotes`，活动 `islet_arena`。
