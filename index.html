@@ -4766,11 +4766,14 @@
 
   /* L1 大事记：每场对话的小结按 sid 落一条，注入最近几条 + 「去年今天」 */
   function epiOf(c) { if (!Array.isArray(c.epis)) c.epis = []; return c.epis; }
-  // key：一天一条（'day:2026-09-08'）；同一天再提炼就更新那条。老数据按 sid 一条一场，靠 sid 匹配
+  // 日期键允许多条小结；完全相同的小结不重复添加。旧会话键仍按 sid 更新。
   function epiUpsert(c, key, text, d) {
     if (!text) return;
     const arr = epiOf(c);
-    const old = key ? arr.find(e => e.k === key || (!e.k && e.sid && e.sid === key)) : null;
+    if (key && key.startsWith('day:')) {
+      if (arr.some(e => e.k === key && e.t === String(text).slice(0, 300))) return;
+    }
+    const old = key && !key.startsWith('day:') ? arr.find(e => e.k === key || (!e.k && e.sid && e.sid === key)) : null;
     if (old) { old.t = String(text).slice(0, 300); if (d) old.d = d; return; }
     arr.unshift({ id: genId(), k: key || '', sid: '', d: d || Date.now(), t: String(text).slice(0, 300) });
     arr.sort((a, b) => b.d - a.d);
@@ -5161,8 +5164,7 @@
     const userTurns = messages.filter(m => m.role === 'user').length;
     const lastCount = (s && s.distilled && s.distilled < userTurns) ? s.distilled : 0;   // 没有新回合却手动点了 → 整块重看一遍
     const slice = sliceForDistill(messages, lastCount), dk = epiDayKey(slice);
-    const prevEpi = epiOf(target).find(e => e.k === dk.key);   // 同一天已有小结：让模型合进去
-    const r = await distillMemory(slice, target, prevEpi ? prevEpi.t : '');
+    const r = await distillMemory(slice, target);
     btn.disabled = false;
     if (r == null) { $('distill-status').textContent = '提炼失败，请重试'; return; }
     if (r.relation) { target.rel = r.relation; target.relUpdated = Date.now(); setRelationshipField('rel-input', r.relation); }
@@ -5212,7 +5214,7 @@
     if ($('drawer-overlay').classList.contains('show')) renderDrawerCompanions();
     if ($('memory-overlay').classList.contains('show') && editingCompanionId === cid) updateMemCount();
   }
-  // 一天结束：新一天的第一句话发出前，把昨天（上次提炼之后）的对话提炼进记忆卡与大事记；大事记一天一条
+  // 一天结束：把昨天尚未提炼的对话追加为新的大事记，保留当天此前的小结。
   async function distillDayEnd(cid, curSid, curSnap) {
     const current = sessions.find(s => s.id === curSid);
     for (const x of riverChunks(cid, branchOf(current)).slice(-2)) {   // 昨天的内容最多跨到上一块
@@ -5230,8 +5232,7 @@
     if (userTurns < 2 || userTurns <= lastCount) return;
     setDistillState(c.id, 'running');
     const slice = sliceForDistill(snapshot, lastCount), dk = epiDayKey(slice);
-    const prevEpi = epiOf(c).find(e => e.k === dk.key);
-    const r = await distillMemory(slice, c, prevEpi ? prevEpi.t : '');
+    const r = await distillMemory(slice, c);
     if (r != null) {
       if (r.relation) { c.rel = r.relation; c.relUpdated = Date.now(); }
       if (r.summary) epiUpsert(c, dk.key, r.summary, dk.ts);
