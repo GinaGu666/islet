@@ -29,6 +29,23 @@
     unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+2000-206F, U+2122, U+2212;
     size-adjust: 105%;
   }
+  /* 优先用字体真正的斜体字形，避免浏览器把正体机械倾斜；仍只接管西文。 */
+  @font-face {
+    font-family: "IsletLatin";
+    src: local("Iowan Old Style Italic"), local("IowanOldStyle-Italic"), local("Georgia Italic"), local("Georgia-Italic"), local("Times New Roman Italic"), local("TimesNewRomanPS-ItalicMT");
+    font-style: italic;
+    font-weight: 400 600;
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+2000-206F, U+2122, U+2212;
+    size-adjust: 105%;
+  }
+  @font-face {
+    font-family: "IsletLatin";
+    src: local("Iowan Old Style Bold Italic"), local("IowanOldStyle-BoldItalic"), local("Georgia Bold Italic"), local("Georgia-BoldItalic"), local("Times New Roman Bold Italic"), local("TimesNewRomanPS-BoldItalicMT");
+    font-style: italic;
+    font-weight: 700 900;
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+2000-206F, U+2122, U+2212;
+    size-adjust: 105%;
+  }
 
   :root {
     --bg:        #E8EAE8;   /* 偏冷的浅灰，只留很淡的绿意 */
@@ -253,6 +270,7 @@
 
   /* AI 正文 + Markdown */
   .ai-text { font-family: var(--serif) !important; font-weight: 500; font-size: var(--fs-ai); line-height: 1.75; letter-spacing: .01em; color: var(--ink); overflow-wrap: break-word; word-break: normal; text-wrap: pretty; }
+  .ai-text em, .bubble em { letter-spacing: normal; }
   .ai-text.err { color: var(--danger); white-space: pre-wrap; }
   /* 段距原来是死值 10px，比行距还小，整段会糊成一坨。
      改成跟着字号走的 1.1em，段与段之间的空当明显宽过行与行，眼睛才有落脚点。 */
