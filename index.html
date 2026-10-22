@@ -3094,7 +3094,7 @@
     row.className = 'msg user';
     row.innerHTML = `<div class="bubble"></div><div class="meta-row"><button class="edit-btn" type="button" aria-label="编辑" onclick="editMessage(${idx}, this.closest('.msg').dataset.sid)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></button>${drawn ? '<span class="drawn-tag">🎲 抽卡掉落</span>' : ''}<div class="time">${esc(time || '')}</div></div>`;
     const bub = row.querySelector('.bubble');
-    bub.textContent = text;
+    bub.innerHTML = renderInline(esc(text));
     if (!text) bub.style.display = 'none';
     if (files && files.length) {
       const fw = document.createElement('div'); fw.className = 'msg-docs';
