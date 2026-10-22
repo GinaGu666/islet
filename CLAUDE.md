@@ -11,6 +11,7 @@
 - 两个接口来源：OpenRouter，或自建的 OpenAI 兼容端点（「传话员」，Claude Code 包一层）。CC 通道不认 tools 字段、会丢 system，代码里有专门的绕法（握手伪装、代笔拦截）。
 - 功能：多角色（companions），每个角色各自的人设、关系状态、记忆卡、大事记，加一份共享的「关于你」；一条河（见下）；跨角色消息搜索；打卡；名场面；议事厅（多角色轮流发言 + 纪要）；活动（多角色同题竞技 + 评审）；随机掉落；传纸条；图片与文件附件；本地小工具（function calling：记忆卡、翻旧对话、打卡、名场面、改「关于你」、Notion）；主题 / 字号 / 字体；小熊；prompt caching 断点；归档与备份。
 - **一条河**：每个角色一条不断的对话，底下按「块」存（`CHUNK_MAX` = 500 条一块）。索引 `islet_idx` 里每项是一块，同一角色的块按 `first` 接成一条河，界面上看不到块的边界。
+- 用户气泡用 `renderInline(esc(text))` 显示斜体、粗体等行内格式，保留原换行；必须先转义 HTML。存储、发送、编辑和复制仍使用原始消息文本。
 - **存储现状**：
   - 每个角色**最新一块**在 localStorage（`islet_s_<块id>`，同步读写），其余块都在 IndexedDB 的 `chunks` 表（`cold: 1`）。`rebalanceChunks()` 负责把老块挪进去，挪之前读回核对一字不差才删 localStorage 里的副本。
   - 角色、记忆卡、大事记：`islet_companions`。共享档案：`islet_about`（模型改过的旧版在 `islet_about_hist`）。打卡 `islet_habits`，名场面 `islet_quotes`，活动 `islet_arena`。
