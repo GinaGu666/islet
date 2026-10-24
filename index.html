@@ -481,6 +481,24 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 20px 12px; flex-shrink: 0; }
   .sheet-title { font-size: 17px; font-weight: 600; color: var(--ink); }
   .sheet-x { background: none; border: none; color: var(--ink-3); cursor: pointer; font-size: 22px; line-height: 1; padding: 4px; }
+  .stats-sheet { max-width: 660px; margin: 0 auto; }
+  .stats-selectors, .stats-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .stats-selectors label { min-width: 0; font-size: 12px; color: var(--ink-2); }
+  .stats-selectors .field { margin-top: 6px; width: 100%; min-width: 0; }
+  .stats-summary { margin: 18px 0; }
+  .stats-metric { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 15px; min-width: 0; }
+  .stats-metric span { display: block; font-size: 12px; color: var(--ink-2); }
+  .stats-metric strong { display: block; font-size: 30px; font-weight: 500; margin-top: 6px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .stats-month { display: flex; align-items: center; gap: 8px; margin-bottom: 15px; }
+  .stats-month .field { flex: 1; min-width: 0; width: 100%; margin: 0; text-align: center; }
+  .stats-week, .stats-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+  .stats-week { text-align: center; font-size: 11px; color: var(--ink-3); margin-bottom: 7px; }
+  .stats-day { min-width: 0; min-height: 62px; padding: 8px 2px; border-radius: 10px; background: var(--card); text-align: center; }
+  .stats-day.active { background: var(--accent-weak); }
+  .stats-day.today { box-shadow: inset 0 0 0 1px var(--accent); }
+  .stats-day span { display: block; font-size: 11px; color: var(--ink-2); }
+  .stats-day strong { display: block; margin-top: 5px; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .stats-day.zero strong { color: var(--ink-3); font-weight: 400; }
 
   /* 左侧会话抽屉 */
   .drawer-overlay { align-items: stretch; justify-content: flex-start; }
@@ -781,6 +799,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     <div class="session-list" id="drawer-companions"></div>
     <button class="backup-hint" id="backup-hint" style="display:none" type="button" onclick="exportBackup()"></button>
     <div class="drawer-foot">
+      <button class="foot-row" type="button" onclick="openChatStats()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 20h16M7 16v-4M12 16V5M17 16V9"/></svg>
+        聊天统计
+      </button>
       <button class="foot-row" onclick="openMemory()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 5.6a5 5 0 00-7-.1L12 7l-1.8-1.5a5 5 0 00-7 7.1L12 21l8.8-8.4a5 5 0 000-7z"/></svg>
         记忆
@@ -805,6 +827,38 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         设置
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- 聊天统计：只读本机对话，不调用模型 -->
+<div class="overlay" id="chat-stats-overlay">
+  <div class="sheet stats-sheet" role="dialog" aria-modal="true" aria-labelledby="chat-stats-title">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title" id="chat-stats-title">聊天统计</div>
+      <button class="sheet-x" type="button" aria-label="关闭聊天统计" onclick="closeChatStats()">×</button>
+    </div>
+    <div class="form">
+      <div class="stats-selectors">
+        <label>和谁聊天<select class="field" id="stats-companion" onchange="changeChatStatsCompanion()"></select></label>
+        <label>哪条分支<select class="field" id="stats-branch" onchange="loadChatStats()"></select></label>
+      </div>
+      <div class="stats-summary" id="stats-summary" aria-live="polite">
+        <div class="stats-metric"><span>今天 · 轮</span><strong id="stats-today">—</strong></div>
+        <div class="stats-metric"><span>所选月份 · 轮</span><strong id="stats-month-total">—</strong></div>
+      </div>
+      <div class="stats-month">
+        <button class="icon-btn" type="button" aria-label="上个月" onclick="stepChatStatsMonth(-1)">‹</button>
+        <input class="field" type="month" id="stats-month" aria-label="统计月份" onchange="renderChatStats()">
+        <button class="icon-btn" type="button" aria-label="下个月" onclick="stepChatStatsMonth(1)">›</button>
+      </div>
+      <div class="field-label" style="margin:0 0 10px">每日轮数</div>
+      <div class="stats-week" aria-hidden="true"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+      <div class="stats-calendar" id="stats-calendar" role="list" aria-label="每日完整对话轮数"></div>
+      <div class="mem-hint" id="stats-status" role="status"></div>
+      <div class="mem-hint">你发一句、TA 回一句算一轮，按你发送当天的本机日期计算。未回复、额外续写和工具调用不另计；议事厅纪要不算聊天。每条分支单独统计，包含本机仍保留的历史对话。</div>
+      <button class="comp-tab habit-add" type="button" onclick="loadChatStats()">刷新统计</button>
     </div>
   </div>
 </div>
@@ -2486,6 +2540,92 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const x = sessions.find(y => y.id === id);
     if (x && x.cold) { const rec = await idbGet('chunks', id).catch(() => null); return (rec && Array.isArray(rec.msgs)) ? rec.msgs : []; }
     return loadSessionMsgs(id);
+  }
+  /* 聊天统计：顺着整条分支配对，不用消息总数除二；跨块保留待回复的用户消息。 */
+  function chatRoundCounter() {
+    const days = new Map(); let pending = null, undated = 0;
+    const hasContent = m => (typeof m.content === 'string' && !!m.content.trim()) || (Array.isArray(m.imgs) && m.imgs.length) || (Array.isArray(m.files) && m.files.length) || (Array.isArray(m.diaryShares) && m.diaryShares.length);
+    return {
+      days,
+      get undated() { return undated; },
+      add(items) {
+        for (const m of items) {
+          if (!m || m.council) continue;
+          if (m.role === 'user' && hasContent(m)) pending = m;
+          else if (m.role === 'assistant' && pending && hasContent(m)) {
+            const d = Number.isFinite(pending.ts) ? new Date(pending.ts) : null;
+            if (d && Number.isFinite(d.getTime())) { const key = dayKey(d); days.set(key, (days.get(key) || 0) + 1); }
+            else undated++;
+            pending = null;
+          }
+        }
+      },
+    };
+  }
+  let chatStatsRevision = 0, chatStatsData = null;
+  function openChatStats() {
+    closeDrawer();
+    $('stats-companion').replaceChildren(...companions.map(c => new Option(c.name, c.id)));
+    $('stats-companion').value = activeCompanionId;
+    $('stats-month').value = dayKey().slice(0, 7);
+    show('chat-stats-overlay'); changeChatStatsCompanion();
+  }
+  function closeChatStats() { chatStatsRevision++; hide('chat-stats-overlay'); }
+  function changeChatStatsCompanion() {
+    const cid = $('stats-companion').value;
+    $('stats-branch').replaceChildren(...branchesOf(cid).map(b => new Option(b.name, b.id)));
+    $('stats-branch').value = activeBranchFor(cid);
+    loadChatStats();
+  }
+  async function loadChatStats() {
+    const rev = ++chatStatsRevision, cid = $('stats-companion').value, bid = $('stats-branch').value;
+    const live = () => rev === chatStatsRevision && $('chat-stats-overlay').classList.contains('show');
+    chatStatsData = null;
+    $('stats-today').textContent = '—'; $('stats-month-total').textContent = '—'; $('stats-calendar').replaceChildren();
+    $('stats-summary').setAttribute('aria-busy', 'true'); $('stats-status').textContent = '正在读取对话…';
+    try {
+      if (!companions.some(c => c.id === cid) || !branchesOf(cid).some(b => b.id === bid)) throw new Error('找不到这个角色或分支');
+      const chunks = riverChunks(cid, bid).map(x => ({ ...x })), hotId = currentId, hotMessages = messages.slice(), counter = chatRoundCounter();
+      for (const chunk of chunks) {
+        if (!live()) return;
+        const items = chunk.id === hotId ? hotMessages : await loadChunk(chunk.id);
+        if (!Array.isArray(items) || items.length < (chunk.count || 0)) throw new Error('有一段历史对话未能完整读取，请稍后刷新统计');
+        counter.add(items);
+      }
+      if (!live()) return;
+      if (!companions.some(c => c.id === cid) || !branchesOf(cid).some(b => b.id === bid)) throw new Error('角色或分支已变化，请重新打开统计');
+      chatStatsData = { cid, bid, days: counter.days, undated: counter.undated };
+      renderChatStats();
+    } catch (e) {
+      if (live()) $('stats-status').textContent = (e && e.message) || '读取失败，请刷新统计';
+    } finally { if (live()) $('stats-summary').setAttribute('aria-busy', 'false'); }
+  }
+  function stepChatStatsMonth(step) {
+    const value = $('stats-month').value;
+    if (!normMemoryDate(value + '-01')) return;
+    const d = new Date(value + '-01T12:00:00'); d.setMonth(d.getMonth() + step);
+    const next = dayKey(d).slice(0, 7);
+    if (!normMemoryDate(next + '-01')) return;
+    $('stats-month').value = next; renderChatStats();
+  }
+  function renderChatStats() {
+    if (!chatStatsData) return;
+    const value = $('stats-month').value;
+    if (!normMemoryDate(value + '-01')) { $('stats-month-total').textContent = '—'; $('stats-calendar').replaceChildren(); $('stats-status').textContent = '请选择有效月份'; return; }
+    const { days, undated } = chatStatsData, today = dayKey(), first = new Date(value + '-01T12:00:00'), end = new Date(first);
+    end.setMonth(end.getMonth() + 1, 0);
+    const wrap = $('stats-calendar'); wrap.replaceChildren(); let total = 0;
+    for (let n = 0; n < (first.getDay() + 6) % 7; n++) { const gap = document.createElement('div'); gap.setAttribute('aria-hidden', 'true'); wrap.appendChild(gap); }
+    for (let day = 1; day <= end.getDate(); day++) {
+      const key = value + '-' + String(day).padStart(2, '0'), count = days.get(key) || 0; total += count;
+      const tile = document.createElement('div'); tile.className = 'stats-day ' + (count ? 'active' : 'zero') + (key === today ? ' today' : '');
+      tile.setAttribute('role', 'listitem'); tile.setAttribute('aria-label', key + '，' + count + ' 轮');
+      const date = document.createElement('span'); date.textContent = day;
+      const number = document.createElement('strong'); number.textContent = count.toLocaleString(); tile.append(date, number); wrap.appendChild(tile);
+    }
+    $('stats-today').textContent = (days.get(today) || 0).toLocaleString();
+    $('stats-month-total').textContent = total.toLocaleString();
+    $('stats-status').textContent = (total ? '已统计所选分支在这个月的完整对话。' : '这个月还没有已完成的对话轮次。') + (undated ? '另有 ' + undated + ' 轮缺少发送日期，未计入每日数字。' : '');
   }
   async function saveChunk(id, msgs) {
     const x = sessions.find(y => y.id === id);
@@ -6450,6 +6590,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
   // 点遮罩关闭：弹层 id → 关闭函数
   const OVERLAY_CLOSE = {
+    'chat-stats-overlay': closeChatStats,
     'drawer-overlay': closeDrawer, 'setup-overlay': closeSettings, 'picker-overlay': closePicker, 'memory-overlay': closeMemory,
     'arena-overlay': closeArena, 'council-overlay': closeCouncil, 'gacha-overlay': closeGacha, 'habit-overlay': closeHabits, 'search-overlay': closeSearch,
     'msgmenu-overlay': () => hide('msgmenu-overlay'), 'branch-overlay': () => hide('branch-overlay'), 'dlg-overlay': () => closeDlg(null), 'charimport-overlay': closeCharacterImport, 'gpt-import-overlay': closeCharacterImport,
