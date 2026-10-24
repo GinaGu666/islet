@@ -412,21 +412,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   .has-img { background-size: cover !important; background-position: center !important; background-color: var(--card) !important; }
   .ava-edit { display: flex; align-items: center; gap: 12px; margin: 4px 0 2px; }
   .ava-edit .ava-big { width: 56px; height: 56px; border-radius: 50%; color: #fff; font-family: var(--serif); font-size: 24px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
-  /* 随机掉落（抽卡） */
-  .gacha-stage { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 0 8px; min-height: 150px; }
-  .gacha-ava { width: 84px; height: 84px; border-radius: 50%; color: #fff; font-family: var(--serif); font-size: 36px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 16px rgba(0,0,0,.12); transition: transform .08s; }
-  .gacha-ava.q { background: var(--card) !important; color: var(--ink-3); border: 1.5px dashed var(--line); box-shadow: none; }
-  .gacha-name { font-family: var(--serif); font-size: 19px; color: var(--ink); min-height: 26px; }
-  .gacha-stage.spin .gacha-ava { animation: gacha-tick .12s ease-out; }
-  .gacha-stage.won .gacha-ava { animation: gacha-won .7s cubic-bezier(.3,.7,.4,1.4); box-shadow: 0 0 0 6px var(--accent-weak), 0 6px 22px rgba(0,0,0,.16); }
-  .gacha-stage.won .gacha-name::before { content: '✨ '; }
-  .gacha-stage.won .gacha-name::after { content: ' ✨'; }
-  @keyframes gacha-tick { from { transform: scale(.9); } to { transform: none; } }
-  @keyframes gacha-won { 0% { transform: scale(.8); } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
-  .gacha-pool .comp-tab .tab-ava { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; color: #fff; font-family: var(--serif); margin-right: 5px; vertical-align: -3px; }
-  .gacha-pool .comp-tab:not(.sel) .tab-ava { opacity: .45; }
   .drawn-tag { font-size: 11px; color: var(--ink-3); margin-right: 6px; }
-  @media (prefers-reduced-motion: reduce) { .gacha-stage.spin .gacha-ava, .gacha-stage.won .gacha-ava { animation: none; } }
   .empty-ava { width: 52px; height: 52px; border-radius: 50%; color: #fff; font-family: var(--serif); font-size: 24px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,0,0,.10); }
   .empty-name { font-size: 21px; font-weight: 600; color: var(--ink); letter-spacing: .02em; margin-top: -2px; }
   .empty-mem { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; margin-top: 18px; max-width: 320px; background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; }
@@ -679,13 +665,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   .route-toast b { font-weight: 600; }
   .ai-eyebrow .routed { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; background: rgba(210,160,74,.16); border: 1px solid rgba(210,160,74,.45); color: #A87B2F; flex-shrink: 0; }
 
-  /* 议事厅 */
-  .cn-q { align-self: flex-end; margin: 8px 0 4px auto; max-width: 86%; background: var(--card); border: 1px solid var(--line); border-radius: 16px 16px 4px 16px; padding: 8px 12px; font-size: 14.5px; white-space: pre-wrap; }
-  .cn-log { display: flex; flex-direction: column; }
-  .cn-round { font-size: 11px; color: var(--ink-3); text-align: center; margin: 10px 0 2px; }
-  .cn-bar { display: flex; gap: 8px; align-items: flex-end; margin-top: 10px; }
-  .cn-bar textarea { flex: 1; min-height: 40px; max-height: 120px; }
-  .cn-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+  /* 旧议事厅纪要：仅保留历史卡片的只读显示 */
   .council-card { border: 1px solid var(--accent-line); background: color-mix(in srgb, var(--accent-weak) 60%, var(--card)); border-radius: 14px; padding: 10px 13px; margin: 2px 0; font-size: 14px; }
   .council-card .cc-head { font-size: 12px; color: var(--ink-3); margin-bottom: 4px; }
   .council-card .cc-topic { font-weight: 600; margin-bottom: 6px; }
@@ -791,9 +771,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <button class="icon-btn" onclick="openSearch()" aria-label="搜索消息">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
         </button>
-        <button class="icon-btn" onclick="openGacha()" aria-label="随机掉落一个">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r="1.1" fill="currentColor"/><circle cx="15" cy="15" r="1.1" fill="currentColor"/><circle cx="15" cy="9" r="1.1" fill="currentColor"/><circle cx="9" cy="15" r="1.1" fill="currentColor"/></svg>
-        </button>
         <button class="icon-btn" onclick="addCompanion()" aria-label="新角色">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         </button>
@@ -813,10 +790,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <button class="foot-row" onclick="openHabits()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>
         打卡
-      </button>
-      <button class="foot-row" onclick="openCouncil()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-6 9 6"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/></svg>
-        议事厅
       </button>
       <button class="foot-row" onclick="openArena()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 01-10 0V4z"/><path d="M7 6H4a3 3 0 003 3M17 6h3a3 3 0 01-3 3"/></svg>
@@ -866,7 +839,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div class="stats-calendar" id="stats-calendar" role="list" aria-label="每日完整对话轮数"></div>
       <div class="mem-hint" id="stats-status" role="status"></div>
       <div class="mem-hint" id="stats-cache-status"></div>
-      <div class="mem-hint">你发一句、TA 回一句算一轮，按你发送当天的本机日期计算。未回复、额外续写和工具调用不另计；议事厅纪要不算聊天。每条分支单独统计，包含本机仍保留的历史对话。</div>
+      <div class="mem-hint">你发一句、TA 回一句算一轮，按你发送当天的本机日期计算。未回复、额外续写和工具调用不另计；旧议事厅纪要不算聊天。每条分支单独统计，包含本机仍保留的历史对话。</div>
       <div class="mem-hint">缓存按请求当天统计：缓存读取 token ÷ 输入 token，汇总后计算，不平均百分比。比率仅采用明确上报缓存数据的请求。只统计已保存聊天回复的请求，含工具往返与续写；不含后台日记和提炼。更新前的聊天没有用量记录，未上报缓存数据也不当作 0%。</div>
       <button class="comp-tab habit-add" type="button" onclick="loadChatStats()">刷新统计</button>
     </div>
@@ -994,40 +967,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 </div>
 
 <!-- 活动 -->
-<div class="overlay" id="council-overlay">
-  <div class="sheet">
-    <div class="grabber"></div>
-    <div class="sheet-head">
-      <div class="sheet-title">议事厅</div>
-      <button class="sheet-x" onclick="closeCouncil()">×</button>
-    </div>
-    <div class="form">
-      <div id="cn-setup">
-        <div class="field-label" style="margin-top:8px">这次议什么</div>
-        <textarea class="field" id="cn-topic" placeholder="把问题说清楚一点，大家才好发言…" spellcheck="false"></textarea>
-        <div class="field-label">请谁来（发言顺序每轮随机）</div>
-        <div class="comp-tabs gacha-pool" id="cn-chips" style="padding:6px 0 4px"></div>
-        <button class="ar-btn ar-primary" onclick="startCouncil()">开会</button>
-        <div class="mem-hint">散会时会写一份纪要，放进每位参会者的私聊里，之后单聊时他们都记得这场讨论。</div>
-      </div>
-      <div id="cn-run" style="display:none">
-        <div class="cn-log" id="cn-log"></div>
-        <div id="cn-live">
-          <div class="cn-bar">
-            <textarea class="field" id="cn-input" placeholder="追问、补充，或者点评一下…" spellcheck="false"></textarea>
-          </div>
-          <div class="cn-actions">
-            <button class="ar-btn" id="cn-retry" style="display:none" onclick="councilRetry()">补上没说的</button>
-            <button class="ar-btn" id="cn-next" onclick="councilNextRound()">说完了，再轮一圈</button>
-            <button class="ar-btn" id="cn-stop" style="display:none" onclick="councilStop()">停</button>
-            <button class="ar-btn" id="cn-end" onclick="adjournCouncil()">散会</button>
-          </div>
-        </div>
-        <div class="distill-status" id="cn-status" style="text-align:left"></div>
-      </div>
-    </div>
-  </div>
-</div>
 <div class="overlay" id="arena-overlay">
   <div class="sheet">
     <div class="grabber"></div>
@@ -1097,25 +1036,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   </div>
 </div>
 <!-- 名场面 -->
-<div class="overlay" id="gacha-overlay">
-  <div class="sheet">
-    <div class="grabber"></div>
-    <div class="sheet-head">
-      <div class="sheet-title">随机掉落</div>
-      <button class="sheet-x" onclick="closeGacha()">×</button>
-    </div>
-    <div class="form">
-      <div class="gacha-stage" id="gacha-stage">
-        <span class="gacha-ava q" id="gacha-ava">?</span>
-        <div class="gacha-name" id="gacha-name"></div>
-      </div>
-      <button class="btn-primary" id="gacha-go" onclick="runGacha()">抽一个</button>
-      <div class="field-label" style="margin-top:14px">卡池 <span style="text-transform:none;opacity:.6">（点一下放进 / 拿出）</span></div>
-      <div class="comp-tabs gacha-pool" id="gacha-pool" style="padding:6px 0 4px"></div>
-      <div class="mem-hint" id="gacha-hint"></div>
-    </div>
-  </div>
-</div>
 <div class="overlay" id="quotes-overlay">
   <div class="sheet">
     <div class="grabber"></div>
@@ -2822,66 +2742,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   }
   function switchCompanion(id) {
     if (branchBusy) return;
-    if (gachaPending() && gachaPending() !== id) setGachaPending('');
     if (id === activeCompanionId) { return; }
     leaveCurrentSession();
     enterCompanion(id);
     renderAll(); renderDrawerCompanions(); updatePill();
-  }
-  /* ---------- 随机掉落：从卡池里抽一个角色，带一点仪式感 ---------- */
-  function gachaPending() { try { return localStorage.getItem('islet_gacha_pending') || ''; } catch (e) { return ''; } }
-  function setGachaPending(id) { try { if (id) localStorage.setItem('islet_gacha_pending', id); else localStorage.removeItem('islet_gacha_pending'); } catch (e) {} }
-  let gachaBusy = false;
-  function gachaPool() { return companions.filter(c => c.pool); }
-  function openGacha() {
-    if (gachaBusy) return;
-    const st = $('gacha-stage'); st.classList.remove('spin', 'won');
-    const a = $('gacha-ava'); paintAva(a, null); a.className = 'gacha-ava q'; a.textContent = '?'; a.style.background = '';
-    $('gacha-name').textContent = '';
-    renderGachaPool(); show('gacha-overlay');
-  }
-  function closeGacha() { if (!gachaBusy) hide('gacha-overlay'); }
-  function renderGachaPool() {
-    ensureAvaStyles();
-    $('gacha-pool').innerHTML = companions.map(c => {
-      const ava = c.avatar ? `<span class="tab-ava has-img ava-img-${c.id}"></span>` : `<span class="tab-ava" style="background:${avaColor(c.id)}">${esc(avaChar(c.name))}</span>`;
-      return `<button type="button" class="comp-tab ${c.pool ? 'sel' : ''}" onclick="toggleGachaPool('${c.id}')">${ava}${esc(c.name)}</button>`;
-    }).join('');
-    const n = gachaPool().length;
-    $('gacha-go').disabled = !n;
-    $('gacha-hint').textContent = n ? `卡池里有 ${n} 个。只会从这里面抽。` : '卡池是空的，先点几个放进去。';
-  }
-  function toggleGachaPool(id) {
-    if (gachaBusy) return;
-    const c = companions.find(x => x.id === id); if (!c) return;
-    if (c.pool) delete c.pool; else c.pool = 1;
-    saveCompanions(); renderGachaPool();
-  }
-  async function runGacha() {
-    const pool = gachaPool(); if (!pool.length || gachaBusy) return;
-    gachaBusy = true; $('gacha-go').disabled = true;
-    const win = pool[Math.floor(Math.random() * pool.length)];
-    const st = $('gacha-stage'), a = $('gacha-ava'), nm = $('gacha-name');
-    const showC = c => { a.className = 'gacha-ava'; paintAva(a, c); nm.textContent = c.name; st.classList.remove('spin'); void st.offsetWidth; st.classList.add('spin'); };
-    st.classList.remove('won');
-    const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (pool.length > 1 && !reduce) {
-      // 转盘：先快后慢，最后一格落在抽中的人身上
-      let i = Math.floor(Math.random() * pool.length);
-      const steps = 16 + Math.floor(Math.random() * 4);
-      for (let k = 0; k < steps; k++) {
-        i = (i + 1) % pool.length;
-        showC(pool[i]);
-        await delay(55 + Math.pow(k / steps, 2.2) * 330);
-      }
-    }
-    showC(win); st.classList.remove('spin'); st.classList.add('won');
-    if (navigator.vibrate) try { navigator.vibrate(30); } catch (e) {}
-    await delay(1300);
-    setGachaPending(win.id);
-    gachaBusy = false; hide('gacha-overlay'); closeDrawer();
-    if (win.id !== activeCompanionId) switchCompanion(win.id);
-    toast('掉落了 ' + win.name + ' ✨');
   }
   function togglePinCompanion(id) {
     const c = companions.find(x => x.id === id);
@@ -4776,9 +4640,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const msg = { role: 'user', content: text, time: t, ts };
     if (imgs) msg.imgs = imgs;
     if (docs) msg.files = docs;
-    if (gachaPending() === activeCompanionId) { msg.drawn = 1; setGachaPending(''); }   // 抽卡进来后的第一句：带个标记，模型那边会看到一句说明
     messages.push(msg);
-    addUser(text, t, messages.length - 1, msg.imgs, msg.files, null, msg.drawn);
+    addUser(text, t, messages.length - 1, msg.imgs, msg.files);
     const _lr = $('chat').lastElementChild; if (_lr) { _lr.dataset.midx = messages.length - 1; _lr.dataset.sid = currentId; }
     if (!renderFrom) { renderFrom = { sid: currentId, idx: 0 }; renderFirstTs = ts; }
     saveCurrent();
@@ -6008,131 +5871,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     }
   }
 
-  /* ---------- 议事厅：提一个问题，参会的人按随机顺序轮流发言；散会时写纪要，放进每位参会者的私聊 ---------- */
-  let council = null, councilBusy = false, councilAbort = null;
-  const CN_ST = { wait: '等着', run: '发言中…', done: '', stop: '停了', fail: '没说出来' };
-  function councilSel() { try { const a = JSON.parse(localStorage.getItem('islet_council_sel') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
-  function openCouncil() {
-    closeDrawer(); show('council-overlay');
-    if (!council) { $('cn-setup').style.display = ''; $('cn-run').style.display = 'none'; renderCouncilChips(); }
-  }
-  async function closeCouncil() {
-    if (council && council.rounds.length && !council.done) {
-      const ok = await uiConfirm('会还没散', { sub: '现在关掉，这场讨论不会写进私聊。想留下纪要就点「散会」。', ok: '不记了，关掉', danger: true });
-      if (!ok) return;
-      councilStop(); council = null;
-    }
-    if (council && council.done) councilReset();
-    hide('council-overlay');
-  }
-  function renderCouncilChips() {
-    ensureAvaStyles();
-    const sel = councilSel();
-    $('cn-chips').innerHTML = companions.map(c => {
-      const ava = c.avatar ? `<span class="tab-ava has-img ava-img-${c.id}"></span>` : `<span class="tab-ava" style="background:${avaColor(c.id)}">${esc(avaChar(c.name))}</span>`;
-      return `<button type="button" class="comp-tab ${sel.includes(c.id) ? 'sel' : ''}" onclick="toggleCouncilSel('${c.id}')">${ava}${esc(c.name)}</button>`;
-    }).join('');
-  }
-  function toggleCouncilSel(id) {
-    const sel = councilSel(); const i = sel.indexOf(id);
-    if (i >= 0) sel.splice(i, 1); else sel.push(id);
-    try { localStorage.setItem('islet_council_sel', JSON.stringify(sel)); } catch (e) {}
-    renderCouncilChips();
-  }
-  function shuffled(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
-  function councilSystem(c) {
-    const about = sharedAbout();
-    const parts = [`你是「${c.name}」。她把你和另外几位请进了岛上的「议事厅」，一起讨论她提出的问题。你们彼此知道对方存在，这里每个人说的话大家都听得见。`];
-    if (about) parts.push('## 关于她\n' + about);
-    if ((c.persona || '').trim()) parts.push('## 你是谁\n' + c.persona.trim());
-    if ((c.rel || '').trim()) parts.push('## 你们现在的关系状态\n' + c.rel.trim());
-    const _mc = memCoreParts(c).text;
-    if (_mc) parts.push('## 你们的过往\n' + _mc);
-    return parts.join('\n\n');
-  }
-  function councilTranscript() {
-    const L = [];
-    council.rounds.forEach(r => {
-      if (r.q) L.push('她：' + r.q);
-      r.turns.forEach(t => { if (t.text) L.push(t.name + '：' + t.text); });
-    });
-    return L.join('\n\n');
-  }
-  function renderCouncilLog() {
-    const el = $('cn-log');
-    el.innerHTML = council.rounds.map((r, ri) => `
-      ${ri ? `<div class="cn-round">第 ${ri + 1} 轮</div>` : `<div class="ar-theme">${esc(council.topic)}</div>`}
-      ${r.q && ri ? `<div class="cn-q">${esc(r.q)}</div>` : ''}
-      ${r.turns.map((t, ti) => `<div class="ar-card"><div class="ai-eyebrow">${avaSpan('ava', t.cid, t.name)}<span class="name">${esc(t.name)}</span><span class="t ar-st" id="cn-st-${ri}-${ti}">${CN_ST[t.status] || ''}</span></div><div class="ai-text" id="cn-t-${ri}-${ti}">${t.text ? renderMarkdown(t.text) : (t.status === 'fail' ? '<div class="mem-hint">没说出来：' + esc(t.err || '') + '</div>' : '')}</div></div>`).join('')}`).join('');
-  }
-  function councilButtons() {
-    const busy = councilBusy;
-    $('cn-next').style.display = busy ? 'none' : '';
-    $('cn-end').style.display = busy ? 'none' : '';
-    $('cn-stop').style.display = busy ? '' : 'none';
-    $('cn-input').disabled = busy;
-    const last = council && council.rounds[council.rounds.length - 1];
-    const miss = last ? last.turns.filter(t => t.status !== 'done').length : 0;
-    const rb = $('cn-retry'); rb.style.display = (!busy && miss) ? '' : 'none'; rb.textContent = `补上没说的（${miss}）`;
-  }
-  async function startCouncil() {
-    const topic = $('cn-topic').value.trim();
-    if (!topic) { $('cn-topic').focus(); return; }
-    const sel = councilSel();
-    const people = companions.filter(c => sel.includes(c.id));
-    if (people.length < 2) { toast('至少请两位来'); return; }
-    if (!providerReady()) { toast('请先在设置里配置接口来源'); return; }
-    council = { ts: Date.now(), topic, cids: people.map(c => c.id), rounds: [], done: false };
-    $('cn-setup').style.display = 'none'; $('cn-run').style.display = ''; $('cn-status').textContent = '';
-    await councilRound(topic);
-  }
-  async function councilNextRound() {
-    if (!council || councilBusy) return;
-    const q = $('cn-input').value.trim();
-    $('cn-input').value = '';
-    await councilRound(q);
-  }
-  async function councilRound(q) {
-    const order = shuffled(council.cids.map(id => companions.find(c => c.id === id)).filter(Boolean));
-    const round = { q, turns: order.map(c => ({ cid: c.id, name: c.name, text: '', status: 'wait' })) };
-    council.rounds.push(round);
-    await councilRunTurns(council.rounds.length - 1);
-  }
-  async function councilRetry() {
-    if (!council || councilBusy || !council.rounds.length) return;
-    if (!providerReady()) { toast('请先在设置里配置接口来源'); return; }
-    await councilRunTurns(council.rounds.length - 1);
-  }
-  // 跑某一轮里还没说完的人；断网就停，剩下的等着「补上没说的」
-  async function councilRunTurns(ri) {
-    const round = council.rounds[ri];
-    councilBusy = true; councilButtons(); renderCouncilLog();
-    const names = round.turns.map(t => '「' + t.name + '」').join('、');
-    let netDown = false;
-    for (let ti = 0; ti < round.turns.length; ti++) {
-      const t = round.turns[ti], c = companions.find(x => x.id === t.cid);
-      if (t.status === 'done') continue;
-      if (!councilBusy || netDown || !c) { t.status = netDown ? 'wait' : 'stop'; continue; }
-      t.text = ''; t.err = '';
-      t.status = 'run'; renderCouncilLog();
-      const card = $('cn-t-' + ri + '-' + ti); if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      councilAbort = new AbortController();
-      const user = `【议事厅】议题：${council.topic}\n参会：${names}\n\n目前为止的记录：\n${councilTranscript()}\n\n现在轮到你（${c.name}）发言。说你自己的看法；可以接前面的人的话，也可以不同意。像开会时的一段发言，别太长。只说你自己的这一段，不要替别人说话，也不要写别人的台词。`;
-      let raf = null;
-      const paint = () => { raf = null; const el = $('cn-t-' + ri + '-' + ti); if (el) el.innerHTML = renderMarkdown(t.text); };
-      const res = await streamCompletion(companionModel(c), sysUserMsgs(councilSystem(c), user), councilAbort.signal, () => {},
-        d => { t.text += d; if (!raf) raf = requestAnimationFrame(paint); }, null);
-      if (raf) cancelAnimationFrame(raf);
-      t.text = t.text.trim();
-      t.status = (res.ended === 'done' && t.text) ? 'done' : (res.ended === 'aborted' ? 'stop' : 'fail');
-      if (t.status === 'fail') { if (res.ended === 'network') { netDown = true; t.err = '网络断了'; t.text = ''; } else t.err = res.error || '空回复'; }
-      renderCouncilLog();
-    }
-    councilBusy = false; councilAbort = null; renderCouncilLog(); councilButtons();
-    if (netDown) toast('网络断了，先停在这里。网好了点「补上没说的」。', 4200);
-  }
-  function councilStop() { councilBusy = false; if (councilAbort) councilAbort.abort(); }
-
   // 往某个角色那条河的末尾追加一条消息：他正开着就直接进当前对话，否则写进他最新的那块
   async function appendToRiver(cid, msg) {
     if (cid === activeCompanionId && currentId) {
@@ -6155,41 +5893,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     saveIndex();
     return true;
   }
-  async function adjournCouncil() {
-    if (!council || councilBusy) return;
-    const said = council.rounds.some(r => r.turns.some(t => t.text));
-    if (!said) { council = null; hide('council-overlay'); return; }
-    const st = $('cn-status');
-    $('cn-end').disabled = true; $('cn-next').disabled = true;
-    st.textContent = '正在写纪要…';
-    let minutes = '';
-    try {
-      const sys = '你是岛上议事厅的书记员。根据会议记录写一份简短纪要，给每位参会者日后回忆用。格式：先一行「议题：…」，然后每位发言者一行「某某：主要观点」，最后一行「结论：…」（没有结论就写「分歧：…」或「待续：…」）。用中文，客观、简洁，总共不超过 300 字，不要加评价，不要用 markdown 标题或列表符号。';
-      minutes = (await chatOnce(sys, '议题：' + council.topic + '\n\n会议记录：\n' + councilTranscript(), selectedModel, 1500)).trim();
-    } catch (e) { minutes = ''; st.textContent = '纪要没写成：' + ((e && e.message) || e) + '。可以再点一次「散会」重试。'; }
-    if (!minutes) { $('cn-end').disabled = false; $('cn-next').disabled = false; if (!/没写成/.test(st.textContent)) st.textContent = '纪要是空的，再点一次「散会」重试。'; return; }
-    const people = council.cids.map(id => companions.find(c => c.id === id)).filter(Boolean);
-    const log = [];
-    council.rounds.forEach(r => { if (r.q) log.push({ n: '她', t: r.q }); r.turns.forEach(t => { if (t.text) log.push({ n: t.name, t: t.text }); }); });
-    const ts = Date.now(), time = nowTime();
-    const content = '【议事厅纪要——这不是她刚说的话，是你们几个刚在议事厅里讨论过的事，你在场。私聊时自然地记得就好】\n参会：' + people.map(c => c.name).join('、') + '\n' + minutes;
-    let ok = 0; const failed = [];
-    for (const c of people) {
-      const msg = { role: 'user', content, time, ts, council: { topic: council.topic, minutes, people: people.map(x => x.name), log } };
-      if (await appendToRiver(c.id, msg).catch(() => false)) ok++; else failed.push(c.name);
-    }
-    council.done = true;
-    if (people.some(c => c.id === activeCompanionId)) renderAll();
-    renderDrawerCompanions();
-    st.textContent = failed.length ? `纪要写进了 ${ok} 位的私聊；${failed.join('、')} 的没写进去（本机存储可能满了）。` : `散会了。纪要已经放进 ${people.map(c => c.name).join('、')} 的私聊里。`;
-    $('cn-live').style.display = 'none';
-    const box = document.createElement('div'); box.className = 'council-card'; box.style.marginTop = '12px';
-    box.innerHTML = '<div class="cc-head">🏛 纪要</div><div class="cc-min"></div>'; box.querySelector('.cc-min').textContent = minutes;
-    $('cn-log').appendChild(box); box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    $('cn-end').disabled = false; $('cn-next').disabled = false;
-  }
-  function councilReset() { council = null; $('cn-live').style.display = ''; $('cn-topic').value = ''; }
-  // 私聊里的纪要卡片：纪要正文可见，原话折叠；只有纪要（content）发给模型
+  // 旧版议事厅纪要的只读兼容：正文可见、原话折叠，不再提供开会或生成纪要的入口
   function addCouncilCard(m, target) {
     dropEmpty();
     const cc = m.council || {};
@@ -6663,7 +6367,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   const OVERLAY_CLOSE = {
     'chat-stats-overlay': closeChatStats,
     'drawer-overlay': closeDrawer, 'setup-overlay': closeSettings, 'picker-overlay': closePicker, 'memory-overlay': closeMemory,
-    'arena-overlay': closeArena, 'council-overlay': closeCouncil, 'gacha-overlay': closeGacha, 'habit-overlay': closeHabits, 'search-overlay': closeSearch,
+    'arena-overlay': closeArena, 'habit-overlay': closeHabits, 'search-overlay': closeSearch,
     'msgmenu-overlay': () => hide('msgmenu-overlay'), 'branch-overlay': () => hide('branch-overlay'), 'dlg-overlay': () => closeDlg(null), 'charimport-overlay': closeCharacterImport, 'gpt-import-overlay': closeCharacterImport,
   };
   Object.entries(OVERLAY_CLOSE).forEach(([id, fn]) => $(id).addEventListener('click', e => { if (e.target.id === id) fn(); }));
