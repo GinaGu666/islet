@@ -489,6 +489,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   .stats-metric { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 15px; min-width: 0; }
   .stats-metric span { display: block; font-size: 12px; color: var(--ink-2); }
   .stats-metric strong { display: block; font-size: 30px; font-weight: 500; margin-top: 6px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .stats-metric.cache-metric strong { font-size: 24px; }
+  .stats-metric .cache-detail { margin-top: 5px; font-size: 11px; overflow-wrap: anywhere; }
+  .stats-view { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
   .stats-month { display: flex; align-items: center; gap: 8px; margin-bottom: 15px; }
   .stats-month .field { flex: 1; min-width: 0; width: 100%; margin: 0; text-align: center; }
   .stats-week, .stats-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
@@ -847,17 +850,24 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div class="stats-summary" id="stats-summary" aria-live="polite">
         <div class="stats-metric"><span>今天 · 轮</span><strong id="stats-today">—</strong></div>
         <div class="stats-metric"><span>所选月份 · 轮</span><strong id="stats-month-total">—</strong></div>
+        <div class="stats-metric cache-metric"><span>今日缓存命中率</span><strong id="stats-cache-today">—</strong><span class="cache-detail" id="stats-cache-today-detail"></span></div>
+        <div class="stats-metric cache-metric"><span>所选月缓存命中率</span><strong id="stats-cache-month">—</strong><span class="cache-detail" id="stats-cache-month-detail"></span></div>
       </div>
       <div class="stats-month">
         <button class="icon-btn" type="button" aria-label="上个月" onclick="stepChatStatsMonth(-1)">‹</button>
         <input class="field" type="month" id="stats-month" aria-label="统计月份" onchange="renderChatStats()">
         <button class="icon-btn" type="button" aria-label="下个月" onclick="stepChatStatsMonth(1)">›</button>
       </div>
-      <div class="field-label" style="margin:0 0 10px">每日轮数</div>
+      <div class="stats-view" role="group" aria-label="日历统计内容">
+        <button class="comp-tab" id="stats-view-rounds" type="button" aria-pressed="true" onclick="setChatStatsMetric('rounds')">聊天轮数</button>
+        <button class="comp-tab" id="stats-view-cache" type="button" aria-pressed="false" onclick="setChatStatsMetric('cache')">缓存命中率</button>
+      </div>
       <div class="stats-week" aria-hidden="true"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
       <div class="stats-calendar" id="stats-calendar" role="list" aria-label="每日完整对话轮数"></div>
       <div class="mem-hint" id="stats-status" role="status"></div>
+      <div class="mem-hint" id="stats-cache-status"></div>
       <div class="mem-hint">你发一句、TA 回一句算一轮，按你发送当天的本机日期计算。未回复、额外续写和工具调用不另计；议事厅纪要不算聊天。每条分支单独统计，包含本机仍保留的历史对话。</div>
+      <div class="mem-hint">缓存按请求当天统计：缓存读取 token ÷ 输入 token，汇总后计算，不平均百分比。比率仅采用明确上报缓存数据的请求。只统计已保存聊天回复的请求，含工具往返与续写；不含后台日记和提炼。更新前的聊天没有用量记录，未上报缓存数据也不当作 0%。</div>
       <button class="comp-tab habit-add" type="button" onclick="loadChatStats()">刷新统计</button>
     </div>
   </div>
@@ -2562,13 +2572,53 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       },
     };
   }
-  let chatStatsRevision = 0, chatStatsData = null;
+  function normalizedChatCacheUsage(u, ts = Date.now()) {
+    const token = n => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 ? n : null;
+    let input = null, cached = null;
+    if (u && typeof u === 'object') {
+      const details = u.prompt_tokens_details || u.input_tokens_details || {};
+      cached = token(details.cached_tokens);
+      if (cached === null) cached = token(u.cache_read_input_tokens);
+      input = token(u.prompt_tokens);
+      if (input === null && token(u.input_tokens) !== null) {
+        input = u.input_tokens;
+        // Claude 原生 input_tokens 不含缓存；OpenAI/OR 的 prompt_tokens 已包含。
+        if ('cache_read_input_tokens' in u || 'cache_creation_input_tokens' in u) input += (token(u.cache_read_input_tokens) || 0) + (token(u.cache_creation_input_tokens) || 0);
+      }
+      if (!Number.isSafeInteger(input)) input = null;
+      if (input === null || cached > input) cached = null;
+    }
+    return { ts, input, cached };
+  }
+  function chatCacheCounter() {
+    const days = new Map(); let legacy = 0;
+    return {
+      days,
+      get legacy() { return legacy; },
+      add(items) {
+        for (const m of items) {
+          if (!m || m.role !== 'assistant') continue;
+          if (!Array.isArray(m.cacheUsage)) { if (m.content || m.diaryShares) legacy++; continue; }
+          for (const u of m.cacheUsage) {
+            if (!u || !Number.isFinite(u.ts) || !Number.isFinite(new Date(u.ts).getTime())) continue;
+            const key = dayKey(new Date(u.ts));
+            if (!days.has(key)) days.set(key, { input: 0, cached: 0, known: 0, requests: 0 });
+            const row = days.get(key); row.requests++;
+            if (!Number.isSafeInteger(u.input) || u.input < 0 || !Number.isSafeInteger(u.cached) || u.cached < 0 || u.cached > u.input) continue;
+            row.known++; row.input += u.input; row.cached += u.cached;
+          }
+        }
+      },
+    };
+  }
+  function chatCacheRate(row) { return row && row.input > 0 ? (100 * row.cached / row.input).toFixed(1) + '%' : '—'; }
+  let chatStatsRevision = 0, chatStatsData = null, chatStatsMetric = 'rounds';
   function openChatStats() {
     closeDrawer();
     $('stats-companion').replaceChildren(...companions.map(c => new Option(c.name, c.id)));
     $('stats-companion').value = activeCompanionId;
     $('stats-month').value = dayKey().slice(0, 7);
-    show('chat-stats-overlay'); changeChatStatsCompanion();
+    chatStatsMetric = 'rounds'; show('chat-stats-overlay'); changeChatStatsCompanion();
   }
   function closeChatStats() { chatStatsRevision++; hide('chat-stats-overlay'); }
   function changeChatStatsCompanion() {
@@ -2582,19 +2632,22 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const live = () => rev === chatStatsRevision && $('chat-stats-overlay').classList.contains('show');
     chatStatsData = null;
     $('stats-today').textContent = '—'; $('stats-month-total').textContent = '—'; $('stats-calendar').replaceChildren();
+    $('stats-cache-today').textContent = '—'; $('stats-cache-month').textContent = '—';
+    $('stats-cache-today-detail').textContent = ''; $('stats-cache-month-detail').textContent = ''; $('stats-cache-status').textContent = '';
     $('stats-summary').setAttribute('aria-busy', 'true'); $('stats-status').textContent = '正在读取对话…';
     try {
       if (!companions.some(c => c.id === cid) || !branchesOf(cid).some(b => b.id === bid)) throw new Error('找不到这个角色或分支');
-      const chunks = riverChunks(cid, bid).map(x => ({ ...x })), hotId = currentId, hotMessages = messages.slice(), counter = chatRoundCounter();
+      const chunks = riverChunks(cid, bid).map(x => ({ ...x })), hotId = currentId, hotMessages = messages.slice(), counter = chatRoundCounter(), cache = chatCacheCounter();
       for (const chunk of chunks) {
         if (!live()) return;
         const items = chunk.id === hotId ? hotMessages : await loadChunk(chunk.id);
         if (!Array.isArray(items) || items.length < (chunk.count || 0)) throw new Error('有一段历史对话未能完整读取，请稍后刷新统计');
         counter.add(items);
+        cache.add(items);
       }
       if (!live()) return;
       if (!companions.some(c => c.id === cid) || !branchesOf(cid).some(b => b.id === bid)) throw new Error('角色或分支已变化，请重新打开统计');
-      chatStatsData = { cid, bid, days: counter.days, undated: counter.undated };
+      chatStatsData = { cid, bid, days: counter.days, undated: counter.undated, cacheDays: cache.days, cacheLegacy: cache.legacy };
       renderChatStats();
     } catch (e) {
       if (live()) $('stats-status').textContent = (e && e.message) || '读取失败，请刷新统计';
@@ -2608,23 +2661,35 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (!normMemoryDate(next + '-01')) return;
     $('stats-month').value = next; renderChatStats();
   }
+  function setChatStatsMetric(metric) { if (!['rounds', 'cache'].includes(metric)) return; chatStatsMetric = metric; renderChatStats(); }
   function renderChatStats() {
     if (!chatStatsData) return;
     const value = $('stats-month').value;
-    if (!normMemoryDate(value + '-01')) { $('stats-month-total').textContent = '—'; $('stats-calendar').replaceChildren(); $('stats-status').textContent = '请选择有效月份'; return; }
-    const { days, undated } = chatStatsData, today = dayKey(), first = new Date(value + '-01T12:00:00'), end = new Date(first);
+    if (!normMemoryDate(value + '-01')) { $('stats-month-total').textContent = '—'; $('stats-cache-month').textContent = '—'; $('stats-cache-month-detail').textContent = ''; $('stats-calendar').replaceChildren(); $('stats-status').textContent = '请选择有效月份'; return; }
+    const { days, undated, cacheDays, cacheLegacy } = chatStatsData, today = dayKey(), first = new Date(value + '-01T12:00:00'), end = new Date(first);
+    const cacheMonth = { input: 0, cached: 0, known: 0, requests: 0 }, isCache = chatStatsMetric === 'cache';
+    for (const name of ['rounds', 'cache']) { const b = $('stats-view-' + name); b.classList.toggle('sel', name === chatStatsMetric); b.setAttribute('aria-pressed', String(name === chatStatsMetric)); }
+    $('stats-calendar').setAttribute('aria-label', isCache ? '每日缓存命中率' : '每日完整对话轮数');
     end.setMonth(end.getMonth() + 1, 0);
     const wrap = $('stats-calendar'); wrap.replaceChildren(); let total = 0;
     for (let n = 0; n < (first.getDay() + 6) % 7; n++) { const gap = document.createElement('div'); gap.setAttribute('aria-hidden', 'true'); wrap.appendChild(gap); }
     for (let day = 1; day <= end.getDate(); day++) {
       const key = value + '-' + String(day).padStart(2, '0'), count = days.get(key) || 0; total += count;
-      const tile = document.createElement('div'); tile.className = 'stats-day ' + (count ? 'active' : 'zero') + (key === today ? ' today' : '');
-      tile.setAttribute('role', 'listitem'); tile.setAttribute('aria-label', key + '，' + count + ' 轮');
+      const cache = cacheDays.get(key), display = isCache ? chatCacheRate(cache) : count.toLocaleString();
+      if (cache) for (const field of Object.keys(cacheMonth)) cacheMonth[field] += cache[field];
+      const tile = document.createElement('div'); tile.className = 'stats-day ' + ((isCache ? cache && cache.cached > 0 : count) ? 'active' : 'zero') + (key === today ? ' today' : '');
+      tile.setAttribute('role', 'listitem'); tile.setAttribute('aria-label', key + '，' + (isCache ? '缓存命中率 ' + (display === '—' ? '未知' : display) : count + ' 轮'));
       const date = document.createElement('span'); date.textContent = day;
-      const number = document.createElement('strong'); number.textContent = count.toLocaleString(); tile.append(date, number); wrap.appendChild(tile);
+      const number = document.createElement('strong'); number.textContent = display; if (isCache) number.style.fontSize = '11px'; tile.append(date, number); wrap.appendChild(tile);
     }
     $('stats-today').textContent = (days.get(today) || 0).toLocaleString();
     $('stats-month-total').textContent = total.toLocaleString();
+    const cacheToday = cacheDays.get(today);
+    for (const [name, row] of [['today', cacheToday], ['month', cacheMonth]]) {
+      $('stats-cache-' + name).textContent = chatCacheRate(row);
+      $('stats-cache-' + name + '-detail').textContent = row && row.input > 0 ? row.cached.toLocaleString() + ' / ' + row.input.toLocaleString() + ' tok' : '尚无可计算的数据';
+    }
+    $('stats-cache-status').textContent = '所选月：' + cacheMonth.known + ' / ' + cacheMonth.requests + ' 次已记录请求提供缓存数据。' + (cacheLegacy ? '另有 ' + cacheLegacy + ' 条旧回复未记录用量。' : '');
     $('stats-status').textContent = (total ? '已统计所选分支在这个月的完整对话。' : '这个月还没有已完成的对话轮次。') + (undated ? '另有 ' + undated + ' 轮缺少发送日期，未计入每日数字。' : '');
   }
   async function saveChunk(id, msgs) {
@@ -4720,7 +4785,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     generateAssistant();
   }
 
-  async function generateAssistant() {
+  async function generateAssistant(previousCacheUsage = []) {
     const sid = currentId, model = selectedModel, msgsRef = messages;   // 快照，切走后不串台
     const sourceIsOR = provider === 'or';
     setLoading(true);
@@ -4749,13 +4814,14 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const onServed = makeServedHandler(h, model, sm => { servedModel = sm; });
     // 工具往返：extra 是发给模型的往返消息（不进存储，每轮重建）；toolLog 存进消息供回看；roundStart 标记本轮正文起点
     let tools = (toolsActive() && modelSupportsTools(model)) ? activeToolDefs(sid) : null;
-    const extra = [], toolLog = [];
+    const extra = [], toolLog = [], cacheUsage = Array.isArray(previousCacheUsage) ? previousCacheUsage.slice() : [];
     let rounds = 0, roundStart = 0, replyCompleted = false;
     while (true) {
       myAbort = currentAbort = new AbortController();
       // 工具选择在思考之后才到：先暂存，确认没有翻阅/分享日记再公开；安排后台写作不屏蔽思考。
       holdReason = !diaryReasonPrivate && !!(tools && tools.some(t => /^(read_diary|share_diary)$/.test(t.function.name)));
       pendingReason = '';
+      const requestAt = Date.now();
       const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid, extra), myAbort.signal, onReason, onContent, onServed, { ghostGuard: true, tools, toolChoice: rounds >= MAX_TOOL_ROUNDS ? 'none' : 'auto' });
       if (holdReason) {
         const privateCall = (res.toolCalls || []).some(t => /^(read_diary|share_diary)$/.test(t.name));
@@ -4766,6 +4832,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         else if (privateCall) stopTimer();
       }
       generationId = res.generationId || ''; providerName = res.providerName || '';   // 每次请求独立，不能沿用上一轮工具请求的供应商
+      if (res.ended !== 'http') cacheUsage.push(res.usage ? normalizedChatCacheUsage(res.usage, requestAt) : { ts: requestAt, input: null, cached: null });
       if (res.usage) lastUsage = res.usage;
       if (res.toolsDropped) tools = null;   // 这个模型不吃工具，后面几轮别再带
       if (res.ended === 'aborted') break;
@@ -4828,6 +4895,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       // 被路由时把实际模型存进消息，reqModel 留档原始请求；历史里看到的就是真正回答的模型
       const routedTo = (servedModel && baseModelId(servedModel) !== baseModelId(model)) ? servedModel : null;
       const msg = { role: 'assistant', content: contentText, thinking: reasoningText || null, thinkSec: finalSec, model: routedTo || model, time: h.row.querySelector('.t').textContent, ts: Date.now() };
+      if (cacheUsage.length) msg.cacheUsage = cacheUsage;
       if (routedTo) msg.reqModel = model;
       if (sourceIsOR) { msg.providerName = providerName; if (generationId) msg.generationId = generationId; }
       if (toolLog.length) msg.tools = toolLog;
@@ -4857,7 +4925,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const onServed = makeServedHandler(h, model, sm => { servedModel = sm; });
     while (true) {
       myAbort = currentAbort = new AbortController();
+      const requestAt = Date.now();
       const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid), myAbort.signal, () => {}, onContent, onServed, { ghostGuard: true });
+      if (res.ended !== 'http') { last.cacheUsage = Array.isArray(last.cacheUsage) ? last.cacheUsage : []; last.cacheUsage.push(res.usage ? normalizedChatCacheUsage(res.usage, requestAt) : { ts: requestAt, input: null, cached: null }); }
       generationId = res.generationId || ''; providerName = res.providerName || '';
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { h.textEl.classList.remove('cursor'); showBroken(h, () => continueGen(h, model), () => retryGen(h), '请求失败'); break; }
@@ -4879,15 +4949,16 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     }
     if (currentAbort === myAbort) { setLoading(false); currentAbort = null; }
     if (sid === currentId) { last.content = contentText; saveCurrent(); }
-    else if (sessions.find(s => s.id === sid)) updateLastInChunk(sid, contentText, continued ? { providerName: last.providerName, generationId: last.generationId, model: last.model, reqModel: last.reqModel } : null).catch(() => {});   // 续写途中被切走：写回原块，别丢
+    else if (sessions.find(s => s.id === sid)) updateLastInChunk(sid, contentText, { cacheUsage: last.cacheUsage, ...(continued ? { providerName: last.providerName, generationId: last.generationId, model: last.model, reqModel: last.reqModel } : {}) }).catch(() => {});   // 续写途中被切走：写回原块，别丢
   }
 
   function retryGen(h) {
     removeBroken(h);
+    const last = messages[messages.length - 1], cacheUsage = last && last.role === 'assistant' && Array.isArray(last.cacheUsage) ? last.cacheUsage.slice() : [];
     if (messages.length && messages[messages.length - 1].role === 'assistant') messages.pop();
     if (h && h.row && h.row.parentNode) h.row.remove();
     saveCurrent();
-    generateAssistant();
+    generateAssistant(cacheUsage);
   }
 
   /* ---------- 小熊 ---------- */

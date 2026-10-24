@@ -23,6 +23,19 @@ const settle = async () => { for (let i=0;i<30 && w.document.querySelector('#sta
     localStorage.setItem('islet_s_alt',JSON.stringify(cold.concat(hot,[{role:'assistant',content:'分支回答',ts:at(today)+4},{role:'assistant',content:'不重复',ts:at(today)+5}])));
     localStorage.setItem('islet_s_other',JSON.stringify([{role:'user',content:'其他角色',ts:at(today)},{role:'assistant',content:'回应',ts:at(today)+1}]));showMain();`);
   await run(`idbPut('chunks',{id:'cold',msgs:cold})`);
+  // Normalize provider fields without confusing cache writes, missing cache metrics or zero hits.
+  for (const [raw, input, cached] of [
+    [{prompt_tokens:1000,prompt_tokens_details:{cached_tokens:800,cache_write_tokens:100}},1000,800],
+    [{input_tokens:100,cache_read_input_tokens:800,cache_creation_input_tokens:100},1000,800],
+    [{prompt_tokens:1000,cache_read_input_tokens:800},1000,800],
+    [{prompt_tokens:100,prompt_tokens_details:{cached_tokens:0}},100,0],
+    [{prompt_tokens:100},100,null], [{prompt_tokens:100,prompt_tokens_details:{cached_tokens:200}},100,null],
+    [{prompt_tokens:100,prompt_tokens_details:{cache_write_tokens:100}},100,null],
+  ]) { w.rawUsage=raw;assert.equal(run('normalizedChatCacheUsage(rawUsage).input'),input);assert.equal(run('normalizedChatCacheUsage(rawUsage).cached'),cached); }
+  assert.equal(run('normalizedChatCacheUsage(rawUsage,123).ts'),123);
+  run(`hot[0].cacheUsage=[{ts:at(today),input:100,cached:90},{ts:at(today),input:900,cached:10},{ts:at(today),input:200,cached:null}];messages=hot.slice();saveCurrent();
+    globalThis.zeroCache=chatCacheCounter();zeroCache.add([{role:'assistant',cacheUsage:[{ts:at(today),input:100,cached:0}]}])`);
+  assert.equal(run('chatCacheRate(zeroCache.days.get(today))'),'0.0%');assert.equal(run('chatCacheRate(null)'),'—');
   // Orphan assistants, tool messages, thinking-only replies, council minutes and duplicate continuations.
   run(`globalThis.counter=chatRoundCounter();counter.add([{role:'assistant',content:'孤立回应'},
     {role:'user',content:'问题',ts:at(today)},{role:'tool',content:'工具结果'},{role:'assistant',content:'',thinking:'只有思考'},{role:'assistant',content:'回答'},{role:'assistant',content:'续写'},
@@ -34,10 +47,13 @@ const settle = async () => { for (let i=0;i<30 && w.document.querySelector('#sta
   assert.equal(run('counter.days.get(today)'),3);assert.equal(run('counter.days.get(yesterday)'),1);assert.equal(run('counter.undated'),1);
   const before=storage();run('openChatStats()');await settle();
   assert.equal(w.document.querySelector('#stats-today').textContent,'1');assert.equal(run('chatStatsData.days.get(yesterday)'),1);
+  assert.equal(w.document.querySelector('#stats-cache-today').textContent,'10.0%');assert(w.document.querySelector('#stats-cache-status').textContent.includes('2 / 3'));
+  run(`setChatStatsMetric('cache')`);assert.equal(w.document.querySelector('.stats-day.today strong').textContent,'10.0%');run(`setChatStatsMetric('rounds')`);
   assert.equal(w.document.querySelectorAll('#stats-calendar .stats-day').length,new Date(new Date().getFullYear(),new Date().getMonth()+1,0).getDate());
   assert.equal(storage(),before);assert.equal(w.document.querySelector('#stats-companion img'),null);
   run(`$('stats-branch').value='fork'`);await run('loadChatStats()');assert.equal(w.document.querySelector('#stats-today').textContent,'2');
   run(`$('stats-companion').value='c2';changeChatStatsCompanion()`);await settle();assert.equal(w.document.querySelector('#stats-today').textContent,'1');
+  assert.equal(w.document.querySelector('#stats-cache-today').textContent,'—');
   run(`$('stats-month').value='2024-02';renderChatStats()`);assert.equal(w.document.querySelectorAll('.stats-day').length,29);
   run(`$('stats-month').value='2025-12';stepChatStatsMonth(1)`);assert.equal(w.document.querySelector('#stats-month').value,'2026-01');
   // A late read for Saturn must not replace a newly selected role's result.
@@ -50,5 +66,20 @@ const settle = async () => { for (let i=0;i<30 && w.document.querySelector('#sta
   await run(`idbDel('chunks','cold')`);await run('loadChatStats()');
   assert.equal(w.document.querySelector('#stats-today').textContent,'—');assert(w.document.querySelector('#stats-status').textContent.includes('未能完整读取'));assert.equal(w.document.querySelectorAll('.stats-day').length,0);
   run('closeChatStats()');assert(!w.document.querySelector('#chat-stats-overlay').classList.contains('show'));
-  assert.deepEqual(errors,[]);console.log('PASS: completed pairs, tool/continuation/council exclusions, undated and midnight attribution, cold/hot chunk boundary, branch/role isolation, leap months, stale reads, refresh, missing-history error and no storage/network writes.');
+  // Real generation: every tool request is counted; continuations and retry replacements retain usage.
+  run(`sessions=[{id:'capture',companionId:'c1',first:1,count:1}];currentId='capture';messages=[{role:'user',content:'测试缓存',ts:Date.now()}];saveCurrent();
+    globalThis.usageRounds=0;runTool=async()=>({args:{},result:'找到资料',label:'查询'});
+    streamCompletion=async(model,msgs,signal,onReason,onContent)=>{
+      const first=usageRounds++===0;onContent(first?'先查一下。':'回答。');return {ended:'done',finish:first?'tool_calls':'stop',toolCalls:first?[{id:'cache-test',name:'recall',args:'{}'}]:[],usage:{prompt_tokens:first?100:900,prompt_tokens_details:{cached_tokens:first?90:10}}}
+    }`);
+  await run('generateAssistant()');assert.equal(run('messages.at(-1).cacheUsage.length'),2);
+  run(`globalThis.cacheHandle={row:$('chat').lastElementChild,textEl:$('chat').lastElementChild.querySelector('.ai-text')};
+    streamCompletion=async(model,msgs,signal,onReason,onContent)=>{onContent('继续。');return {ended:'done',finish:'stop',usage:{prompt_tokens:100,prompt_tokens_details:{cached_tokens:0}}}}`);
+  await run('continueGen(cacheHandle,selectedModel)');assert.equal(run('messages.at(-1).cacheUsage.length'),3);
+  run('retryGen(cacheHandle)');for(let i=0;i<30&&run('isLoading');i++)await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(run('messages.at(-1).cacheUsage.length'),4);assert.equal(run('messages.filter(m=>m.role==="assistant").length'),1);
+  assert.equal(JSON.parse(w.localStorage.islet_s_capture).at(-1).cacheUsage.length,4);
+  assert(!(await run(`buildApiMessages(messages,'capture')`)).some(m=>JSON.stringify(m).includes('cacheUsage')));
+  run(`downloadFile=(name,content)=>{globalThis.backupContent=content}`);await run('exportBackup()');assert.equal(run('JSON.parse(backupContent).sessionMsgs.capture.at(-1).cacheUsage.length'),4);
+  assert.deepEqual(errors,[]);console.log('PASS: round counts and read-only statistics; provider cache normalization, weighted rates, zero versus unknown, usage capture across tool rounds/continuation/retry, persisted metadata and backup without prompt leakage; cold/hot history, role/branch isolation, months and incomplete-read errors.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>w.close());
