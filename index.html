@@ -2995,7 +2995,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   function requestContext(model, payload, url) {
     return { channel: provider === 'cc' ? 'CC 自建接口' : 'OpenRouter', model: model || '', url: url || apiUrl(),
       route: payload && payload.provider && payload.provider.only && payload.provider.only[0] || '',
-      secrets: [apiKey, ccKey, localStorage.getItem('islet_notion_key') || ''].filter(Boolean), at: new Date().toISOString() };
+      secrets: [apiKey, ccKey, localStorage.getItem('islet_notion_key') || ''].filter(Boolean), at: new Date().toLocaleString('zh-CN', {hour12:false}) + '（' + Intl.DateTimeFormat().resolvedOptions().timeZone + '）' };
   }
   function diagnosticText(value, ctx, limit = 1800) {
     let text = typeof value === 'string' || typeof value === 'number' ? String(value) : '';
@@ -3049,7 +3049,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         raw = raw.slice(0, 32768);
       } else if (typeof res.text === 'function') raw = (await res.text()).slice(0, 32768);
       else if (typeof res.json === 'function') data = await res.json();
-      if (raw) { try { data = JSON.parse(raw); } catch (_) { data = raw; } }
+      if (raw) { try { data = JSON.parse(raw); } catch (_) { data = /^[\s]*[\[{]/.test(raw) ? {message:'上游返回了无法解析或过长的 JSON 错误正文。'} : raw; } }
     } catch (e) { if (e.name === 'AbortError') throw e; /* HTTP 状态仍保留，错误正文可能已断流。 */ }
     return requestFailure(ctx, res, data);
   }
