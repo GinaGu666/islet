@@ -40,6 +40,7 @@ const stream = () => run('streamCompletion(selectedModel,[],null,()=>{},()=>{})'
   r=await stream();assert.equal(r.failure.status,502);assert(r.error.includes('Bad gateway'));assert(!r.error.includes('alert(1)'));
   reply=()=>new Response(null,{status:503});r=await stream();assert(r.error.includes('上游未返回'));
   const oversized='A'.repeat(60000);reply=()=>new Response(oversized,{status:502});r=await stream();assert(r.failure.message.length<1850);
+  reply=()=>json({request:{messages:'PRIVATE REQUEST ECHO'},padding:'x'.repeat(40000)},502);r=await stream();assert(!r.error.includes('PRIVATE REQUEST ECHO'));assert(r.error.includes('过长的 JSON'));
   // Redact active keys, bearer credentials, secret assignments and URL credentials/query/fragment.
   reply=()=>json({error:{message:'TEST-OR-SECRET TEST-CC-SECRET TEST-NOTION-SECRET Bearer bearer_other sk-other-key password=pass123 api_key="apikey123" https://user:pass@host.test/v1?token=url_secret#hidden <img src=x onerror=alert(1)>'}},401);
   r=await stream();for(const secret of ['TEST-OR-SECRET','TEST-CC-SECRET','TEST-NOTION-SECRET','bearer_other','sk-other-key','pass123','apikey123','url_secret','user:pass'])assert(!r.error.includes(secret),secret);
