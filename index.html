@@ -371,6 +371,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   .ai-text { font-family: var(--serif) !important; font-weight: 500; font-size: var(--fs-ai); line-height: 1.75; letter-spacing: .01em; color: var(--ink); overflow-wrap: break-word; word-break: normal; text-wrap: pretty; }
   .ai-text em, .bubble em { font-family: var(--italic); letter-spacing: normal; }
   .ai-text.err { color: var(--danger); white-space: pre-wrap; }
+  .request-error { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-2); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; min-width: 0; }
+  .request-error .request-error-title { color: var(--danger); font-weight: 600; }
+  .request-error details { width: 100%; margin-top: 8px; }
+  .request-error summary { cursor: pointer; color: var(--ink-2); }
+  .request-error pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font: 12px/1.7 ui-monospace, "SF Mono", Menlo, monospace; max-height: 280px; overflow-y: auto; margin: 8px 0; user-select: text; }
+  .request-error button { margin: 8px 8px 0 0; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink-2); font: inherit; cursor: pointer; }
   /* 段距原来是死值 10px，比行距还小，整段会糊成一坨。
      改成跟着字号走的 1.1em，段与段之间的空当明显宽过行与行，眼睛才有落脚点。 */
   .ai-text p { margin: 0 0 1.1em; }
@@ -2906,11 +2912,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   let catalogErr = '';   // 上次拉取模型列表的失败原因；空 = 没失败（或还在拉）
   async function fetchModels() {
     const p = provider;   // 快照：拉取途中切了来源就丢弃结果
+    const ctx = requestContext('', null, modelsUrl());
     catalogErr = '';
     try {
       const res = await fetch(modelsUrl(), p === 'cc' ? { headers: authHeaders() } : undefined);
       if (p !== provider) return;
-      if (!res.ok) throw new Error('HTTP ' + res.status);
+      if (!res.ok) throw failureError(await readRequestFailure(res, ctx));
       const j = await res.json();
       if (p !== provider) return;
       if (!Array.isArray(j.data)) throw new Error('返回的不是模型列表');
@@ -2930,8 +2937,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if ($('picker-overlay').classList.contains('show')) renderModelList($('model-search').value);
     } catch (e) {
       if (p !== provider) return;
-      const msg = (e && e.message) || String(e);
-      catalogErr = /fetch|network/i.test(msg) ? '网络不通，或地址被浏览器拦截' : msg;
+      catalogErr = e.requestFailure ? e.message : failureText(requestFailure(ctx, null, {message: e.message || String(e)}, e instanceof TypeError ? 'network' : 'format'));
       if ($('picker-overlay').classList.contains('show')) renderModelList($('model-search').value);
     }
   }
@@ -2984,6 +2990,79 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   function routeName(slug) { return ({ anthropic: 'Anthropic', 'claude-on-aws': 'Claude Platform on AWS', 'amazon-bedrock': 'Amazon Bedrock', 'google-vertex': 'Google Vertex', azure: 'Azure' })[slug] || slug; }
   function applyModelRoute(payload, model) { if (provider === 'or') { const p = modelRoute(model); if (p) payload.provider = { only: [p], allow_fallbacks: false }; } return payload; }
   function routeError(message, payload) { const p = payload.provider && payload.provider.only && payload.provider.only[0]; return p ? '已指定 ' + routeName(p) + '，未切换供应商：' + message : message; }
+
+  /* 请求诊断只在当前界面显示，不存入聊天、备份或模型上下文。不展示原始请求/响应头。 */
+  function requestContext(model, payload, url) {
+    return { channel: provider === 'cc' ? 'CC 自建接口' : 'OpenRouter', model: model || '', url: url || apiUrl(),
+      route: payload && payload.provider && payload.provider.only && payload.provider.only[0] || '',
+      secrets: [apiKey, ccKey, localStorage.getItem('islet_notion_key') || ''].filter(Boolean), at: new Date().toISOString() };
+  }
+  function diagnosticText(value, ctx, limit = 1800) {
+    let text = typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+    for (const secret of ctx.secrets || []) {
+      for (const s of [secret, encodeURIComponent(secret), JSON.stringify(secret).slice(1, -1)]) if (s) text = text.split(s).join('[已隐藏]');
+    }
+    text = text.replace(/\bBearer\s+[^\s"'<>;,]+/gi, 'Bearer [已隐藏]')
+      .replace(/\bsk-[a-z0-9_-]+/gi, '[已隐藏]')
+      .replace(/((?:api[_-]?key|access[_-]?token|authorization|password|secret|cc_key)\s*["']?\s*[:=]\s*["']?)[^\s"'&,<>}]+/gi, '$1[已隐藏]')
+      .replace(/https?:\/\/[^\s<>"']+/gi, s => { try { const u = new URL(s); return u.origin + u.pathname; } catch (_) { return '[地址已隐藏]'; } })
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '').trim();
+    return text.length > limit ? text.slice(0, limit) + '…［已截短］' : text;
+  }
+  function diagnosticEndpoint(ctx) { try { const u = new URL(ctx.url, location.href); return diagnosticText(u.origin + u.pathname, ctx, 400); } catch (_) { return '地址格式无效'; } }
+  function errorFields(data) {
+    const e = data && typeof data === 'object' && data.error != null ? data.error : data;
+    if (typeof e === 'string') return { message: e };
+    if (!e || typeof e !== 'object') return {};
+    const detail = typeof e.detail === 'string' ? e.detail : Array.isArray(e.detail) ? e.detail.map(x => x && typeof x.msg === 'string' ? x.msg : '').filter(Boolean).join('；') : '';
+    return { message: e.message || detail, code: e.code, type: e.type, param: e.param };
+  }
+  function requestFailure(ctx, res, data, kind = 'http') {
+    const clean = (s, n) => diagnosticText(s, ctx, n), fields = errorFields(data);
+    const meta = data && data.error && data.error.metadata || {};
+    let upstream = {};
+    if (typeof meta.raw === 'string') { try { upstream = errorFields(JSON.parse(meta.raw)); } catch (_) { /* 不公开任意 raw，可能含聊天正文。 */ } }
+    else if (meta.raw && typeof meta.raw === 'object') upstream = errorFields(meta.raw);
+    const header = name => res && res.headers && typeof res.headers.get === 'function' ? res.headers.get(name) : '';
+    const status = res && res.status || null, code = clean(fields.code, 160), type = clean(fields.type, 160);
+    const effective = Number(code) >= 400 && Number(code) <= 599 ? Number(code) : status;
+    const titles = { 400: '请求参数或上下文不符合要求', 401: '认证未通过', 402: '余额或计费限制', 403: '访问被拒绝', 404: '模型、地址或可用线路未找到', 408: '请求超时', 413: '请求内容过大', 422: '请求格式不符合要求', 429: '请求频率或额度受限', 500: '服务内部错误', 502: '上游服务异常', 503: '服务暂不可用', 504: '上游响应超时', 529: '上游服务繁忙' };
+    const hints = { 400: '检查上游说明中的参数、上下文或输出长度限制。', 401: '检查对应线路的 API Key 或门禁凭证是否有效。', 402: '检查余额、Key 预算或计费额度；不一定是账户总余额不足。', 403: '检查模型权限、供应商限制及上游给出的拒绝原因。', 404: '检查模型 ID、接口地址和指定供应商是否可用。', 413: '尝试减少附件或上下文长度。', 429: '检查限额；若有建议等待时间，请等待后再试。' };
+    const summary = kind === 'network' ? '网络连接失败或中断' : kind === 'format' ? '接口返回格式异常' : kind === 'empty' ? '没有收到有效回复' : (titles[effective] || clean(type, 100) || '调用失败');
+    let message = clean(fields.message);
+    if (typeof data === 'string') message = clean(data.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' '));
+    return { summary, kind, status, code, type, message: message || '上游未返回可读的错误说明。',
+      upstreamMessage: clean(upstream.message), upstreamCode: clean(upstream.code, 160), param: clean(fields.param, 160),
+      channel: ctx.channel, model: clean(ctx.model, 240), endpoint: diagnosticEndpoint(ctx), route: clean(ctx.route, 100), at: ctx.at,
+      provider: clean(meta.provider_name || data && (data.provider || data.provider_name), 160),
+      requestId: clean(header('x-request-id') || header('request-id') || data && (data.request_id || data.id), 240),
+      retryAfter: clean(header('retry-after'), 160),
+      hint: kind === 'network' ? (status ? '连接建立后读取中断，可能是网络或上游连接断开。已收到的正文会保留。' : '浏览器未提供 HTTP 状态，无法仅凭此确定是断网、跨域（CORS）、证书还是服务器断开。请检查网络与接口可达性。') : kind === 'format' ? '接口可能返回了网页、无效 JSON 或不兼容的数据；请检查地址和上游服务。' : kind === 'empty' ? '连接已结束，但未收到正文、工具调用或明确的完成标记。可以重试或检查上游服务。' : (hints[effective] || '请根据上游说明稍后重试；持续失败可携带请求 ID 联系服务方。') };
+  }
+  async function readRequestFailure(res, ctx) {
+    let raw = '', data;
+    try {
+      if (res.body && typeof res.body.getReader === 'function') {
+        const reader = res.body.getReader(), dec = new TextDecoder();
+        while (raw.length < 32768) { const {done, value} = await reader.read(); if (done) break; raw += dec.decode(value, {stream:true}); }
+        if (raw.length >= 32768) reader.cancel().catch(() => {});
+        raw = raw.slice(0, 32768);
+      } else if (typeof res.text === 'function') raw = (await res.text()).slice(0, 32768);
+      else if (typeof res.json === 'function') data = await res.json();
+      if (raw) { try { data = JSON.parse(raw); } catch (_) { data = raw; } }
+    } catch (e) { if (e.name === 'AbortError') throw e; /* HTTP 状态仍保留，错误正文可能已断流。 */ }
+    return requestFailure(ctx, res, data);
+  }
+  function failureText(f) {
+    return ['请求失败：' + f.summary, '时间：' + f.at, '线路：' + f.channel, f.model && '请求模型：' + f.model,
+      f.route && '已指定 ' + routeName(f.route) + '，未切换供应商', f.provider && '报错供应商：' + f.provider,
+      '接口：' + f.endpoint, 'HTTP：' + (f.status == null ? '未收到' : f.status + (f.status === 200 ? '（连接成功，随后返回错误）' : '')),
+      f.code && '错误代码：' + f.code, f.type && '错误类型：' + f.type, f.param && '相关参数：' + f.param,
+      '上游说明：' + f.message, f.upstreamCode && '供应商错误代码：' + f.upstreamCode, f.upstreamMessage && '供应商说明：' + f.upstreamMessage,
+      f.requestId && '请求 ID：' + f.requestId, f.retryAfter && '建议等待（秒数或时间）：' + f.retryAfter, '排查建议：' + f.hint,
+      '仅展示已脱敏的诊断字段，不附带请求正文；刷新后不保留。'].filter(Boolean).join('\n');
+  }
+  function failureError(f) { const e = new Error(failureText(f)); e.requestFailure = f; return e; }
   let routeController = null;
   function routeOption(value, label) { const o = document.createElement('option'); o.value = value; o.textContent = label; return o; }
   async function loadRouteOptions() {
@@ -3001,9 +3080,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const controller = new AbortController(); routeController = controller;
     const timer = setTimeout(() => controller.abort(), 10000);
     const current = () => routeController === controller && provider === 'or' && !pickerCb && routingModel(selectedModel) === model && $('picker-overlay').classList.contains('show');
+    const ctx = requestContext(model, null, OR_MODELS_URL + '/' + model.split('/').map(encodeURIComponent).join('/') + '/endpoints');
     try {
       const res = await fetch(OR_MODELS_URL + '/' + model.split('/').map(encodeURIComponent).join('/') + '/endpoints', { signal: controller.signal, credentials: 'omit' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
+      if (!res.ok) throw failureError(await readRequestFailure(res, ctx));
       const j = await res.json();
       if (!j.data || !Array.isArray(j.data.endpoints)) throw new Error('返回的不是供应商列表');
       if (!current()) return;
@@ -3019,7 +3099,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       sel.value = chosen;
       $('route-status').textContent = routes.size ? (chosen && !routes.has(chosen) ? '已保存的供应商不在当前列表中；设置仍保留，不会自动切换。' : '选择后立即保存。先选模型，再为当前模型指定供应商。') : '暂无可选供应商；已保存的设置仍保留。';
     } catch (e) {
-      if (current()) $('route-status').textContent = '供应商列表未读到，可刷新重试；已保存的选择不变。';
+      if (current()) $('route-status').textContent = '供应商列表未读到，可刷新重试；已保存的选择不变。\n' + (e.requestFailure ? e.message : diagnosticText(e.name === 'AbortError' ? '读取超过10秒，已停止等待。' : e.message, ctx));
     } finally { clearTimeout(timer); }
   }
   function saveRouteSelection() {
@@ -4112,12 +4192,17 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (opts && opts.signal) init.signal = opts.signal;
     // keepalive 让页面关闭后请求也能发完；但它限制 body ≤64KB，超了会直接被拒，所以按字节数判断
     if (opts && opts.keepalive) init.keepalive = new Blob([body]).size < 60000;
-    const res = await fetch(apiUrl(), init);
-    if (!res.ok) throw new Error(routeError('HTTP ' + res.status, payload));
-    const j = await res.json();
+    const ctx = requestContext(model, payload);
+    let res, j;
+    try { res = await fetch(ctx.url, init); }
+    catch (e) { if (e.name === 'AbortError') throw e; throw failureError(requestFailure(ctx, null, {message: e.message}, 'network')); }
+    if (!res.ok) throw failureError(await readRequestFailure(res, ctx));
+    try { j = await res.json(); }
+    catch (e) { if (e.name === 'AbortError') throw e; throw failureError(requestFailure(ctx, res, {message: '返回内容不是有效 JSON。'}, 'format')); }
+    if (j && j.error) throw failureError(requestFailure(ctx, res, j));
     if (opts && opts.diary && j && j.choices && j.choices[0] && j.choices[0].finish_reason === 'length') throw new Error('日记输出达到长度上限，未保存截断内容');
     const out = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-    if (out == null) throw new Error('空回复');
+    if (out == null) throw failureError(requestFailure(ctx, res, {message: '返回 JSON 中没有回复正文。'}, 'empty'));
     return String(out);
   }
   function buildSystemContent(sid) {
@@ -4397,6 +4482,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const isOR = provider === 'or';
     const toolCalls = [];   // 流里分片到达的 tool_calls，按 index 拼装：{id, name, args}
     const guard = (provider === 'cc' && opts && opts.ghostGuard) ? makeGhostGuard(onContent) : null;   // 代笔拦截：只在 CC 通道 + 正式聊天启用
+    let ctx = requestContext(model), res = null;
     try {
       // max_tokens：OpenRouter 会按此值预扣余额，不设则按模型最大输出预估，余额少时会被拒
       const payload = applyModelRoute({ model: (provider === 'or' && webOn) ? model + ':online' : model, messages: provider === 'or' ? withCacheBreakpoints(model, msgs) : flattenTails(msgs), max_tokens: 8192, stream: true }, model);
@@ -4412,25 +4498,31 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         else payload.reasoning = { enabled: false, exclude: true };
       }
       if (opts && opts.tools && opts.tools.length) { payload.tools = opts.tools; payload.tool_choice = opts.toolChoice || 'auto'; }
-      let res = await fetch(apiUrl(), { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
+      ctx = requestContext(payload.model, payload);
+      res = await fetch(ctx.url, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
       // 请求被拒时按原因降级重发，最多两次：
       //  - 个别模型（如 Fable）强制思考、拒绝任何禁用尝试——完全不提 reasoning，按端点默认重发
       //  - 模型不支持工具（"No endpoints found that support tool use"）——去掉 tools 重发，这一轮就当没有工具
       for (let tries = 0; !res.ok && tries < 2; tries++) {
-        const e = await res.json().catch(() => ({}));
-        const msg = (e && e.error && e.error.message) || (e && e.detail && JSON.stringify(e.detail).slice(0, 200)) || ('HTTP ' + res.status);
+        const failure = await readRequestFailure(res, ctx), msg = failure.message;
         if (/reasoning/i.test(msg) && payload.reasoning && payload.reasoning.enabled !== true) delete payload.reasoning;
         // 自建端点（传话员）不认 tools 时未必会在报错里点名，4xx 一律先按「不吃工具」降级试一次
         else if (payload.tools && (/tool/i.test(msg) || (provider === 'cc' && res.status >= 400 && res.status < 500))) { delete payload.tools; delete payload.tool_choice; toolsDropped = true; }
-        else return { ended: 'http', error: routeError(msg, payload) };
-        res = await fetch(apiUrl(), { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
+        else return { ended: 'http', error: failureText(failure), failure };
+        res = await fetch(ctx.url, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
       }
-      if (!res.ok) { const e2 = await res.json().catch(() => ({})); return { ended: 'http', error: routeError((e2 && e2.error && e2.error.message) || ('HTTP ' + res.status), payload) }; }
-      const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+      if (!res.ok) { const failure = await readRequestFailure(res, ctx); return { ended: 'http', error: failureText(failure), failure }; }
+      const contentType = res.headers && res.headers.get('content-type') || '';
+      if (/application\/json/i.test(contentType)) {
+        let json; try { json = await res.json(); } catch (e) { if (e.name === 'AbortError') throw e; }
+        const failure = requestFailure(ctx, res, json && json.error ? json : {message:'流式接口返回了普通 JSON，没有可读取的事件流。'}, json && json.error ? 'http' : 'format');
+        return { ended: 'http', error: failureText(failure), failure };
+      }
+      const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '', wireText = '';
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
+        const chunk = done ? dec.decode() + '\n' : dec.decode(value, { stream: true });
+        buf += chunk; if (wireText.length < 32768) wireText += chunk.slice(0, 32768 - wireText.length);
         let nl;
         while ((nl = buf.indexOf('\n')) >= 0) {
           const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
@@ -4448,6 +4540,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           if (!served && json.model) { served = json.model; if (onServed) onServed(served); }
           if (json.usage) usage = json.usage;
           const ch = json.choices && json.choices[0];
+          if (json.error || ch && ch.finish_reason === 'error') {
+            const failure = requestFailure(ctx, res, json.error ? json : {error:{message:'上游以 finish_reason=error 结束回复，但没有提供具体原因。'},id:json.id,provider:providerName});
+            reader.cancel().catch(() => {}); if (guard) guard.flush();
+            return { ended:'http', error:failureText(failure), failure, usage, served, generationId, providerName };
+          }
           if (ch && ch.finish_reason) finish = ch.finish_reason;
           const delta = (ch && ch.delta) || {};
           let r = delta.reasoning;
@@ -4470,15 +4567,20 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             else if (guard.push(delta.content)) { finish = 'stop'; sawDone = true; break; }   // 截断：按正常结束处理，不再往下读
           }
         }
-        if (sawDone) break;
+        if (sawDone || done) break;
       }
       if (guard) { if (guard.cut) reader.cancel().catch(() => {}); else guard.flush(); }
       const calls = toolCalls.filter(Boolean).map((t, i) => ({ id: t.id || ('call_' + Date.now().toString(36) + i), name: t.name, args: t.args }));
-      return (sawDone || gotContent || calls.length) ? { ended: 'done', usage, finish, served, cut: !!(guard && guard.cut), toolCalls: calls, toolsDropped, generationId, providerName } : { ended: 'network', usage, served, generationId, providerName };
+      if (sawDone || finish) return { ended: 'done', usage, finish, served, cut: !!(guard && guard.cut), toolCalls: calls, toolsDropped, generationId, providerName };
+      let unexpected; try { unexpected = JSON.parse(wireText); } catch (_) {}
+      if (unexpected && unexpected.error) { const failure = requestFailure(ctx, res, unexpected); return { ended:'http', error:failureText(failure), failure, usage, served, generationId, providerName }; }
+      const failure = requestFailure(ctx, res, {message: gotContent || calls.length ? '回复流提前结束，没有收到完成标记。' : wireText.trim() ? '接口没有返回可识别的 SSE 回复事件。' : '连接已结束，但没有收到有效回复。'}, gotContent || calls.length ? 'network' : wireText.trim() ? 'format' : 'empty');
+      return { ended: 'network', usage, served, generationId, providerName, error: failureText(failure), failure };
     } catch (e) {
       if (guard) guard.flush();   // 中断/断流：把扣着的那点尾巴也交出去，别丢
-      if (e.name === 'AbortError') return { ended: 'aborted', usage, served, generationId, providerName };
-      return { ended: 'network', usage, served, generationId, providerName, error: e.message };
+      if (e.name === 'AbortError' || signal && signal.aborted) return { ended: 'aborted', usage, served, generationId, providerName };
+      const failure = requestFailure(ctx, res, {message:e.message}, 'network');
+      return { ended: 'network', usage, served, generationId, providerName, error: failureText(failure), failure };
     }
   }
 
@@ -4568,6 +4670,30 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     box.appendChild(cont); box.appendChild(retry);
     h.row.appendChild(box); h._broke = box;
     maybeScroll();
+  }
+  function showRequestFailure(h, f, model, hasContent) {
+    removeBroken(h);
+    const box = document.createElement('div'); box.className = 'request-error'; box.setAttribute('role', 'status');
+    const title = document.createElement('div'); title.className = 'request-error-title';
+    title.textContent = '请求失败：' + (f.status && f.status !== 200 ? 'HTTP ' + f.status + ' · ' : '') + f.summary;
+    const hint = document.createElement('div'); hint.textContent = f.hint + (hasContent ? ' 已保留收到的部分。' : '');
+    const details = document.createElement('details'), summary = document.createElement('summary'), pre = document.createElement('pre');
+    summary.textContent = '查看错误详情'; pre.textContent = failureText(f); details.append(summary, pre);
+    const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = '复制错误详情';
+    copy.onclick = async () => {
+      try { await navigator.clipboard.writeText(pre.textContent); toast('已复制已脱敏的错误详情'); }
+      catch (_) { details.open = true; const range = document.createRange(); range.selectNodeContents(pre); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range); toast('无法自动复制，请长按详情手动复制'); }
+    };
+    const live = () => {
+      if (isLoading) { toast('请先等当前回复结束'); return false; }
+      const tailIndex = messages.length - (messages.length && messages[messages.length - 1].role === 'assistant' ? 1 : 0);
+      if (!h.row.isConnected || h.row.dataset.sid && h.row.dataset.sid !== currentId || h.row.dataset.midx != null && Number(h.row.dataset.midx) !== tailIndex) { toast('这条之后已有新消息，请在当前对话末尾继续'); return false; }
+      return true;
+    };
+    box.append(title, hint, details, copy);
+    if (hasContent) { const cont = document.createElement('button'); cont.type = 'button'; cont.textContent = '继续生成'; cont.onclick = () => { if (live()) continueGen(h, model); }; box.appendChild(cont); }
+    const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = '重新生成'; retry.onclick = () => { if (live()) retryGen(h); }; box.appendChild(retry);
+    h.row.appendChild(box); h._broke = box; maybeScroll();
   }
   function removeBroken(h) { if (h._broke) { h._broke.remove(); h._broke = null; } }
 
@@ -4699,7 +4825,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (res.usage) lastUsage = res.usage;
       if (res.toolsDropped) tools = null;   // 这个模型不吃工具，后面几轮别再带
       if (res.ended === 'aborted') break;
-      if (res.ended === 'http') { stopTimer(); h.textEl.classList.remove('cursor'); h.textEl.classList.add('err'); h.textEl.textContent = `请求失败：${res.error}。检查 API Key、余额，或换个模型再试。`; break; }
+      if (res.ended === 'http') { stopTimer(); h.textEl.classList.remove('cursor'); if (!contentText) h.textEl.textContent = ''; showRequestFailure(h, res.failure || requestFailure(requestContext(model), null, {message:res.error}), model, !!contentText); break; }
       if (res.ended === 'done') {
         // tool_calls 是正常的工具交接。达到本地上限后只让模型收尾，不把它当成上游终止。
         if (rounds >= MAX_TOOL_ROUNDS && ((res.toolCalls && res.toolCalls.length) || res.finish === 'tool_calls')) {
@@ -4739,7 +4865,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         if (myAbort.signal.aborted || currentAbort !== myAbort) break;   // 等待期间被停止或切走了
         continue;
       }
-      showBroken(h, () => continueGen(h, model), () => retryGen(h), '网络断流');
+      if (res.failure) { if (!contentText) h.textEl.textContent = ''; showRequestFailure(h, res.failure, model, !!contentText); }
+      else showBroken(h, () => continueGen(h, model), () => retryGen(h), '网络断流');
       break;
     }
 
@@ -4793,13 +4920,14 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (res.ended !== 'http') { last.cacheUsage = Array.isArray(last.cacheUsage) ? last.cacheUsage : []; last.cacheUsage.push(res.usage ? normalizedChatCacheUsage(res.usage, requestAt) : { ts: requestAt, input: null, cached: null }); }
       generationId = res.generationId || ''; providerName = res.providerName || '';
       if (res.ended === 'aborted') break;
-      if (res.ended === 'http') { h.textEl.classList.remove('cursor'); showBroken(h, () => continueGen(h, model), () => retryGen(h), '请求失败'); break; }
+      if (res.ended === 'http') { h.textEl.classList.remove('cursor'); showRequestFailure(h, res.failure || requestFailure(requestContext(model), null, {message:res.error}), model, !!contentText); break; }
       if (res.ended === 'done') {
         if (res.finish === 'length') showBroken(h, () => continueGen(h, model), () => retryGen(h), '达到长度上限');
         else if (res.finish && res.finish !== 'stop') showBroken(h, () => continueGen(h, model), () => retryGen(h), '被上游终止（' + res.finish + '）');
         break;
       }
-      showBroken(h, () => continueGen(h, model), () => retryGen(h), '网络断流');
+      if (res.failure) showRequestFailure(h, res.failure, model, !!contentText);
+      else showBroken(h, () => continueGen(h, model), () => retryGen(h), '网络断流');
       break;
     }
     h.textEl.classList.remove('cursor');
