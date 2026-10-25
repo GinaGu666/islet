@@ -7,6 +7,7 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const source = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m => m[1]).join('\n');
 new vm.Script(source);
 const parser = source.slice(source.indexOf('  async function streamCompletion('), source.indexOf('  /* ---------- 模型路由提醒'));
+const diagnostics = source.slice(source.indexOf('  function requestContext('), source.indexOf('  let routeController'));
 const generate = source.slice(source.indexOf('  async function generateAssistant('), source.indexOf('  // 断点续写：'));
 const max = Number(source.match(/const MAX_TOOL_ROUNDS = (\d+)/)[1]);
 const noOp = () => {};
@@ -17,7 +18,8 @@ async function scenario({ needed = max, ignoreNone = false, parallel = 1, abortA
   const h = { row: { dataset: {}, querySelector: () => ({ textContent: '10:32' }) }, textEl: element(), thinkEl: element(), thinkLbl: element(), thinkBody: element() };
   const context = vm.createContext({
     AbortController, TextDecoder, setInterval, clearInterval, performance,
-    provider: 'or', apiKey: 'test-only', webOn: false, reasoningEnabled: false, currentAbort: null,
+    provider: 'or', apiKey: 'test-only', ccKey: '', webOn: false, reasoningEnabled: false, currentAbort: null,
+    URL, location: {href:'https://mock.test/'}, localStorage:{getItem:()=>null},
     currentId: 'sid', activeCompanionId: 'test', selectedModel: 'anthropic/claude-fable-5.1',
     messages: [{ role: 'user', content: 'Please inspect the branch code.' }], sessions: [{ id: 'sid' }], MAX_TOOL_ROUNDS: max,
     $: () => ({ focus: noOp }), nowTime: () => '10:32',
@@ -50,7 +52,7 @@ async function scenario({ needed = max, ignoreNone = false, parallel = 1, abortA
       return { ok: true, body: { getReader: () => ({ read: async () => sent ? { done: true } : (sent = true, { done: false, value: Buffer.from(sse) }) }) } };
     },
   });
-  vm.runInContext(parser + '\n' + generate, context);
+  vm.runInContext(diagnostics + '\n' + parser + '\n' + generate, context);
   await context.generateAssistant();
   return { context, requests, executed, broken, labels, h };
 }
