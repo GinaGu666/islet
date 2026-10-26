@@ -897,6 +897,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <button type="button" class="comp-tab" data-mode="high" onclick="setEffort('high')">高</button>
       </div>
       <div class="mem-hint">自动 = 让模型自己定。越高想得越久、越贵；只在「显示思考过程」打开时生效。CC 通道的思考由传话员那头管，这里调不到。</div>
+      <div class="field-label">记忆总结模型</div>
+      <button class="btn-ghost" type="button" onclick="pickMemoryModel()" style="margin-top:6px;width:100%;white-space:normal;overflow-wrap:anywhere"><span id="memory-model-label"></span></button>
+      <button class="comp-tab" type="button" onclick="setMemoryModel('')" style="margin-top:8px">恢复跟随聊天模型</button>
+      <div class="mem-hint">全岛共用，选择后立即保存；两条线路分别记住选择。用于当前对话提炼、自动累积和记忆整理，不影响聊天、日记、人设提炼及历史提炼的单独选择。</div>
       <div class="toggle-row">
         <div>
           <div class="tg-main">让角色使用小工具</div>
@@ -2007,6 +2011,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         system: localStorage.getItem('or_system') || '',
         model: localStorage.getItem('or_model') || '',
         orRoutes: readModelRoutes(),
+        memoryModels: readMemoryModels(),
         reasoning: localStorage.getItem('or_reasoning') || '',
         tools: localStorage.getItem('islet_tools') || '',
         theme: localStorage.getItem('islet_theme') || 'auto',
@@ -2186,6 +2191,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         if (st.system != null) localStorage.setItem('or_system', st.system);
         if (st.model) localStorage.setItem('or_model', st.model);
         localStorage.setItem('islet_or_routes', JSON.stringify(sanitizeModelRoutes(st.orRoutes)));   // 旧备份无此设置，恢复自动路由
+        localStorage.setItem('islet_memory_models', JSON.stringify(sanitizeMemoryModels(st.memoryModels)));   // 旧备份恢复跟随聊天
         if (st.reasoning) localStorage.setItem('or_reasoning', st.reasoning);
         if (st.tools) localStorage.setItem('islet_tools', st.tools);
         if (st.theme) localStorage.setItem('islet_theme', st.theme);
@@ -2973,7 +2979,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   }
 
   let pickerCb = null;   // 临时回调模式：选完只执行回调（外部评审等场景），不绑定角色、不改全局
-  function openPickerFor(cb, hint) { pickerCb = cb; show('picker-overlay'); const pf = $('picker-for'); if (pf) pf.textContent = hint || ''; const s = $('model-search'); s.value = ''; renderModelList(''); loadRouteOptions(); setTimeout(() => s.focus(), 300); }
+  let pickerSelectedModel = '';
+  function openPickerFor(cb, hint, initialModel) { pickerCb = cb; pickerSelectedModel = initialModel || selectedModel; show('picker-overlay'); const pf = $('picker-for'); if (pf) pf.textContent = hint || ''; const s = $('model-search'); s.value = ''; renderModelList(''); loadRouteOptions(); setTimeout(() => s.focus(), 300); }
   function openPicker() { pickerCb = null; show('picker-overlay'); const pf = $('picker-for'); if (pf) pf.textContent = companions.length ? ' · 固定给「' + activeCompanion().name + '」' : ''; const s = $('model-search'); s.value = ''; renderModelList(''); loadRouteOptions(); setTimeout(() => s.focus(), 300); }
   function closePicker() { pickerCb = null; if (routeController) routeController.abort(); hide('picker-overlay'); }
 
@@ -3116,7 +3123,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     q = (q || '').trim().toLowerCase();
     const list = effectiveCatalog();
     const row = m => `
-      <div class="model-row ${m.id === selectedModel ? 'sel' : ''}" onclick="selectModel('${m.id.replace(/'/g, "\\'")}')">
+      <div class="model-row ${m.id === (pickerCb ? pickerSelectedModel : selectedModel) ? 'sel' : ''}" onclick="selectModel('${m.id.replace(/'/g, "\\'")}')">
         <div class="mr-main"><div class="mr-name">${esc(m.name)}</div><div class="mr-id">${esc(m.id)}</div></div>
         ${m.reason ? '<span class="mr-badge">思考</span>' : ''}
         <span class="mr-check"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
@@ -3154,6 +3161,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
   /* ---------- 设置 ---------- */
   function renderProviderTabs() {
+    renderMemoryModel();
     document.querySelectorAll('#provider-tabs .comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === provider));
     const of = $('or-fields'), cf = $('cc-fields');
     if (of) of.style.display = provider === 'or' ? '' : 'none';
@@ -4179,6 +4187,30 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   function sysUserMsgs(sys, user) { return provider === 'cc' ? [{ role: 'user', content: sys + '\n\n====\n\n' + user }] : [{ role: 'system', content: sys }, { role: 'user', content: user }]; }
   // 角色绑定的模型（只在 OpenRouter 通道下生效），没绑就用全局当前值
   function companionModel(c) { return (provider === 'or' && c && c.model) || selectedModel; }
+  function sanitizeMemoryModels(value) {
+    const out = {};
+    if (value && typeof value === 'object' && !Array.isArray(value)) for (const p of ['or', 'cc']) {
+      const id = value[p]; if (typeof id === 'string' && /^[a-z0-9][a-z0-9._:/@+\-]{0,199}$/i.test(id)) out[p] = id;
+    }
+    return out;
+  }
+  function readMemoryModels() { try { return sanitizeMemoryModels(JSON.parse(localStorage.getItem('islet_memory_models') || '{}')); } catch (_) { return {}; } }
+  function memoryModel(c) { return readMemoryModels()[provider] || companionModel(c); }
+  function renderMemoryModel() {
+    const el = $('memory-model-label'), id = readMemoryModels()[provider];
+    if (el) el.textContent = id ? prettyName(id) + ' · ' + id : '跟随各角色的聊天模型（默认）';
+  }
+  function setMemoryModel(id) {
+    const choices = readMemoryModels();
+    if (id) { const safe = sanitizeMemoryModels({[provider]:id}); if (!safe[provider]) { toast('模型标识无效，请重新选择'); return; } choices[provider] = safe[provider]; }
+    else delete choices[provider];
+    if (!lsSet('islet_memory_models', JSON.stringify(choices))) return;
+    renderMemoryModel(); toast(id ? '记忆总结模型已保存，聊天模型不变' : '记忆总结已恢复跟随聊天模型');
+  }
+  function pickMemoryModel() {
+    const p = provider;
+    openPickerFor(id => { if (provider !== p) { toast('线路已变化，请重新选择'); return; } setMemoryModel(id); }, ' · 选择记忆总结模型（不改变聊天模型）', readMemoryModels()[p] || selectedModel);
+  }
   // 非流式单次请求，返回正文；失败抛错。提炼 / 整理 / 出题这类「问一句拿结果」的都走这里
   async function chatOnce(sys, user, model, maxTokens, opts) {
     const payload = applyModelRoute({ model, messages: sysUserMsgs(sys, user), max_tokens: maxTokens || 2048, stream: false }, model);
@@ -5430,7 +5462,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const sys = "You are the curator of an AI companion's memory cards. Cards are numbered, NEWEST FIRST (lower number = newer). Propose ONLY clear, safe maintenance actions, one per line:\n- M: merge cards that say the same thing in different words. Format: 'M: 3,7 => merged one-line text [分类]'\n- D: drop a card that is clearly outdated (contradicted by a NEWER card) or clearly worthless. Format: 'D: 12 = short reason'. Prefer M over D; never drop unique facts.\n- T: add a category to an untagged card. Format: 'T: 5 = 分类'. Category is exactly one of 事实 / 偏好 / 事件 / 约定 (约定 = promises or plans made between the two of them).\nAt most 15 lines. If nothing needs doing, output exactly NONE. No commentary, no numbering, no code fences. Merged text stays in the cards' language, terse like an index card.";
     const user = 'MEMORY CARDS (newest first):\n' + list + '\n\nOutput actions now.';
     try {
-      const outTxt = await chatOnce(sys, user, companionModel(comp), 2048);
+      const outTxt = await chatOnce(sys, user, memoryModel(comp), 2048);
       const items = parseTidy(outTxt, pool);
       btn.disabled = false;
       if (!items.length) { $('distill-status').textContent = '盘点完毕：暂时没有需要整理的 ✓'; return; }
@@ -5614,7 +5646,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       const existing = memCardsOf(comp).slice(0, 60).map(k => '- ' + k.t).join('\n');
       const sys = "You maintain the long-term memory of an AI companion in a companion app: memory cards, a session summary, and a relationship-state line for one specific relationship. You will see the existing cards, the current relationship state, then a recent conversation between the user and the AI companion.\n\nOUTPUT FORMAT — exactly these parts, in this order, nothing else (no bullets, no numbering, no commentary, no code fences):\n1. One line starting with 'SUMMARY: ' — a short narrative recap of THIS conversation from the companion's own perspective (what was discussed, the emotional arc, any relationship beats, how it ended). If a summary of the earlier part of this conversation is provided, fold it in and output the updated recap of the WHOLE conversation, not just the new part. 2-4 short sentences, under 120 Chinese characters. Not a chat log — an arc.\n2. 0 to 5 lines, one NEW memory card per line: only durable information not already covered by existing cards — facts about the user's life, preferences, meaningful events, emotional notes that will still matter later. When a fact carries the user's emotional stance, fold the stance into the card: not just the fact ('哥哥去世') but the posture ('提起哥哥仍会流泪'). Facts with posture beat bare facts. Shared experiences between the user and the companion are the MOST important memories — dates, outings, trips, first times, confessions, anniversaries, gifts, fights and making up — including ones that took place inside the chat or were imagined/played out together, and adventures or stories you made up together: they are real to this relationship, never dismiss them as roleplay. Give EACH distinct occasion its own [事件] card (when, where, what happened, what made it special), even if an existing card mentions a similar kind of thing in general — a general card does not cover a specific occasion. Each card is ONE terse line, like an index card, ending with exactly one category tag: [事实] life facts about them · [偏好] tastes/likes/dislikes · [事件] things that happened · [约定] promises or plans made between the two of you (use 约定 strictly for real commitments). Example: '答应下个月一起重读《小王子》 [约定]'. If nothing new: output exactly NONE on its own line. Never put a tag on the SUMMARY or RELATION lines.\n3. Optionally, one line starting with 'RELATION: ' — ONLY if where-you-two-are-now has meaningfully shifted from the current relationship state shown. Describe the relationship's present position (not who anyone is), under 60 Chinese characters. Omit this line entirely if nothing shifted.\n\nNEVER record in cards: meta/technical talk (which AI model, the app itself, prompts, settings, API, testing), small talk that won't matter in a week, blow-by-blow accounts (keep outcome + feeling), or anything an existing card already covers in different words.\n\nWrite everything in the language the conversation is mostly in.";
       const user = "EXISTING MEMORY CARDS:\n" + (existing || '(empty)') + "\n\nCURRENT RELATIONSHIP STATE:\n" + ((comp.rel || '').trim() || '(not set yet)') + (prevSummary ? "\n\nSUMMARY OF THE EARLIER PART OF THIS CONVERSATION (already distilled — the transcript below is only what came after):\n" + prevSummary : '') + "\n\n----\n\nRECENT CONVERSATION" + (prevSummary ? ' (newest part only)' : '') + ":\n" + transcript + "\n\n----\n\nOutput now: the SUMMARY line, then memory lines (or NONE), then optionally the RELATION line.";
-      const out = await chatOnce(sys, user, companionModel(comp), 4096, { keepalive: true });   // 失败抛错 → 外层 catch 返回 null
+      const out = await chatOnce(sys, user, memoryModel(comp), 4096, { keepalive: true });   // 失败抛错 → 外层 catch 返回 null
       let added = 0, summary = '', relation = '';
       out.split('\n').map(l => l.replace(LIST_MARK, '').trim()).filter(Boolean).forEach(l => {
         const ms = l.match(/^summary[:：]\s*(.+)$/i);
