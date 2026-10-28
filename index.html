@@ -4198,10 +4198,17 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       parts.push(block);
     }
     if (systemPrompt) parts.push(systemPrompt);
-    const hb = habitBrief();
-    if (hb) parts.push(hb);
     if (toolsActive()) parts.push(TOOLS_GUIDE);
     if (diaryReady(c)) parts.push(diaryGuide());
+    return parts.join("\n\n");
+  }
+  // 会变的小东西（打卡状态、日期、隔了多久、纸条）不放 system：system 在缓存前缀最前面，
+  // 这里一变（比如刚打了卡），后面整段历史都要按写入价重算。改为挂在最后一条用户消息的 _tail 上，落在缓存断点之后。
+  // 有副作用（刷新 lastSeen、清空已转达的纸条），每次构建请求只调一次。
+  function buildTurnNotes(sid) {
+    const parts = [];
+    const hb = habitBrief();
+    if (hb) parts.push(hb);
     // 时间感：距上次和这个角色对话隔了多久（≥6 小时才提；每次构建都刷新 lastSeen，故间隔=距上一次真实交流）
     const tc = sessionCompanion(sid);
     if (tc) {
@@ -4226,7 +4233,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   function renderEffortTabs() { const w = $('effort-tabs'); if (w) w.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', b.dataset.mode === reasoningEffort)); }
   const CTX_OPTIONS = [60, 120, 240, 400];
   let ctxMsgs = CTX_OPTIONS.includes(+localStorage.getItem('islet_ctx')) ? +localStorage.getItem('islet_ctx') : 120;   // 发给模型的最近消息条数（设置里可调）；界面和存储始终保留完整记录
-  const CTX_STEP = 20;    // 阶梯窗口步长：起点每 20 条才前移一次，窗口在 N~N+20 条间浮动，保住缓存命中
+  const CTX_STEP = 40;    // 阶梯窗口步长：起点每 40 条才前移一次，窗口在 N~N+40 条间浮动。每挪一次整段历史要按写入价重算，步长大一点挪得少；多带的那几条大多命中缓存，很便宜
   function ctxStart(len) { return len <= ctxMsgs + CTX_STEP ? 0 : Math.ceil((len - (ctxMsgs + CTX_STEP)) / CTX_STEP) * CTX_STEP; }
   function setCtx(n) { if (!CTX_OPTIONS.includes(n)) return; ctxMsgs = n; localStorage.setItem('islet_ctx', String(n)); _tailCache = { key: '', msgs: [] }; renderCtxTabs(); renderTokenBar(); }
   function renderCtxTabs() { const w = $('ctx-tabs'); if (w) w.querySelectorAll('.comp-tab').forEach(b => b.classList.toggle('sel', +b.dataset.mode === ctxMsgs)); }
@@ -4256,7 +4263,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   function packSystem(sys) { return sys ? [{ role: 'system', content: sys }] : []; }
   async function buildApiMessages(msgList, sid, extra) {   // extra：本轮回复里已发生的工具往返（assistant.tool_calls + tool 结果），追加在最后
     const list = msgList || messages;
-    const sys = buildSystemContent(sid);
+    let sys = buildSystemContent(sid);
+    const turnNotes = buildTurnNotes(sid);
     let _all = list.filter(m => m.role !== 'system');
     // 阶梯窗口按整条河算起点，而不是按当前块：刚换块时上游补进来的那段，起点也只每 CTX_STEP 条动一次。
     // 之前是"补到凑满 N+20 条"，当前块每长 2 条上游就从最前面掉 2 条，窗口首条每轮都变，
@@ -4336,6 +4344,21 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         }
       }
     } catch (e) {}
+    // 此刻的情况：同样挂在最后一条用户消息之后；找不到用户消息（极少见）才退回 system 末尾
+    if (turnNotes) {
+      const _blk = '\n\n——【此刻】以下是当前的时间和状态，供你感知，不必复述：\n' + turnNotes;
+      let placed = false;
+      for (let i = out.length - 1; i >= 0 && !placed; i--) {
+        if (out[i].role !== 'user') continue;
+        if (typeof out[i].content === 'string') out[i]._tail = (out[i]._tail || '') + _blk;
+        else if (Array.isArray(out[i].content)) {
+          const _tp = out[i].content.filter(p => p.type === 'text').pop();
+          if (_tp) _tp.text += _blk; else out[i].content.push({ type: 'text', text: _blk.trim() });
+        }
+        placed = true;
+      }
+      if (!placed) sys = sys ? sys + '\n\n' + turnNotes : turnNotes;
+    }
     if (companionsDirty) { companionsDirty = false; saveCompanions(); }
     return [
       ...packSystem(sys),
