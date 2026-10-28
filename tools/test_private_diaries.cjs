@@ -74,7 +74,7 @@ async function app(storage, db = new IDBFactory()) {
   await r('renderDiaryStatus()');assert.equal(a.w.document.querySelector('#diary-status').dataset.phase,'idle');assert(a.w.document.querySelector('#diary-status-hint').textContent.includes('可以关闭'));
   assert.equal(JSON.parse(a.w.localStorage.islet_companions)[0].diaryEnabled,true); assert.equal(r('editingCompanion().diarySinceDay'),r('diaryDay()')); assert(names().includes('share_diary'));
   assert(!plain(r(`activeToolDefs('s2').map(t=>t.function.name)`)).includes('write_diary'));
-  r(`provider='cc'`); assert(!names().includes('read_diary')); r(`provider='or'; toolsEnabled=false`); assert(!names().includes('read_diary')); r('toolsEnabled=true');
+  r(`toolsEnabled=false`); assert(!names().includes('read_diary')); r('toolsEnabled=true');
   // Failed persistence must roll back the per-role setting.
   r(`const realSet=lsSet; lsSet=()=>false; toggleDiarySetting(false); lsSet=realSet`); assert(r('editingCompanion().diaryEnabled')); assert(a.w.document.querySelector('#diary-toggle').checked);
   const secret = 'PRIVATE ONLY <img src=x onerror=alert(1)>\n今天想记住的细节。'; a.w.secret = secret;

@@ -13,7 +13,7 @@ const pause=()=>new Promise(r=>setTimeout(r,50));
 (async()=>{
   w.localStorage.islet_companions=JSON.stringify([{id:'saturn',name:'Saturn',model:'anthropic/chat',cards:[],epis:[],autoDistill:false},{id:'other',name:'Other',model:'openai/other',cards:[],epis:[],autoDistill:false}]);
   w.localStorage.islet_active_companion='saturn';run(source);w.onload=null;
-  run(`apiKey='test-only-key';provider='or';selectedModel='anthropic/chat';loadCompanions();sessions=[{id:'tail',companionId:'saturn',first:1,count:4}];currentId='tail';messages=[{role:'user',content:'种花',ts:Date.now(),time:'12:00'},{role:'assistant',content:'好呀',ts:Date.now()},{role:'user',content:'种满天星',ts:Date.now()},{role:'assistant',content:'记下啦',ts:Date.now()}];saveCurrent();showMain();editingCompanionId='saturn';loadMemoryForm();uiConfirm=async()=>true;uiAlert=async()=>true;toast=t=>{globalThis.lastToast=t};downloadFile=(name,content)=>{globalThis.backup=content};catalog=[{id:'anthropic/chat',name:'Chat'},{id:'openai/summary',name:'Summary'}];buildCatalogMap();`);
+  run(`apiKey='test-only-key';selectedModel='anthropic/chat';loadCompanions();sessions=[{id:'tail',companionId:'saturn',first:1,count:4}];currentId='tail';messages=[{role:'user',content:'种花',ts:Date.now(),time:'12:00'},{role:'assistant',content:'好呀',ts:Date.now()},{role:'user',content:'种满天星',ts:Date.now()},{role:'assistant',content:'记下啦',ts:Date.now()}];saveCurrent();showMain();editingCompanionId='saturn';loadMemoryForm();uiConfirm=async()=>true;uiAlert=async()=>true;toast=t=>{globalThis.lastToast=t};downloadFile=(name,content)=>{globalThis.backup=content};catalog=[{id:'anthropic/chat',name:'Chat'},{id:'openai/summary',name:'Summary'}];buildCatalogMap();`);
   assert.equal(run('memoryModel(companions[0])'),'anthropic/chat');assert.equal(run('memoryModel(companions[1])'),'openai/other');
   const initial=run('JSON.stringify(companions)'),n=requests.length;
   run('openSettings();pickMemoryModel();selectModel("openai/summary")');
@@ -28,14 +28,12 @@ const pause=()=>new Promise(r=>setTimeout(r,50));
   // Diary and unrelated requests continue to use the original explicitly supplied model.
   response='{"write":false}';await run(`chatOnce('diary','user',companionModel(companions[0]),100,{diary:true})`);assert.equal(requests.at(-1).payload.model,'anthropic/chat');
   assert.equal(run('companionModel(companions[0])'),'anthropic/chat');assert.equal(run('selectedModel'),'anthropic/chat');
-  run(`provider='cc';ccBase='https://cc.test';selectedModel='cc-chat';setMemoryModel('cc-summary')`);
-  assert.equal(run('memoryModel(companions[0])'),'cc-summary');response='SUMMARY: CC summary\nNONE';await run('distillMemory(messages,companions[0])');assert.equal(requests.at(-1).payload.model,'cc-summary');assert(!requests.at(-1).payload.provider);
-  run(`setMemoryModel('');`);assert.equal(run('memoryModel(companions[0])'),'cc-chat');run(`provider='or';selectedModel='anthropic/chat'`);assert.equal(run('memoryModel(companions[0])'),'openai/summary');
+  assert.equal(run('memoryModel(companions[0])'),'openai/summary');
+  // A retired CC choice left in storage is ignored, never used as the summary model.
+  assert.equal(run(`JSON.stringify(sanitizeMemoryModels({or:'openai/summary',cc:'cc-summary'}))`),'{"or":"openai/summary"}');
   // Failure stays on the chosen summary model, never silently falls back to the chat model.
   response=new Error('Mock upstream failure');const before=requests.length;assert.equal(await run('distillMemory(messages,companions[0])'),null);assert.equal(requests.length,before+1);assert.equal(requests.at(-1).payload.model,'openai/summary');
   response='SUMMARY: 恢复\nNONE';
-  // Stale picker callback cannot put an OR ID into the CC slot.
-  run(`pickMemoryModel();provider='cc';selectModel('openai/summary')`);assert.equal(run('readMemoryModels().cc'),undefined);run(`provider='or';renderProviderTabs()`);
   // Immediate local persistence, backup/restore and old-backup compatibility; invalid IDs are rejected.
   const saved=w.localStorage.islet_memory_models;assert.equal(JSON.parse(saved).or,'openai/summary');
   run('setMemoryModel("<img src=x>")');assert.equal(w.localStorage.islet_memory_models,saved);assert.equal(w.document.querySelectorAll('#memory-model-label img').length,0);

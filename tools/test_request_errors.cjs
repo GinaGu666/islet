@@ -21,7 +21,7 @@ const stream = () => run('streamCompletion(selectedModel,[],null,()=>{},()=>{})'
   w.localStorage.setItem('islet_companions',JSON.stringify([{id:'qa',name:'Saturn',cards:[],epis:[],autoDistill:false}]));
   w.localStorage.setItem('islet_active_companion','qa');w.localStorage.setItem('islet_cur','tail');
   run(source);w.onload=null;
-  run(`loadCompanions();selectedModel='anthropic/claude-sonnet-4.6';apiKey='TEST-OR-SECRET';ccKey='TEST-CC-SECRET';localStorage.setItem('islet_notion_key','TEST-NOTION-SECRET');
+  run(`loadCompanions();selectedModel='anthropic/claude-sonnet-4.6';apiKey='TEST-OR-SECRET';localStorage.setItem('islet_notion_key','TEST-NOTION-SECRET');
     sessions=[{id:'tail',companionId:'qa',count:1,first:1}];currentId='tail';messages=[{role:'user',content:'Hello',time:'10:00',ts:Date.now()}];saveCurrent();showMain();renderAll();
     delay=async()=>{};toast=t=>{globalThis.lastToast=t};globalThis.realAddAi=addAi;addAi=(...args)=>{const h=realAddAi(...args);if(h)globalThis.handle=h;return h};
     localStorage.setItem('islet_or_routes',JSON.stringify({[selectedModel]:'anthropic'}));`);
@@ -68,11 +68,6 @@ const stream = () => run('streamCompletion(selectedModel,[],null,()=>{},()=>{})'
   await assert.rejects(run(`chatOnce('sys','user',selectedModel,200)`),/Non-stream error with 200/);
   reply=()=>new Response('<html>wrong endpoint</html>');await assert.rejects(run(`chatOnce('sys','user',selectedModel,200)`),/格式异常/);
   reply=()=>json({choices:[{message:{content:'Success'}}]});assert.equal(await run(`chatOnce('sys','user',selectedModel,200)`),'Success');
-  // CC endpoint diagnostics retain useful address information without credentials or query strings.
-  run(`provider='cc';ccBase='https://user:pass@cc.test/bridge?api_key=query-secret#frag'`);
-  reply=()=>json({error:{message:'CC unauthorized TEST-CC-SECRET'}},401);
-  r=await stream();assert.equal(r.failure.channel,'CC 自建接口');assert(r.failure.endpoint.startsWith('https://cc.test/bridge'));assert(!r.failure.endpoint.includes('query-secret'));assert(!r.error.includes('TEST-CC-SECRET'));assert.equal(r.failure.route,'');
-  run(`provider='or';ccBase='';`);
   reply=()=>json({error:{message:'Model catalog denied TEST-OR-SECRET',code:401}},401);
   await run('fetchModels()');assert(run('catalogErr').includes('Model catalog denied'));assert(!run('catalogErr').includes('TEST-OR-SECRET'));run(`renderModelList('')`);assert.equal(w.document.querySelectorAll('#model-list img').length,0);
   // Full UI: visible summary + collapsible/copyable details. Errors never enter messages or backups.
@@ -108,5 +103,5 @@ const stream = () => run('streamCompletion(selectedModel,[],null,()=>{},()=>{})'
   reply=()=>({ok:false,status:502,body:{getReader:()=>({read:async()=>{const e=new Error('aborted body');e.name='AbortError';throw e}})}});
   r=await stream();assert.equal(r.ended,'aborted');
   assert.deepEqual(errors,[]);
-  console.log('PASS: detailed HTTP/typed/provider/plain-text/HTML errors; bounded and redacted diagnostics; HTTP-200/SSE/no-newline errors; premature EOF/network/abort; non-stream and CC handling; provider-locked retries; mobile-ready details/copy, partial preservation, continuation and no storage/context leakage.');
+  console.log('PASS: detailed HTTP/typed/provider/plain-text/HTML errors; bounded and redacted diagnostics; HTTP-200/SSE/no-newline errors; premature EOF/network/abort; non-stream handling; provider-locked retries; mobile-ready details/copy, partial preservation, continuation and no storage/context leakage.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>w.close());

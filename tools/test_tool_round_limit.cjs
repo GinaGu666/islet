@@ -18,7 +18,7 @@ async function scenario({ needed = max, ignoreNone = false, parallel = 1, abortA
   const h = { row: { dataset: {}, querySelector: () => ({ textContent: '10:32' }) }, textEl: element(), thinkEl: element(), thinkLbl: element(), thinkBody: element() };
   const context = vm.createContext({
     AbortController, TextDecoder, setInterval, clearInterval, performance,
-    provider: 'or', apiKey: 'test-only', ccKey: '', webOn: false, reasoningEnabled: false, currentAbort: null,
+    apiKey: 'test-only', webOn: false, reasoningEnabled: false, currentAbort: null,
     URL, location: {href:'https://mock.test/'}, localStorage:{getItem:()=>null},
     currentId: 'sid', activeCompanionId: 'test', selectedModel: 'anthropic/claude-fable-5.1',
     messages: [{ role: 'user', content: 'Please inspect the branch code.' }], sessions: [{ id: 'sid' }], MAX_TOOL_ROUNDS: max,

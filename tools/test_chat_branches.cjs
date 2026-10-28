@@ -39,7 +39,7 @@ async function app(storage, db = new IDBFactory()) {
     downloadFile = (name, content) => { globalThis.download = { name, content }; };
     loadCompanions(); loadSessions();
     if (currentId) activeCompanionId = sessionCompanion(currentId).id;
-    selectedModel = DEFAULT_MODEL.or;
+    selectedModel = DEFAULT_MODEL;
     showMain(); renderAll();
   `);
   await sleep(30);
