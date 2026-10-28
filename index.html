@@ -3621,6 +3621,24 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (typeof title !== 'string' || typeof body !== 'string' || !title.trim() || !body.trim() || title.length > 80 || body.length > 3000) throw new Error('日记需有标题和正文，标题最多80字、正文最多3000字');
     return { title: title.trim(), body: body.trim() };
   }
+  // 后台日记的回复：模型偶尔会在 JSON 前后多说一句、包代码块，或写超长度。尽量认出来，不因格式小毛病整篇作废。
+  function parseDiaryDecision(raw) {
+    const text = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    const candidates = [text];
+    const starts = [...text.matchAll(/\{/g)].map(m => m.index), ends = [...text.matchAll(/\}/g)].map(m => m.index).reverse();
+    for (const i of starts) for (const j of ends) if (j > i) candidates.push(text.slice(i, j + 1));
+    for (const c of candidates) {
+      let out; try { out = JSON.parse(c); } catch (_) { continue; }
+      if (out && typeof out === 'object' && typeof out.write === 'boolean') return out;
+    }
+    const e = new Error('日记判断格式无效'); e.diaryKind = 'format'; throw e;
+  }
+  function fitDiaryText(value, max) {   // 超长时在句末截断，不留半句
+    const t = String(value || '').trim();
+    if (t.length <= max) return t;
+    const head = t.slice(0, max), ends = [...head.matchAll(/[。！？!?；;…\n]/g)];
+    return (ends.length && ends[ends.length - 1].index > max * 0.6 ? head.slice(0, ends[ends.length - 1].index + 1) : head.slice(0, max - 1) + '…').trim();
+  }
   function validSharedDiary(s) {
     if (!s || !normMemoryDate(s.date)) return false;
     try { diaryEntry(s.title, s.body); return true; } catch (e) { return false; }
@@ -3823,9 +3841,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         else throw new Error('模型上下文不足以容纳日记请求，请换用更大上下文的模型');
       }
       const raw = await chatOnce(sys, user, model, maxTokens, { signal: ctrl.signal, diary: true });
-      const out = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
-      if (!out || typeof out.write !== 'boolean') throw new Error('日记判断格式无效');
-      const entry = out.write ? diaryEntry(out.title, out.body) : null;
+      const out = parseDiaryDecision(raw);
+      const entry = out.write ? diaryEntry(fitDiaryText(out.title, 80), fitDiaryText(out.body, 3000)) : null;
       if (diaryLive(c, ctrl.signal) && requestLive()) {
         setDiaryStatus(c, date, 'saving');
         const saved = await persistDiaryDecision(c, date, entry, ctrl.signal);
@@ -3833,7 +3850,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       }
     })().catch(e => {
       setDiaryStatus(c, jobDate, 'failed');
-      if (!ctrl.signal.aborted) { diaryFailures.set(cid, Date.now()); toast('「' + c.name + '」日记补写未完成，稍后会重试'); }
+      if (!ctrl.signal.aborted) {
+        // 只说失败类别，不展示任何日记内容或模型原文
+        const f = e && e.requestFailure;
+        const kind = e && e.diaryKind === 'format' ? '回复格式没认出来' : f && f.kind === 'network' ? '网络问题' : f ? '接口报错' + (f.status ? ' ' + f.status : '') : e && /日记需有标题/.test(e.message) ? '内容不完整' : e && /长度上限/.test(e.message) ? '写到一半被截断' : '其他原因';
+        diaryFailures.set(cid, Date.now()); toast('「' + c.name + '」日记补写未完成（' + kind + '），一小时后会重试', 4000);
+      }
     }).finally(() => {
       if (diaryControllers.get(cid) === ctrl) diaryControllers.delete(cid);
       if (diaryJobs.get(cid) === job) diaryJobs.delete(cid);
