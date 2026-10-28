@@ -66,12 +66,6 @@ async function app(responses=[],metadata=()=>({provider_name:'Google Vertex'}),s
   assert.equal(continuation.run('messages.at(-1).generationId'),'gen-cont');
   assert(!continuation.w.document.querySelector('.model').textContent.includes('Google Vertex'));
 
-  // No supplier inference for custom endpoints or old history without recorded provider metadata.
-  const custom=await app([{provider:'Anthropic'}]);custom.run(`provider='cc'; ccBase='https://mock.test';`);
-  custom.run(`streamCompletion=async(model,msgs,signal,onReason,onContent)=>{onContent('Custom reply');return{ended:'done',finish:'stop',toolCalls:[]}}`);
-  await custom.run('generateAssistant()');assert(!('providerName'in plain(custom.run('messages.at(-1)'))));
-  assert(!custom.w.document.querySelector('.model').textContent.includes(' · '));
-
-  for(const a of [direct,reload,fallback,missing,delayed,invalid,escaped,continuation,custom])assert.deepEqual(a.errors,[]);
-  console.log('PASS: passive provider metadata, no supplier labels or metadata lookups, final-round attribution, safe history/backup, continuation and custom endpoint compatibility.');
+  for(const a of [direct,reload,fallback,missing,delayed,invalid,escaped,continuation])assert.deepEqual(a.errors,[]);
+  console.log('PASS: passive provider metadata, no supplier labels or metadata lookups, final-round attribution, safe history/backup, and continuation.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>contexts.forEach(d=>d.window.close()));

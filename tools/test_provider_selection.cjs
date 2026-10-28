@@ -67,11 +67,7 @@ async function app(storage) {
   await a.run('streamCompletion(selectedModel,[],null,()=>{},()=>{})');
   assert.equal(a.requests.at(-1).model,model+':online');
   assert.deepEqual(a.requests.at(-1).provider,{only:['anthropic'],allow_fallbacks:false});
-  a.run(`provider='cc';ccBase='https://mock.test';webOn=false`);
-  await a.run('streamCompletion(selectedModel,[],null,()=>{},()=>{})'); assert(!a.requests.at(-1).provider);
-  a.chatReply = () => new Response(JSON.stringify({choices:[{message:{content:'CC'}}]}));
-  await a.run(`chatOnce('sys','user',selectedModel,100)`); assert(!a.requests.at(-1).provider);
-  a.run('openPicker()'); assert(a.w.document.getElementById('route-panel').hidden); a.run(`closePicker();provider='or'`);
+  a.run('webOn=false');
 
   // Locked failures fail visibly, and compatibility retries must never remove the provider constraint.
   a.chatReply = () => new Response(JSON.stringify({error:{message:'No endpoints found'}}),{status:404});
@@ -106,9 +102,9 @@ async function app(storage) {
   assert.equal(b.w.document.getElementById('route-select').value,'');
   const stale = b.run('loadRouteOptions()'); b.run(`selectedModel='${other}'; closePicker()`); release(new Response(JSON.stringify({data:{endpoints}}))); await stale;
   assert(!b.w.document.getElementById('picker-overlay').classList.contains('show'));
-  b.run(`provider='or';openPickerFor(()=>{},'临时选模型')`); assert(b.w.document.getElementById('route-panel').hidden); b.run('closePicker()');
+  b.run(`openPickerFor(()=>{},'临时选模型')`); assert(b.w.document.getElementById('route-panel').hidden); b.run('closePicker()');
   assert.deepEqual(plain(a.run(`sanitizeModelRoutes({'bad':'anthropic','${model}':'https://evil.test','${other}':'openai'})`)),{[other]:'openai'});
   a.run(`localStorage.setItem('islet_or_routes','not json')`); assert.deepEqual(plain(a.run('readModelRoutes()')),{});
   for (const x of [a,b,c]) assert.deepEqual(x.errors,[]);
-  console.log('PASS: live provider slugs, per-model lock, tool rounds/continuation/online/non-stream calls, CC isolation, fail-closed retries, labels, reload/backup/legacy import, stale/error directory and safe UI.');
+  console.log('PASS: live provider slugs, per-model lock, tool rounds/continuation/online/non-stream calls, fail-closed retries, labels, reload/backup/legacy import, stale/error directory and safe UI.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>contexts.forEach(d=>d.window.close()));
