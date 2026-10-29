@@ -1,0 +1,26 @@
+[Unit]
+Description=islet-server（小岛记忆库 + 自由时间）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=islet
+Group=islet
+WorkingDirectory=/opt/islet/server
+EnvironmentFile=/etc/islet-server.env
+Environment=TZ=Asia/Taipei
+Environment=DATA_DIR=/var/lib/islet-server
+ExecStart=/usr/bin/node /opt/islet/server/server.js
+Restart=on-failure
+RestartSec=5
+# 收紧权限：只能写自己的数据目录
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+StateDirectory=islet-server
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/islet-server
+
+[Install]
+WantedBy=multi-user.target
