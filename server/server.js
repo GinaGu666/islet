@@ -68,16 +68,50 @@ function cleanSnapshot(body) {
   };
 }
 
-/* ---------- 读书笔记：模型偶尔包代码块或前后多说一句，宽容解析 ---------- */
-function parseReading(raw) {
-  const text = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+/* ---------- 读书笔记：模型常包代码块、前后多说一句、正文直接换行或带没转义的引号，宽容解析 ---------- */
+// 宽容地从模型回复里取出 JSON 对象：去代码块、截取 {…}、修补字符串里的裸换行/制表符；
+// 仍不合法（比如正文里有没转义的双引号）就按字段名硬抠。只返回含指定字段之一的对象，否则 null。
+function looseJson(raw, keys) {
+  const text = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
+  const fixCtl = s => {
+    let out = '', inStr = false, esc = false;
+    for (const ch of s) {
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+        else if (ch === '\n') { out += '\\n'; continue; }
+        else if (ch === '\r') { out += '\\r'; continue; }
+        else if (ch === '\t') { out += '\\t'; continue; }
+      } else if (ch === '"') inStr = true;
+      out += ch;
+    }
+    return out;
+  };
+  const has = o => o && typeof o === 'object' && !Array.isArray(o) && keys.some(k => k in o);
+  const starts = [...text.matchAll(/\{/g)].map(m => m.index).slice(0, 20), ends = [...text.matchAll(/\}/g)].map(m => m.index).reverse().slice(0, 20);
   const candidates = [text];
-  const starts = [...text.matchAll(/\{/g)].map(m => m.index), ends = [...text.matchAll(/\}/g)].map(m => m.index).reverse();
   for (const i of starts) for (const j of ends) if (j > i) candidates.push(text.slice(i, j + 1));
-  for (const c of candidates) {
-    let out; try { out = JSON.parse(c); } catch (_) { continue; }
-    if (out && typeof out === 'object' && typeof out.topic === 'string' && typeof out.notes === 'string' && out.topic.trim() && out.notes.trim()) return out;
-  }
+  for (const c of candidates) for (const v of [c, fixCtl(c)]) { try { const o = JSON.parse(v); if (has(o)) return o; } catch (_) {} }
+  // 硬抠：每个 "字段": 的值，截到下一个字段名之前；最后一个截到最后的 } 之前
+  const marks = keys.map(k => { const m = new RegExp('"' + k + '"\\s*:\\s*').exec(text); return m ? { k, at: m.index, from: m.index + m[0].length } : null; })
+    .filter(Boolean).sort((a, b) => a.at - b.at);
+  if (!marks.length) return null;
+  const lastBrace = text.lastIndexOf('}'), out = {};
+  const unescape = s => s.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/\\(["\\\/nrt])/g, (_, c) => ({ n: '\n', r: '', t: '\t' })[c] ?? c);
+  marks.forEach((m, i) => {
+    const end = i + 1 < marks.length ? marks[i + 1].at : (lastBrace > m.from ? lastBrace : text.length);
+    const seg = text.slice(m.from, end).trim().replace(/,\s*$/, '').trim();
+    if (seg.length >= 2 && seg[0] === '"' && seg[seg.length - 1] === '"') out[m.k] = unescape(seg.slice(1, -1));
+    else if (/^"?(true|false)"?$/i.test(seg)) out[m.k] = /true/i.test(seg);
+    else if (seg[0] === '[') { try { out[m.k] = JSON.parse(fixCtl(seg)); } catch (_) { out[m.k] = [...seg.matchAll(/https?:\/\/[^\s"'\],]+/g)].map(x => x[0]); } }
+    else out[m.k] = seg.replace(/^"/, '');
+  });
+  return out;
+}
+function parseReading(raw) {
+  const o = looseJson(raw, ['topic', 'why', 'notes', 'sources']);
+  if (o && typeof o.topic === 'string' && typeof o.notes === 'string' && o.topic.trim() && o.notes.trim()) return o;
   throw new Error('读书笔记格式没认出来');
 }
 function fit(value, max) {   // 超长时在句末截断，不留半句
