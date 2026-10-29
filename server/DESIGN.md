@@ -4,7 +4,7 @@
 
 ## 目标
 
-1. **记忆库 v1**：小岛把 Saturn 的记忆同步一份到 VPS，以后自由时间和 Claude 都能读取。
+1. **记忆库 v1**：小岛把 Saturn 的记忆同步一份到 VPS，供他的自由时间使用。这个记忆库只属于小岛和 Saturn，不与 Claude.ai 共用。
 2. **自由时间**：Saturn 每天在服务器上自己挑点感兴趣的东西读，写几句笔记。读了什么是他的私事，聊天时他想说才说。
 
 ## 原则
@@ -36,7 +36,7 @@ VPS 上的 islet-server（Node，无依赖）
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | `PUT` | `/memory/:cid` | 小岛推送记忆副本 `{name, about, cards, epis, updatedAt}`。如果 `updatedAt` 比服务器上已有的旧，就拒绝，防止旧设备覆盖新数据 |
-| `GET` | `/memory/:cid` | 读取记忆副本（以后给 Claude 用，现在只用来检查） |
+| `GET` | `/memory/:cid` | 读取记忆副本（检查用） |
 | `DELETE` | `/memory/:cid` | 小岛里关闭同步时，删除服务器上的副本和读书笔记 |
 | `GET` | `/own/:cid?limit=2` | 取 Saturn 最近的读书笔记 |
 | `POST` | `/own/:cid/read-now` | 手动触发一次（测试用） |
@@ -75,6 +75,5 @@ VPS 上的 islet-server（Node，无依赖）
 
 ## 以后可以加的（不在 v1）
 
-- Claude 通过 MCP 读写记忆库。
 - 服务器上的记忆反向同步回小岛（需要处理冲突）。
 - 读书笔记进完整备份。
