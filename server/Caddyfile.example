@@ -1,0 +1,6 @@
+# 把 203-0-113-7 换成这台 VPS 的公网 IP（点换成横线）。
+# sslip.io 会把这个名字解析回这个 IP，Caddy 自动申请 https 证书。
+203-0-113-7.sslip.io {
+	encode gzip
+	reverse_proxy 127.0.0.1:8787
+}
