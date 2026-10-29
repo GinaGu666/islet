@@ -671,6 +671,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   .route-toast { position: fixed; top: calc(64px + var(--safe-top)); left: 50%; transform: translateX(-50%) translateY(-8px); max-width: min(88vw, 420px); background: var(--card); border: 1px solid rgba(210,160,74,.55); border-left: 3px solid #D2A04A; color: var(--ink); font-size: 13px; line-height: 1.55; padding: 10px 14px; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.14); z-index: 100; opacity: 0; pointer-events: none; transition: opacity .22s, transform .22s; cursor: pointer; }
   .route-toast.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
   .route-toast b { font-weight: 600; }
+  .ai-eyebrow .note-tag { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; background: var(--accent-weak); color: var(--ink-2); flex-shrink: 0; }
   .ai-eyebrow .routed { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; background: rgba(210,160,74,.16); border: 1px solid rgba(210,160,74,.45); color: #A87B2F; flex-shrink: 0; }
 
   /* 旧议事厅纪要：仅保留历史卡片的只读显示 */
@@ -2237,7 +2238,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     else openSettings(true);
     fetchModels();
     companions.forEach(c => scheduleDiaryCatchup(c.id));
-    setTimeout(() => { memSyncAll(); companions.forEach(c => memRefreshOwn(c.id)); }, 3000);
+    setTimeout(() => { memSyncAll(); memDeliverNotes(); companions.forEach(c => memRefreshOwn(c.id)); }, 3000);
     companions.forEach(c => rebalanceChunks(c.id).catch(() => {}));   // 老块挪进 IndexedDB，给 localStorage 腾地方
 
     // 代码块复制（事件委托）
@@ -3263,6 +3264,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       else if (m.role === 'user') addUser(m.content, m.time, i, m.imgs, m.files, target, m.drawn);
       else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true, m.reqModel, target, m.tools, m.providerName, m.diaryShares);
       const last = target.lastElementChild; if (last) { last.dataset.midx = i; last.dataset.sid = sid; }
+      if (m.role === 'assistant' && m.freeNote && last) markNoteRow(last);
     }
     return prevDay;
   }
@@ -3361,6 +3363,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   }
 
   function replyModelLabel(model) { return prettyName(model || selectedModel); }   // 供应商只在选择菜单里显示，旧消息中的元数据保留
+  // 留言：TA 空闲时主动留的话，在对话里就是 TA 的一条新消息，只多一个小标记
+  function markNoteRow(row) {
+    const eb = row.querySelector('.ai-eyebrow'); if (!eb || eb.querySelector('.note-tag')) return;
+    const tag = document.createElement('span'); tag.className = 'note-tag'; tag.textContent = '留言'; tag.title = '你不在的时候，TA 主动留的';
+    const t = eb.querySelector('.t'); eb.insertBefore(tag, t || null);
+  }
   function setReplyProvider(h, model, providerName) {
     const el = h && h.row && h.row.querySelector('.model');
     if (el) { el.textContent = replyModelLabel(model, providerName); el.title = el.textContent; }
@@ -4009,6 +4017,14 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     memSyncBusy = true;
     try {
       for (const c of companions.filter(x => x.memSync === true)) {
+        // 她最近一次说话的时间（只看当前打开的这块），变了且距上次上报超过 10 分钟才报
+        if (currentId && sessionCompanion(currentId) && sessionCompanion(currentId).id === c.id) {
+          const lastUser = [...messages].reverse().find(m => m.role === 'user' && Number.isFinite(m.ts));
+          let sent = {}; try { sent = JSON.parse(localStorage.getItem('islet_presence_' + c.id) || '{}'); } catch (_) {}
+          if (lastUser && lastUser.ts !== sent.at && Date.now() - (sent.sentAt || 0) > 600e3) {
+            try { await memFetch('/presence/' + encodeURIComponent(c.id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lastChatAt: lastUser.ts }) }); localStorage.setItem('islet_presence_' + c.id, JSON.stringify({ at: lastUser.ts, sentAt: Date.now() })); } catch (_) {}
+          }
+        }
         const snap = memSnapshot(c), body = JSON.stringify(snap), h = memHash(body);
         if (localStorage.getItem('islet_memsync_' + c.id) === h) continue;
         try {
@@ -4053,8 +4069,39 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (on) { await memSyncAll(); memRefreshOwn(c.id, true); toast('已开启。第一次同步完成后，TA 明天起会有自己的自由时间'); }
     else toast('记忆库同步已关闭');
   }
+  // 取留言：只放进当前打开的角色、当前分支，聊天没在生成时才放；本机存好、读回确认后才告诉服务器已送达
+  let memNotesBusy = false;
+  async function memDeliverNotes() {
+    const c = companions.find(x => x.id === activeCompanionId);
+    const here = () => !isLoading && currentId && sessionCompanion(currentId) && sessionCompanion(currentId).id === c.id && activeCompanionId === c.id;
+    if (memNotesBusy || !c || c.memSync !== true || !memSrvReady() || document.hidden || !here()) return;
+    memNotesBusy = true;
+    try {
+      const j = await memFetch('/notes/' + encodeURIComponent(c.id));
+      const notes = (j && Array.isArray(j.notes) ? j.notes : []).filter(n => n && typeof n.id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(n.id) && typeof n.text === 'string' && n.text.trim() && Number.isFinite(n.at));
+      if (!notes.length || !here()) return;
+      let seen = []; try { seen = JSON.parse(localStorage.getItem('islet_notes_seen_' + c.id) || '[]'); } catch (_) {}
+      const known = new Set([...seen, ...messages.filter(m => m.freeNote).map(m => m.freeNote)]);
+      const fresh = notes.filter(n => !known.has(n.id));
+      if (fresh.length) {
+        for (const n of fresh) {
+          const last = messages[messages.length - 1];
+          messages.push({ role: 'assistant', content: n.text.trim().slice(0, 400), ts: Math.max(n.at, last && Number.isFinite(last.ts) ? last.ts + 1 : 0),
+            time: new Date(n.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), model: companionModel(c), freeNote: n.id });
+        }
+        saveCurrent();
+        const back = loadSessionMsgs(currentId);
+        if (!fresh.every(n => back.some(m => m.freeNote === n.id))) { messages = back; renderAll(); return; }   // 没存住：不确认，下次再来
+        localStorage.setItem('islet_notes_seen_' + c.id, JSON.stringify([...seen, ...fresh.map(n => n.id)].slice(-200)));
+        renderAll(); scrollToBottom(true);
+        toast(c.name + ' 给你留了' + (fresh.length > 1 ? ' ' + fresh.length + ' 句话' : '一句话'));
+      }
+      await memFetch('/notes/' + encodeURIComponent(c.id) + '/ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: notes.map(n => n.id) }) }).catch(() => {});
+    } catch (_) {} finally { memNotesBusy = false; }
+  }
   setInterval(memSyncAll, 60e3);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { memSyncAll(); companions.forEach(c => memRefreshOwn(c.id)); } });
+  setInterval(memDeliverNotes, 3 * 60e3);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { memSyncAll(); memDeliverNotes(); companions.forEach(c => memRefreshOwn(c.id)); } });
 
   const TOOL_DEFS = [
     { type: 'function', function: { name: 'read_github', description: '只读公开 GitHub 仓库的代码、文档或目录，默认仓库 GinaGu666/islet。用户问小岛代码或要求查看 GitHub 文件时调用；不知道文件路径时先用空 path 列根目录。大文件可先用 query 定位关键词，再按行读取附近代码。长文件分段返回，按 next 参数继续；不得把未读部分说成已经读完。没有写入、提交或私有仓库权限。',
@@ -4505,6 +4552,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     for (let i = win.length - 1; i >= 0; i--) {
       const m = win[i];
       let content = _stamp[i] ? `${_stamp[i]} ${m.content}` : m.content;
+      if (m.role === 'assistant' && m.freeNote) content = '（这是你之前空闲时主动留给她的话）\n' + content;
       if (m.role === 'assistant' && Array.isArray(m.diaryShares)) content += m.diaryShares.map(s => validSharedDiary(s) ? '\n【已主动分享的日记 ' + s.date + ' · ' + s.title + '】\n' + s.body : '').join('');
       if (m.role === 'user' && m.drawn) content = '（她这次是从「随机掉落」抽卡进来的——在几个人里抽中了你。）\n' + content;
       if (m.role === 'user' && m.files && m.files.length) {
