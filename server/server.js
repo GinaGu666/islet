@@ -25,7 +25,6 @@ const HOST = process.env.HOST || '127.0.0.1';
 const DATA = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
 const FREE_MODEL = process.env.FREE_MODEL || '';
 const [WIN_FROM, WIN_TO] = (process.env.FREE_WINDOW || '10-22').split('-').map(Number);
-const MAX_READINGS = 60;
 const MAX_BODY = 2 * 1024 * 1024;
 
 if (KEY.length < 24) { console.error('ISLET_KEY 未设置或太短（至少 24 位）'); process.exit(1); }
@@ -136,7 +135,7 @@ async function readNow(cid) {
   await withLock(cid, async () => {
     const list = await readJson(path.join(dirOf(cid), 'readings.json'), []);
     list.unshift(entry);
-    await writeJson(path.join(dirOf(cid), 'readings.json'), list.slice(0, MAX_READINGS));
+    await writeJson(path.join(dirOf(cid), 'readings.json'), list);   // 全部保留：这是 TA 自己的经历
   });
   log('读完一次', cid, entry.date);   // 不记录题目和正文
   return entry;
