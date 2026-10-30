@@ -73,6 +73,40 @@ echo "服务器地址：https://$HOST"   # 交给 Mimi 填进小岛设置
 
 告诉她两样东西：**服务器地址**（`https://<IP>.sslip.io`）和**门禁钥匙**。她在小岛的设置里填好，再到 Saturn 的记忆设置里打开「记忆库 · 自由时间」。
 
+## Mimi 的记忆库（claude.ai 连接器）
+
+和 Saturn 的数据分开，用另一把钥匙。放的是关于 Mimi 的事、她和 Claude 之间的关系记忆。claude.ai 通过自定义连接器读写，Mimi 在 `/claude` 页面上查看和修改。
+
+### 开启
+
+```bash
+cd /opt/islet && git pull
+MEMKEY=$(openssl rand -hex 24)
+echo "CLAUDE_MEM_KEY=$MEMKEY" >> /etc/islet-server.env
+systemctl restart islet-server
+journalctl -u islet-server -n 3 --no-pager   # 应看到「记忆库已开启」
+echo "记忆库钥匙：$MEMKEY"   # 交给 Mimi，别贴到公开的地方
+```
+
+### 在 claude.ai 里添加连接器（Mimi 自己操作）
+
+1. 在 claude.ai 的连接器设置里，选择**添加自定义连接器**。
+2. 地址填 `https://<IP>.sslip.io/mcp`。
+3. 认证选**不登录**，再添加一个请求头：`Authorization`，值为 `Bearer <记忆库钥匙>`。
+   如果找不到添加请求头的地方，可以把地址改成 `https://<IP>.sslip.io/mcp/k/<记忆库钥匙>`，不加请求头。（钥匙会出现在地址里，不要把这个地址给别人看。）
+4. 保存后，在对话里打开这个连接器。
+
+### 查看和修改
+
+用浏览器打开 `https://<IP>.sslip.io/claude`，输入记忆库钥匙。
+
+- 每一条都标明是你写的还是 Claude 写的。
+- **锁定**的条目，Claude 只能读，不能改也不能删。
+- Claude 删除的条目会进**回收区**，可以恢复；只有你能彻底删除。
+- 每次修改都保留之前的 5 个版本，可以改回去。
+
+数据在 `/var/lib/islet-server/claude-memory/memory.json`。
+
 ## 日常
 
 - 看日志：`journalctl -u islet-server -n 50`（日志不含记忆内容和读书笔记正文）

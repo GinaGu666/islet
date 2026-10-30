@@ -10,11 +10,13 @@
 //   FREE_MODEL       自由时间固定用的模型；不填就用小岛同步过来的角色聊天模型
 //   FREE_WINDOW      每天随机读书的时段（本地时间，按 TZ），默认 10-22
 //   OPENROUTER_URL   测试用，可指向本地假接口
+//   CLAUDE_MEM_KEY   Mimi 记忆库（claude.ai 连接器 + /claude 小页面）的钥匙，至少 24 位；不填就不开这个功能
 'use strict';
 const http = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const claudeMemory = require('./claude-memory');   // Mimi 的记忆库（给 claude.ai 用），和 Saturn 的数据分开
 
 const KEY = process.env.ISLET_KEY || '';
 const OR_KEY = process.env.OPENROUTER_KEY || '';
@@ -293,6 +295,8 @@ async function route(req, url) {
   throw httpError(404, '找不到');
 }
 const server = http.createServer(async (req, res) => {
+  const u = new URL(req.url, 'http://x');
+  if (claudeMemory.handles(u)) return claudeMemory.handle(req, res, u);
   const cors = corsHeaders(req);
   if (req.method === 'OPTIONS') { res.writeHead(cors['Access-Control-Allow-Origin'] ? 204 : 403, cors); res.end(); return; }
   let status = 200, body;
@@ -303,7 +307,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
-  server.listen(PORT, HOST, () => log(`islet-server 在 ${HOST}:${PORT}，数据目录 ${DATA}，自由时间${OR_KEY ? '已开启' : '未配置 OPENROUTER_KEY'}`));
+  server.listen(PORT, HOST, () => log(`islet-server 在 ${HOST}:${PORT}，数据目录 ${DATA}，自由时间${OR_KEY ? '已开启' : '未配置 OPENROUTER_KEY'}，记忆库${claudeMemory.enabled() ? '已开启' : '未配置 CLAUDE_MEM_KEY'}`));
   setInterval(() => tick().catch(e => log('调度出错', e.message)), 5 * 60e3).unref();
   setTimeout(() => tick().catch(() => {}), 5e3).unref();
 }
