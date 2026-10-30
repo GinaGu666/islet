@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>我的记忆库</title>
+<style>
+  :root {
+    --bg: #f5f4f0; --card: #fff; --ink: #22211e; --ink-2: #6d6a62; --ink-3: #9b978d; --line: #e5e2da;
+    --accent: #3d6b5a; --accent-weak: #e3ece7; --warn: #b4472f; --lock: #a87b2f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1a1a18; --card: #232320; --ink: #ecebe6; --ink-2: #a8a49b; --ink-3: #77746c; --line: #34332f;
+            --accent: #7fb39f; --accent-weak: #2a3530; --warn: #e2846e; --lock: #d4a85c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 -apple-system, "PingFang TC", "Noto Sans TC", system-ui, sans-serif; }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 20px 16px calc(40px + env(safe-area-inset-bottom)); }
+  h1 { font-size: 20px; font-weight: 600; margin: 4px 0 2px; }
+  .sub { color: var(--ink-2); font-size: 13px; margin-bottom: 18px; }
+  .field, textarea, select { width: 100%; font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  textarea { resize: vertical; min-height: 76px; }
+  button { font: inherit; border: 0; border-radius: 10px; padding: 9px 14px; cursor: pointer; background: var(--accent-weak); color: var(--ink); }
+  button.primary { background: var(--accent); color: #fff; }
+  button.ghost { background: transparent; color: var(--ink-2); padding: 6px 8px; }
+  button.danger { color: var(--warn); }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 14px 0 10px; }
+  .tab { padding: 6px 12px; border-radius: 999px; background: transparent; border: 1px solid var(--line); color: var(--ink-2); font-size: 13px; }
+  .tab.sel { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .add { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin-bottom: 14px; }
+  .add .row { margin-top: 8px; }
+  .add select { width: auto; flex: 1; }
+  .entry { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+  .entry.locked { border-color: color-mix(in srgb, var(--lock) 45%, var(--line)); }
+  .entry .text { white-space: pre-wrap; word-break: break-word; }
+  .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; color: var(--ink-3); font-size: 12px; margin-top: 6px; }
+  .pill { padding: 0 7px; border-radius: 999px; background: var(--accent-weak); color: var(--ink-2); }
+  .pill.claude { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  .pill.lock { background: color-mix(in srgb, var(--lock) 18%, transparent); color: var(--lock); }
+  .actions { display: flex; gap: 2px; flex-wrap: wrap; margin-top: 4px; margin-left: -8px; }
+  .revs { margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 8px; font-size: 13px; }
+  .rev { color: var(--ink-2); margin-bottom: 6px; white-space: pre-wrap; word-break: break-word; }
+  .empty { color: var(--ink-3); text-align: center; padding: 30px 0; }
+  .msg { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 10px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100% - 32px); }
+  .msg.show { opacity: 1; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>我的记忆库</h1>
+  <div class="sub">关于你的事，和你与 Claude 之间的记忆。Claude 通过连接器读写；你在这里看、改、锁定、删除。</div>
+
+  <div id="login" class="hidden">
+    <input class="field" id="key" type="password" placeholder="记忆库钥匙" autocomplete="current-password">
+    <div class="row" style="margin-top:8px"><button class="primary" id="login-btn">进入</button></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="add">
+      <textarea id="new-text" placeholder="想让 Claude 记住的事……" maxlength="2000"></textarea>
+      <div class="row">
+        <select id="new-cat"></select>
+        <button class="primary" id="add-btn">记下</button>
+      </div>
+    </div>
+    <input class="field" id="q" type="search" placeholder="搜索">
+    <div class="tabs" id="tabs"></div>
+    <div id="list"></div>
+    <div class="row" style="justify-content:space-between;margin-top:20px">
+      <span class="sub" id="count" style="margin:0"></span>
+      <button class="ghost" id="logout">退出</button>
+    </div>
+  </div>
+</div>
+<div class="msg" id="msg"></div>
+<script>
+  const $ = id => document.getElementById(id);
+  const store = { get(k) { try { return localStorage.getItem(k) || ''; } catch (_) { return ''; } }, set(k, v) { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch (_) {} } };
+  let key = store.get('mm_key'), cats = {}, entries = [], tab = 'all', editing = null, openRevs = new Set();
+
+  function toast(t) { const m = $('msg'); m.textContent = t; m.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => m.classList.remove('show'), 2200); }
+  async function api(path, opts = {}) {
+    const res = await fetch('/claude/api/' + path, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key, ...(opts.headers || {}) } });
+    const j = await res.json().catch(() => ({}));
+    if (res.status === 401) { store.set('mm_key', ''); key = ''; show(); throw new Error('钥匙不对'); }
+    if (!res.ok) throw new Error(j.error || ('出错了 ' + res.status));
+    return j;
+  }
+  const fmt = ts => { const d = new Date(ts), p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); };
+  const who = w => w === 'mimi' ? '你' : 'Claude';
+
+  function show() {
+    $('login').classList.toggle('hidden', !!key);
+    $('app').classList.toggle('hidden', !key);
+    if (key) load(); else setTimeout(() => $('key').focus(), 50);
+  }
+  async function load() {
+    try { const j = await api('entries'); cats = { ...j.cats, about: '关于我' }; entries = j.entries; render(); }
+    catch (e) { toast(e.message); }
+  }
+  function render() {
+    const sel = $('new-cat'); if (!sel.options.length) for (const [k, v] of Object.entries(cats)) sel.add(new Option(v, k));
+    const live = entries.filter(e => !e.trashed), trash = entries.filter(e => e.trashed);
+    const tabsDef = [['all', '全部', live.length], ...Object.entries(cats).map(([k, v]) => [k, v, live.filter(e => e.cat === k).length]), ['locked', '已锁定', live.filter(e => e.locked).length], ['trash', '回收区', trash.length]];
+    $('tabs').replaceChildren(...tabsDef.map(([k, label, n]) => { const b = document.createElement('button'); b.className = 'tab' + (tab === k ? ' sel' : ''); b.textContent = label + ' ' + n; b.onclick = () => { tab = k; editing = null; render(); }; return b; }));
+    const q = $('q').value.trim().toLowerCase();
+    let list = tab === 'trash' ? trash : tab === 'locked' ? live.filter(e => e.locked) : tab === 'all' ? live : live.filter(e => e.cat === tab);
+    if (q) list = list.filter(e => q.split(/\s+/).every(w => e.text.toLowerCase().includes(w)));
+    list = list.slice().sort((a, b) => b.updated - a.updated);
+    const box = $('list');
+    if (!list.length) { const d = document.createElement('div'); d.className = 'empty'; d.textContent = tab === 'trash' ? '回收区是空的' : q ? '没有找到' : '这里还是空的'; box.replaceChildren(d); }
+    else box.replaceChildren(...list.map(card));
+    $('count').textContent = '共 ' + live.length + ' 条' + (trash.length ? ' · 回收区 ' + trash.length : '');
+  }
+  function btn(label, fn, cls) { const b = document.createElement('button'); b.className = 'ghost' + (cls ? ' ' + cls : ''); b.textContent = label; b.onclick = fn; return b; }
+  function card(e) {
+    const el = document.createElement('div'); el.className = 'entry' + (e.locked ? ' locked' : '');
+    if (editing === e.id) {
+      const ta = document.createElement('textarea'); ta.value = e.text; ta.maxLength = 2000;
+      const cs = document.createElement('select'); for (const [k, v] of Object.entries(cats)) cs.add(new Option(v, k)); cs.value = e.cat; cs.style.width = 'auto';
+      const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '8px';
+      const save = document.createElement('button'); save.className = 'primary'; save.textContent = '保存';
+      save.onclick = async () => { save.disabled = true; try { await api('entries/' + e.id, { method: 'PATCH', body: JSON.stringify({ text: ta.value, cat: cs.value }) }); editing = null; await load(); toast('已保存'); } catch (x) { toast(x.message); save.disabled = false; } };
+      row.append(cs, save, btn('取消', () => { editing = null; render(); }));
+      el.append(ta, row); setTimeout(() => ta.focus(), 0); return el;
+    }
+    const t = document.createElement('div'); t.className = 'text'; t.textContent = e.text;
+    const meta = document.createElement('div'); meta.className = 'meta';
+    const pill = (txt, cls) => { const s = document.createElement('span'); s.className = 'pill ' + (cls || ''); s.textContent = txt; return s; };
+    meta.append(pill(cats[e.cat] || e.cat), pill(who(e.updatedBy) + (e.updatedBy !== e.by ? '改过' : '写的'), e.updatedBy === 'claude' ? 'claude' : ''));
+    if (e.locked) meta.append(pill('已锁定', 'lock'));
+    const time = document.createElement('span'); time.textContent = e.trashed ? who(e.trashedBy) + '删于 ' + fmt(e.trashed) : fmt(e.updated); meta.append(time);
+    const acts = document.createElement('div'); acts.className = 'actions';
+    if (e.trashed) {
+      acts.append(btn('恢复', async () => { try { await api('entries/' + e.id, { method: 'PATCH', body: JSON.stringify({ restore: true }) }); await load(); toast('已恢复'); } catch (x) { toast(x.message); } }),
+        btn('彻底删除', async () => { if (!confirm('彻底删除这一条？删了就找不回来了。')) return; try { await api('entries/' + e.id + '?purge=1', { method: 'DELETE' }); await load(); toast('已彻底删除'); } catch (x) { toast(x.message); } }, 'danger'));
+    } else {
+      acts.append(btn('编辑', () => { editing = e.id; render(); }),
+        btn(e.locked ? '解锁' : '锁定', async () => { try { await api('entries/' + e.id, { method: 'PATCH', body: JSON.stringify({ locked: !e.locked }) }); await load(); toast(e.locked ? '已解锁，Claude 可以改了' : '已锁定，Claude 只能读'); } catch (x) { toast(x.message); } }),
+        btn('删除', async () => { try { await api('entries/' + e.id, { method: 'DELETE' }); await load(); toast('已放进回收区'); } catch (x) { toast(x.message); } }, 'danger'));
+    }
+    if (e.revs && e.revs.length) acts.append(btn((openRevs.has(e.id) ? '收起' : '之前的版本') + ' ' + e.revs.length, () => { openRevs.has(e.id) ? openRevs.delete(e.id) : openRevs.add(e.id); render(); }));
+    el.append(t, meta, acts);
+    if (openRevs.has(e.id) && e.revs) {
+      const rv = document.createElement('div'); rv.className = 'revs';
+      e.revs.forEach((r, i) => {
+        const d = document.createElement('div'); d.className = 'rev';
+        const head = document.createElement('div'); head.style.fontSize = '12px'; head.style.color = 'var(--ink-3)'; head.textContent = who(r.by) + ' · ' + fmt(r.at);
+        const body = document.createElement('div'); body.textContent = r.text;
+        d.append(head, body);
+        if (!e.trashed) d.append(btn('改回这一版', async () => { try { await api('entries/' + e.id, { method: 'PATCH', body: JSON.stringify({ revert: i }) }); await load(); toast('已改回'); } catch (x) { toast(x.message); } }));
+        rv.append(d);
+      });
+      el.append(rv);
+    }
+    return el;
+  }
+
+  $('login-btn').onclick = () => { key = $('key').value.trim(); if (!key) return; store.set('mm_key', key); show(); };
+  $('key').onkeydown = e => { if (e.key === 'Enter') $('login-btn').click(); };
+  $('logout').onclick = () => { store.set('mm_key', ''); key = ''; entries = []; show(); };
+  $('add-btn').onclick = async () => {
+    const text = $('new-text').value.trim(); if (!text) return;
+    $('add-btn').disabled = true;
+    try { const j = await api('entries', { method: 'POST', body: JSON.stringify({ text, cat: $('new-cat').value }) }); $('new-text').value = ''; await load(); toast(j.duplicate ? '已经有一样的一条了' : '记下了'); }
+    catch (x) { toast(x.message); } finally { $('add-btn').disabled = false; }
+  };
+  $('q').oninput = () => render();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && key) load(); });
+  show();
+</script>
+</body>
+</html>
