@@ -4016,6 +4016,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (memSyncBusy || !memSrvReady() || document.hidden) return;
     memSyncBusy = true;
     try {
+      for (const c of companions.filter(x => x.memSync !== true && localStorage.getItem('islet_memsync_off_' + x.id))) await memSendOff(c);
       for (const c of companions.filter(x => x.memSync === true)) {
         // 她最近一次说话的时间（只看当前打开的这块），变了且距上次上报超过 10 分钟才报
         if (currentId && sessionCompanion(currentId) && sessionCompanion(currentId).id === c.id) {
@@ -4055,18 +4056,31 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     return '## 你自己最近读的\n' + items.map(r => '- ' + (r.date ? r.date + ' ' : '') + '读了「' + r.topic + '」' + (r.why ? '（' + r.why + '）' : '') + '：' + r.notes).join('\n') +
       '\n\n这是你自己空闲时读的，她不知道。想分享就自然地提，不想就不提；不必一次说完，也不要说是系统或记录告诉你的。';
   }
+  // 关闭但保留：告诉服务器 freeTime:false，让它停止读书；连不上就记下来，下次同步时补发
+  async function memSendOff(c) {
+    try {
+      await memFetch('/memory/' + encodeURIComponent(c.id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...memSnapshot(c), freeTime: false, updatedAt: Date.now() }) });
+      localStorage.removeItem('islet_memsync_off_' + c.id); return true;
+    } catch (e) {
+      if (e.status === 404 || e.status === 409) { localStorage.removeItem('islet_memsync_off_' + c.id); return true; }   // 服务器上已经没有，或有更新的副本
+      localStorage.setItem('islet_memsync_off_' + c.id, '1'); return false;
+    }
+  }
   async function toggleMemSync(on) {
     const c = editingCompanion(); if (!c) return;
     if (on && !memSrvReady()) { $('memsync-toggle').checked = false; toast('先在设置里填好记忆库服务器地址和门禁钥匙'); return; }
+    let deleted = false;
     if (!on && c.memSync === true && memSrvReady() && await uiConfirm('同时删除服务器上「' + c.name + '」的记忆副本和读书笔记吗？', { sub: '不删也行：以后不再同步，也不再读书，服务器上留着原样。', ok: '一起删除', cancel: '只关闭' })) {
-      try { await memFetch('/memory/' + encodeURIComponent(c.id), { method: 'DELETE' }); toast('服务器上的副本已删除'); }
+      try { await memFetch('/memory/' + encodeURIComponent(c.id), { method: 'DELETE' }); deleted = true; toast('服务器上的副本已删除'); }
       catch (e) { toast('服务器上的副本没删掉（' + (e.status || '连不上') + '），开关仍会关闭'); }
     }
+    const wasOn = c.memSync === true;
     const old = c.memSync;
     c.memSync = !!on;
     if (!lsSet('islet_companions', JSON.stringify(companions))) { c.memSync = old; $('memsync-toggle').checked = old === true; return; }
     localStorage.removeItem('islet_memsync_' + c.id); memOwnCache.delete(c.id);
-    if (on) { await memSyncAll(); memRefreshOwn(c.id, true); toast('已开启。第一次同步完成后，TA 明天起会有自己的自由时间'); }
+    if (on) { localStorage.removeItem('islet_memsync_off_' + c.id); await memSyncAll(); memRefreshOwn(c.id, true); toast('已开启。第一次同步完成后，TA 明天起会有自己的自由时间'); }
+    else if (wasOn && !deleted && memSrvReady()) toast(await memSendOff(c) ? '已关闭：服务器停止读书，笔记保留' : '已关闭。服务器暂时连不上，连上后会通知它停止读书', 3500);
     else toast('记忆库同步已关闭');
   }
   // 取留言：只放进当前打开的角色、当前分支，聊天没在生成时才放；本机存好、读回确认后才告诉服务器已送达
