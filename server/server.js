@@ -112,7 +112,7 @@ function looseJson(raw, keys) {
   return out;
 }
 function parseReading(raw) {
-  const o = looseJson(raw, ['topic', 'why', 'notes', 'sources']);
+  const o = looseJson(raw, ['topic', 'why', 'notes', 'sources', 'note', 'next']);
   if (o && typeof o.topic === 'string' && typeof o.notes === 'string' && o.topic.trim() && o.notes.trim()) return o;
   throw new Error('读书笔记格式没认出来');
 }
@@ -194,6 +194,10 @@ function randomSlot(day) {   // day: Date（本地时间那天的任意时刻）
   const d = new Date(day); d.setHours(WIN_FROM, 0, 0, 0);
   return d.getTime() + Math.floor(Math.random() * Math.max(1, WIN_TO - WIN_FROM) * 3600e3);
 }
+function tomorrowSlot(now = new Date()) {   // 读完之后：下一次一定排到明天，不会同一天再读
+  const t = new Date(now); t.setDate(t.getDate() + 1);
+  return randomSlot(t);
+}
 function nextSlot(now = new Date()) {
   const today = randomSlot(now);
   if (today > now.getTime() + 60e3) return today;
@@ -212,10 +216,12 @@ async function tick() {
     const state = await readJson(stateFile, {}).catch(() => ({}));
     if (!state.nextAt) { await writeJson(stateFile, { ...state, nextAt: nextSlot() }); continue; }
     if (Date.now() < state.nextAt) continue;
+    // 今天已经读过（包括手动 read-now）：不再读，直接排到明天
+    if (state.lastReadDay === localDay(new Date())) { await writeJson(stateFile, { ...state, nextAt: tomorrowSlot() }); continue; }
     running.add(cid);
     try {
       await readNow(cid);
-      await writeJson(stateFile, { ...state, nextAt: nextSlot(), lastOk: Date.now(), lastError: '' });
+      await writeJson(stateFile, { ...state, nextAt: tomorrowSlot(), lastReadDay: localDay(new Date()), lastOk: Date.now(), lastError: '' });
     } catch (e) {
       // 失败一小时后再试，最多拖到当天时段结束；再失败就等明天
       const retry = Date.now() + 3600e3, end = new Date(); end.setHours(WIN_TO, 0, 0, 0);
@@ -290,7 +296,13 @@ async function route(req, url) {
   if (area === 'own' && action === 'read-now' && req.method === 'POST') {
     if (running.has(cid)) throw httpError(409, '正在读');
     running.add(cid);
-    try { const r = await readNow(cid); return { ok: true, date: r.date }; } finally { running.delete(cid); }
+    try {
+      const r = await readNow(cid);
+      // 手动读也算今天这一次，免得当天再自动读一次
+      const stateFile = path.join(dirOf(cid), 'state.json'), state = await readJson(stateFile, {}).catch(() => ({}));
+      await writeJson(stateFile, { ...state, nextAt: tomorrowSlot(), lastReadDay: r.date, lastOk: Date.now(), lastError: '' });
+      return { ok: true, date: r.date };
+    } finally { running.delete(cid); }
   }
   throw httpError(404, '找不到');
 }
@@ -311,4 +323,4 @@ if (require.main === module) {
   setInterval(() => tick().catch(e => log('调度出错', e.message)), 5 * 60e3).unref();
   setTimeout(() => tick().catch(() => {}), 5e3).unref();
 }
-module.exports = { server, tick, parseReading, nextSlot, cleanSnapshot };
+module.exports = { server, tick, parseReading, nextSlot, tomorrowSlot, cleanSnapshot };
