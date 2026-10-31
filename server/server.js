@@ -268,6 +268,15 @@ async function route(req, url) {
     }
     if (req.method === 'DELETE') return withLock(cid, async () => { await fs.rm(dirOf(cid), { recursive: true, force: true }); return { ok: true }; });
   }
+  // 停止自由时间：不比较新旧，直接关掉。停下来永远是安全的方向，不能被「另一台设备的副本更新」挡住
+  if (area === 'memory' && action === 'off' && req.method === 'POST') {
+    return withLock(cid, async () => {
+      const snap = await readJson(snapFile, null);
+      if (!snap) throw httpError(404, '没有副本');
+      if (snap.freeTime !== false) { snap.freeTime = false; snap.offAt = Date.now(); await writeJson(snapFile, snap); }
+      return { ok: true, freeTime: false };
+    });
+  }
   // 留言：取还没送达的；小岛存好之后再确认，确认之前重复取到也没关系（小岛按 id 去重）
   if (area === 'notes' && !action && req.method === 'GET') {
     const list = await readJson(path.join(dirOf(cid), 'readings.json'), []);

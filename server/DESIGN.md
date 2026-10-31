@@ -70,6 +70,9 @@ VPS 上的 islet-server（Node，无依赖）
 | `GET` | `/notes/:cid` | 还没送达的留言 |
 | `POST` | `/notes/:cid/ack` | 小岛存好之后确认送达 `{ids}` |
 | `PUT` | `/presence/:cid` | 上报 `{lastChatAt}` |
+| `POST` | `/memory/:cid/off` | 停止自由时间（不比较副本新旧，直接设 `freeTime:false`），笔记保留 |
+
+关闭时只有服务器明确回答已停止，或回答没有副本，才算成功；冲突、旧版服务器、连不上都保留重试标记。多台设备都开着同步时，另一台设备有改动后可能会把它重新打开，要在每台设备上都关掉。
 
 ## 安全
 
