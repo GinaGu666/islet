@@ -2344,6 +2344,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     c.activeBranchId = bid; saveCompanions();
     enterCompanion(cid); _tailCache = { key: '', msgs: [] };
     renderAll(); renderDrawerCompanions(); updatePill();
+    setTimeout(memDeliverNotes, 300);   // 回到主线时补放攒着的留言
   }
   async function renameChatBranch(cid, bid) {
     if (branchBusy) return;
@@ -2763,6 +2764,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     leaveCurrentSession();
     enterCompanion(id);
     renderAll(); renderDrawerCompanions(); updatePill();
+    setTimeout(memDeliverNotes, 300);   // 切到 TA 就看看有没有留言
   }
   function togglePinCompanion(id) {
     const c = companions.find(x => x.id === id);
@@ -4088,8 +4090,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   let memNotesBusy = false;
   async function memDeliverNotes() {
     const c = companions.find(x => x.id === activeCompanionId);
-    const here = () => !isLoading && currentId && sessionCompanion(currentId) && sessionCompanion(currentId).id === c.id && activeCompanionId === c.id;
-    if (memNotesBusy || !c || c.memSync !== true || !memSrvReady() || document.hidden || !here()) return;
+    // 只投到主线：留言是正本，不该落进试验分支。分支上先攒在服务器，回到主线再放
+    const here = () => !isLoading && currentId && sessionCompanion(currentId) && sessionCompanion(currentId).id === c.id && activeCompanionId === c.id && activeBranchFor(c.id) === MAIN_BRANCH;
+    // 正在聊（最近 3 分钟有消息）就先不放，免得「你不在的时候」的留言插在对话中间
+    const busyChatting = () => { const last = [...messages].reverse().find(m => !m.freeNote); return !!(last && Number.isFinite(last.ts) && Date.now() - last.ts < 3 * 60e3); };
+    if (memNotesBusy || !c || c.memSync !== true || !memSrvReady() || document.hidden || !here() || busyChatting()) return;
     memNotesBusy = true;
     try {
       const j = await memFetch('/notes/' + encodeURIComponent(c.id));
@@ -4101,7 +4106,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (fresh.length) {
         for (const n of fresh) {
           const last = messages[messages.length - 1];
-          messages.push({ role: 'assistant', content: n.text.trim().slice(0, 400), ts: Math.max(n.at, last && Number.isFinite(last.ts) ? last.ts + 1 : 0),
+          messages.push({ role: 'assistant', content: fitDiaryText(n.text, 400), ts: Math.max(n.at, last && Number.isFinite(last.ts) ? last.ts + 1 : 0),
             time: new Date(n.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), model: companionModel(c), freeNote: n.id });
         }
         saveCurrent();
