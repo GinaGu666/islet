@@ -1309,6 +1309,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <label class="switch"><input type="checkbox" id="memsync-toggle" onchange="toggleMemSync(this.checked)"><span class="slider"></span></label>
       </div>
       <div class="mem-hint" id="memsync-hint">聊天原文不会上传。TA 读了什么是 TA 自己的事，这里没有翻看的入口；想说的时候 TA 会说。需先在设置里填好记忆库服务器。</div>
+      <div class="comp-tabs" id="free-every-tabs" style="padding:6px 0 0">
+        <span class="tg-sub" style="align-self:center;margin-right:4px">读书频率</span>
+        <button type="button" class="comp-tab" data-mode="1" onclick="setFreeEvery(1)">每天</button>
+        <button type="button" class="comp-tab" data-mode="3" onclick="setFreeEvery(3)">每三天</button>
+        <button type="button" class="comp-tab" data-mode="7" onclick="setFreeEvery(7)">每周</button>
+      </div>
 
       <button class="btn-primary" onclick="saveMemory()">保存</button>
       <div class="form-note">记忆只存在本机浏览器，随时可改可删；对话时用的是当前角色的人设与记忆</div>
@@ -4001,7 +4007,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   let memSyncBusy = false;
   function memSnapshot(c) {
     return {
-      name: c.name || '', about: sharedAbout(), model: companionModel(c), freeTime: true,
+      name: c.name || '', about: sharedAbout(), model: companionModel(c), freeTime: true, freeEvery: [1, 3, 7].includes(c.freeEvery) ? c.freeEvery : 1,
       // 只带内容字段；u/n 是记忆热度，每轮都会变，带上就会每轮重推
       cards: memCardsOf(c).map(k => ({ t: k.t, d: k.d, p: !!k.p, c: k.c || '', date: k.date || '' })),
       epis: epiOf(c).map(e => ({ d: e.d, t: e.t })),
@@ -4068,6 +4074,18 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (e.status === 404 && e.message === '没有副本') { localStorage.removeItem('islet_memsync_off_' + c.id); return true; }
     }
     localStorage.setItem('islet_memsync_off_' + c.id, '1'); return false;
+  }
+  // 读书频率：每个角色单独设置，随记忆副本同步到服务器
+  function renderFreeEvery() {
+    const c = editingCompanion(), n = c && [1, 3, 7].includes(c.freeEvery) ? c.freeEvery : 1;
+    document.querySelectorAll('#free-every-tabs .comp-tab').forEach(b => b.classList.toggle('sel', Number(b.dataset.mode) === n));
+  }
+  function setFreeEvery(n) {
+    const c = editingCompanion(); if (!c || ![1, 3, 7].includes(n)) return;
+    const old = c.freeEvery; c.freeEvery = n;
+    if (!lsSet('islet_companions', JSON.stringify(companions))) { c.freeEvery = old; renderFreeEvery(); return; }
+    renderFreeEvery();
+    if (c.memSync === true) { memSyncAll(); toast(n === 1 ? '改成每天读一次' : n === 3 ? '改成每三天读一次' : '改成每周读一次'); }
   }
   async function toggleMemSync(on) {
     const c = editingCompanion(); if (!c) return;
@@ -5727,6 +5745,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     $('autodistill-toggle').checked = c.autoDistill !== false;
     $('diary-toggle').checked = c.diaryEnabled === true;
     $('memsync-toggle').checked = c.memSync === true;
+    renderFreeEvery();
     updateDiaryStatusRestore();
     $('distill-status').textContent = '';
     updateMemCount();

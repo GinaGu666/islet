@@ -56,6 +56,8 @@ function withLock(cid, fn) {
 /* ---------- 记忆副本：只收需要的字段，长度设上限 ---------- */
 const str = (v, max) => typeof v === 'string' ? v.slice(0, max) : '';
 const num = v => Number.isFinite(v) ? v : null;
+// 读书频率：每隔几天读一次（1 = 每天，7 = 每周）
+const cleanEvery = n => Number.isFinite(n) ? Math.min(14, Math.max(1, Math.round(n))) : 1;
 function cleanSnapshot(body) {
   if (!body || typeof body !== 'object') throw httpError(400, '格式不对');
   const cards = Array.isArray(body.cards) ? body.cards.slice(0, 2000).map(k => ({
@@ -66,7 +68,7 @@ function cleanSnapshot(body) {
   if (!updatedAt) throw httpError(400, '缺少 updatedAt');
   return {
     name: str(body.name, 60), about: str(body.about, 20000), model: str(body.model, 200),
-    freeTime: body.freeTime === true, cards, epis, updatedAt, receivedAt: Date.now(),
+    freeTime: body.freeTime === true, freeEvery: cleanEvery(body.freeEvery), cards, epis, updatedAt, receivedAt: Date.now(),
   };
 }
 
@@ -157,7 +159,7 @@ async function readNow(cid) {
   const presence = await readJson(path.join(dirOf(cid), 'presence.json'), null).catch(() => null);
   const model = FREE_MODEL || snap.model || 'anthropic/claude-sonnet-4.6';
   const payload = {
-    model, max_tokens: 2000,
+    model, max_tokens: 6000,   // 爱思考的模型（如 Fable）思考也算在里面，留足余量；只按实际用量计费
     messages: [{ role: 'system', content: freeTimePrompt(snap, readings, presence) }, { role: 'user', content: '去读点什么吧。' }],
     plugins: [{ id: 'web', max_results: 5 }],
   };
@@ -194,9 +196,13 @@ function randomSlot(day) {   // day: Date（本地时间那天的任意时刻）
   const d = new Date(day); d.setHours(WIN_FROM, 0, 0, 0);
   return d.getTime() + Math.floor(Math.random() * Math.max(1, WIN_TO - WIN_FROM) * 3600e3);
 }
-function tomorrowSlot(now = new Date()) {   // 读完之后：下一次一定排到明天，不会同一天再读
-  const t = new Date(now); t.setDate(t.getDate() + 1);
+function tomorrowSlot(now = new Date(), days = 1) {   // 读完之后：下一次排到 days 天后（至少明天），不会同一天再读
+  const t = new Date(now); t.setDate(t.getDate() + Math.max(1, days));
   return randomSlot(t);
+}
+function daysSince(day, now = new Date()) {   // 本地日期 YYYY-MM-DD 到今天隔了几天
+  const [y, m, d] = String(day).split('-').map(Number), a = new Date(y, m - 1, d), b = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((b - a) / 864e5);
 }
 function nextSlot(now = new Date()) {
   const today = randomSlot(now);
@@ -216,12 +222,15 @@ async function tick() {
     const state = await readJson(stateFile, {}).catch(() => ({}));
     if (!state.nextAt) { await writeJson(stateFile, { ...state, nextAt: nextSlot() }); continue; }
     if (Date.now() < state.nextAt) continue;
-    // 今天已经读过（包括手动 read-now）：不再读，直接排到明天
-    if (state.lastReadDay === localDay(new Date())) { await writeJson(stateFile, { ...state, nextAt: tomorrowSlot() }); continue; }
+    // 离上次读还没满间隔（今天已读、或刚从每天改成每周）：不读，排到间隔满的那天
+    const every = cleanEvery(snap.freeEvery);
+    if (state.lastReadDay && daysSince(state.lastReadDay) < every) {
+      await writeJson(stateFile, { ...state, nextAt: tomorrowSlot(new Date(), every - daysSince(state.lastReadDay)) }); continue;
+    }
     running.add(cid);
     try {
       await readNow(cid);
-      await writeJson(stateFile, { ...state, nextAt: tomorrowSlot(), lastReadDay: localDay(new Date()), lastOk: Date.now(), lastError: '' });
+      await writeJson(stateFile, { ...state, nextAt: tomorrowSlot(new Date(), every), lastReadDay: localDay(new Date()), lastOk: Date.now(), lastError: '' });
     } catch (e) {
       // 失败一小时后再试，最多拖到当天时段结束；再失败就等明天
       const retry = Date.now() + 3600e3, end = new Date(); end.setHours(WIN_TO, 0, 0, 0);
@@ -309,7 +318,8 @@ async function route(req, url) {
       const r = await readNow(cid);
       // 手动读也算今天这一次，免得当天再自动读一次
       const stateFile = path.join(dirOf(cid), 'state.json'), state = await readJson(stateFile, {}).catch(() => ({}));
-      await writeJson(stateFile, { ...state, nextAt: tomorrowSlot(), lastReadDay: r.date, lastOk: Date.now(), lastError: '' });
+      const snap = await readJson(snapFile, null).catch(() => null);
+      await writeJson(stateFile, { ...state, nextAt: tomorrowSlot(new Date(), cleanEvery(snap && snap.freeEvery)), lastReadDay: r.date, lastOk: Date.now(), lastError: '' });
       return { ok: true, date: r.date };
     } finally { running.delete(cid); }
   }
@@ -332,4 +342,4 @@ if (require.main === module) {
   setInterval(() => tick().catch(e => log('调度出错', e.message)), 5 * 60e3).unref();
   setTimeout(() => tick().catch(() => {}), 5e3).unref();
 }
-module.exports = { server, tick, parseReading, nextSlot, tomorrowSlot, cleanSnapshot };
+module.exports = { server, tick, parseReading, nextSlot, tomorrowSlot, daysSince, cleanSnapshot };
