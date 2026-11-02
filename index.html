@@ -2333,6 +2333,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       rename.onclick = () => renameChatBranch(cid, b.id);
       row.append(open, rename);
       if (b.id !== MAIN_BRANCH) {
+        const merge = document.createElement('button'); merge.type = 'button'; merge.className = 'icon-btn branch-merge'; merge.title = '合并到主线'; merge.setAttribute('aria-label', '把' + b.name + '合并到主线');
+        merge.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 7v10M18 11c0 4-6 4-11 6.5"/></svg>';
+        merge.onclick = () => mergeChatBranch(cid, b.id);
+        row.appendChild(merge);
         const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'icon-btn branch-delete'; remove.setAttribute('aria-label', '删除分支' + b.name);
         remove.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg>';
         remove.onclick = () => deleteChatBranch(cid, b.id);
@@ -2404,6 +2408,96 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       toast('已删除「' + b.name + '」');
     } catch (e) {
       toast((committed ? '分支已删除，部分清理未完成：' : '删除失败：') + (e.message || e));
+    } finally {
+      branchBusy = false; $('msg-input').disabled = false; $('send-btn').disabled = false;
+      renderBranchBar();
+      if ($('branch-overlay').classList.contains('show') && cid === activeCompanionId) openBranches();
+    }
+  }
+  /* 合并到主线：只把分支在分叉之后的那段对话，原样接到主线末尾。分支本身保留。
+   * 分叉时复制的前缀块（带 forkSid）跳过；已经接过的条数记在 c.branchMerged，再合并只补新的。 */
+  async function branchOwnMsgs(cid, bid) {
+    const out = [];
+    for (const s of riverChunks(cid, bid)) {
+      if (s.forkSid) continue;
+      const all = s.id === currentId ? messages : await loadChunk(s.id);
+      if (!Array.isArray(all) || (s.count && s.count !== all.length)) throw new Error('分支有一段读不完整，什么都没改');
+      out.push(...all);
+    }
+    return out;
+  }
+  async function mergeChatBranch(cid, bid) {
+    if (branchBusy) return;
+    if (bid === MAIN_BRANCH) return;
+    if (isLoading) { toast('先停止回复，或等回复完成后再合并'); return; }
+    const c = companions.find(c => c.id === cid), b = branchesOf(cid).find(b => b.id === bid);
+    if (!c || !b) return;
+    let own;
+    try { own = await branchOwnMsgs(cid, bid); } catch (e) { toast(e.message || String(e)); return; }
+    const done = Math.min(((c.branchMerged || {})[bid]) || 0, own.length), add = own.slice(done);
+    if (!add.length) { toast(done ? '这条分支的新内容已经都接到主线了' : '这条分支在分叉后还没有聊天'); return; }
+    const parent = (riverChunks(cid, bid).find(s => s.parentBranchId) || {}).parentBranchId || MAIN_BRANCH;
+    const sub = '把「' + b.name + '」分叉之后的 ' + add.length + ' 条' + (done ? '（上次合并后的新内容）' : '') + '原样接到主线最后。主线分叉后自己聊的那段不动，所以时间和情节会交错，接口处会标一条线。'
+      + (parent !== MAIN_BRANCH ? '这条分支是从「' + branchName(cid, parent) + '」分出来的，只接它自己的部分。' : '') + '分支本身保留。';
+    if (!(await uiConfirm('合并到主线？', { sub, ok: '接到主线' }))) return;
+    if (branchBusy || isLoading || !companions.includes(c) || !branchesOf(cid).some(x => x.id === bid)) return;
+    branchBusy = true; renderBranchBar();
+    $('msg-input').disabled = true; $('send-btn').disabled = true;
+    const staged = [];
+    let lastMain = null, oldLast = null, wroteLast = false, committed = false;
+    try {
+      if (rebalanceJobs.has(cid)) await rebalanceJobs.get(cid);
+      const copy = JSON.parse(JSON.stringify(add));
+      copy.forEach(m => { delete m.freeNote; delete m.mergedFrom; });
+      copy[0].mergedFrom = b.name;
+      const mains = riverChunks(cid, MAIN_BRANCH);
+      lastMain = mains[mains.length - 1] || null;
+      if (lastMain) {
+        const cur = lastMain.id === currentId ? messages : await loadChunk(lastMain.id);
+        if (!Array.isArray(cur) || (lastMain.count && lastMain.count !== cur.length)) throw new Error('主线最后一段读不完整，什么都没改');
+        oldLast = JSON.parse(JSON.stringify(cur));
+      }
+      const room = lastMain ? Math.max(0, CHUNK_MAX - oldLast.length) : 0;
+      const intoLast = copy.slice(0, room), rest = copy.slice(room);
+      const now = Date.now(), base = Math.max(now, lastMain ? (lastMain.first || 0) + 1 : 0);
+      // 放不下的部分开新块接在主线后面：先写入、读回核对；最后一块放 localStorage 好继续聊
+      for (let i = 0; i < rest.length; i += CHUNK_MAX) {
+        const group = rest.slice(i, i + CHUNK_MAX), isLast = i + CHUNK_MAX >= rest.length;
+        const meta = { id: genId(), title: '', companionId: cid, branchId: MAIN_BRANCH, branchName: branchName(cid, MAIN_BRANCH), first: base + i, updated: now, count: group.length, distilled: group.filter(m => m.role === 'user').length };
+        staged.push(meta);
+        const ok = isLast ? await storeChunkHot(meta, group) : await storeChunkCold(meta, group);
+        if (!ok) throw new Error('本机存储空间不足，主线没有改动');
+      }
+      let nextLast = null;
+      if (intoLast.length) {
+        nextLast = oldLast.concat(intoLast);
+        wroteLast = true;
+        if (!(await saveChunk(lastMain.id, nextLast))) throw new Error('本机存储空间不足，主线没有改动');
+        const back = await loadChunk(lastMain.id);
+        if (JSON.stringify(back) !== JSON.stringify(nextLast)) throw new Error('写入核对没通过，主线没有改动');
+      }
+      const prevCount = lastMain && lastMain.count, prevUpdated = lastMain && lastMain.updated;
+      if (nextLast) { lastMain.count = nextLast.length; lastMain.updated = now; }
+      const next = sessions.concat(staged), raw = JSON.stringify(next);
+      if (!lsSet('islet_idx', raw) || localStorage.getItem('islet_idx') !== raw) {
+        if (nextLast) { lastMain.count = prevCount; lastMain.updated = prevUpdated; }
+        throw new Error('索引保存失败，主线没有改动');
+      }
+      sessions = next; committed = true;
+      c.branchMerged = Object.assign({}, c.branchMerged, { [bid]: own.length }); saveCompanions();
+      if (nextLast && lastMain.id === currentId) messages = nextLast;
+      _tailCache = { key: '', msgs: [] }; _searchSeq++; _searchCache.clear();
+      if (lastMain) chunkCache.delete(lastMain.id);
+      if (cid === activeCompanionId && activeBranchFor(cid) === MAIN_BRANCH) { enterCompanion(cid); renderAll(); }
+      renderDrawerCompanions(); updatePill();
+      rebalanceChunks(cid).catch(() => {});
+      toast('已把 ' + add.length + ' 条接到主线末尾');
+    } catch (e) {
+      if (!committed) {
+        for (const s of staged) await removeChunkStore(s.id);
+        if (wroteLast && oldLast) await saveChunk(lastMain.id, oldLast).catch(() => {});
+      }
+      toast('合并失败：' + (e.message || e));
     } finally {
       branchBusy = false; $('msg-input').disabled = false; $('send-btn').disabled = false;
       renderBranchBar();
@@ -3267,6 +3361,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     let prevDay = null;
     for (let i = from; i < to; i++) {
       const m = msgs[i];
+      if (m.mergedFrom) { appendMergeSep(m.mergedFrom, target); prevDay = null; }
       if (m.ts) { const dk = dayKey(new Date(m.ts)); if (dk !== prevDay) { appendDaySep(m.ts, target); prevDay = dk; } }
       if (m.role === 'user' && m.council) addCouncilCard(m, target);
       else if (m.role === 'user') addUser(m.content, m.time, i, m.imgs, m.files, target, m.drawn);
@@ -4591,6 +4686,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       const m = win[i];
       let content = _stamp[i] ? `${_stamp[i]} ${m.content}` : m.content;
       if (m.role === 'assistant' && m.freeNote) content = '（这是你之前空闲时主动留给她的话）\n' + content;
+      if (m.mergedFrom) content = '（以下这段接自另一条分支「' + m.mergedFrom + '」，和上面那段是平行发生的）\n' + content;
       if (m.role === 'assistant' && Array.isArray(m.diaryShares)) content += m.diaryShares.map(s => validSharedDiary(s) ? '\n【已主动分享的日记 ' + s.date + ' · ' + s.title + '】\n' + s.body : '').join('');
       if (m.role === 'user' && m.drawn) content = '（她这次是从「随机掉落」抽卡进来的——在几个人里抽中了你。）\n' + content;
       if (m.role === 'user' && m.files && m.files.length) {
@@ -6518,6 +6614,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const y = new Date(n); y.setDate(n.getDate() - 1);
     if (dayKey(d) === dayKey(y)) return '昨天';
     return (d.getFullYear() !== n.getFullYear() ? d.getFullYear() + '年' : '') + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  }
+  function appendMergeSep(name, target) {
+    dropEmpty();
+    const el = document.createElement('div');
+    el.className = 'day-sep merge-sep';
+    el.textContent = '以下接自分支「' + name + '」';
+    (target || $('chat')).appendChild(el);
   }
   function appendDaySep(ts, target) {
     dropEmpty();
