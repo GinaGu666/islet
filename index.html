@@ -444,6 +444,20 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   @keyframes bear-tilt { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(3deg); } }
   @keyframes bear-hop { 0% { transform: translateY(0); } 40% { transform: translateY(-9px) scale(.97, 1.04); } 75% { transform: translateY(0) scale(1.05, .95); } 100% { transform: none; } }
   @media (prefers-reduced-motion: reduce) { .bear-pic, .bear.b-think .bear-pic, .bear.b-hop .bear-pic { animation: none; } }
+  /* 防风草 */
+  .parsnip-field { position: fixed; inset: 0; z-index: 40; pointer-events: none; overflow: hidden; transition: opacity .6s; }
+  .parsnip-field.fade { opacity: 0; }
+  .pn { position: absolute; width: 44px; height: 40px; margin-left: -22px; padding: 0; border: 0; background: none; pointer-events: auto; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .pn-clip { position: absolute; left: 0; right: 0; bottom: 9px; height: 160px; overflow: hidden; pointer-events: none; }
+  .pn svg { position: absolute; left: 3px; bottom: -35px; width: 38px; height: 56px; transform: translateY(24px); animation: pn-grow .6s cubic-bezier(.3,1.6,.5,1) forwards; animation-delay: inherit; }
+  .pn-clip { animation-delay: inherit; }
+  .pn::after { content: ''; position: absolute; left: 5px; right: 5px; bottom: 4px; height: 11px; border-radius: 50%; background: #8a6a4a; box-shadow: inset 0 2px 0 #a5825d; }
+  .pn.pulled svg { animation: pn-pull .8s cubic-bezier(.2,.8,.3,1) forwards; }
+  .pn-plus { position: absolute; font-size: 13px; font-weight: 600; color: var(--ink); pointer-events: none; animation: pn-plus .9s ease-out forwards; }
+  @keyframes pn-grow { 0% { transform: translateY(24px); } 100% { transform: translateY(0); } }
+  @keyframes pn-pull { 0% { transform: translateY(0); opacity: 1; } 45% { transform: translateY(-62px) rotate(-8deg); opacity: 1; } 100% { transform: translateY(-104px) rotate(12deg); opacity: 0; } }
+  @keyframes pn-plus { 0% { transform: translateY(0); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateY(-36px); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .pn svg { animation: none; transform: none; } .pn.pulled svg { animation: none; opacity: 0; } }
   :root { --bear-idle: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAAaCAYAAACgoey0AAABkElEQVR42sWVIW8CQRCFv7ucrappUmQFNUgETU42iCpwCNImqJq6U/wCXBFVJDQkxeEqCPJEBRJVgayo5wdQNWRv2b3dhUv61BLezZt5szMLBrTqtX2rXttzJsriRDoRYPSUApBNcwC+vn+iUEFXnCNhIQuyaX74wOWCyiuLUxBWyY1uH4DNYlbIWA+mQ+eZ4oh44rItm+ZOQYFqreubWLVJMj5FVE/AFMvaY72Pp4iarDdd0KTsglABbBMR28bh3GrFMVsBsU+Au+yDweuyMp7XrQa4vb48nGVEdGwWswKvEuHJS/tItJn2Dud1PqfR7TMJaEPsS7RVGsqxjpPg9+19D7DdrayBm2mPdT4v2C24ubgH4Or5MQqquDMeFkR1iKhquYrtbkVnPAyvuGys9MrVSm2bKkjY9MT5bivXU5r4LgJ9957LTUK2UIjVJ99qU49d46Im4OpxzD8h8rlYAMtPv73Ufhg4X6ZSYREVQQloS0D/X34HPYumKn0qDuHHvrap5yr43gvEVplNxLVA/gC1qNi8ig4VhQAAAABJRU5ErkJggg=="); --bear-blink: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAAaCAYAAACgoey0AAABhElEQVR42sWVIW/DMBCFv0Sh4wOFA0WFBQWBU8FQywqqTSoaGQvqLxhbwVClTgVjZQNVYcDAYNFA4cB4f0CGrrI9O7aTSj3kKM/37p59z2CJQbdTDbqdipZRlycxgQDPDzkAxaoE4PP7J4kl9OX5RyxgiWJVnjb4VFBxdXk0YhXcG08B2G/WWsVmMjNMnC2PkGc+2YpV6SWUUKX17UlVmaTiJqRmAbZczjM2z7EJqU162wXN6i4IZwjXRKSucWjbrSjmaiDlQpGFgGYv29P6q3y3YvabtYZbPg3bE0sSmUuAfj7RiumNpywjOg6WWiVtg3GOk8Tv61sFcDjunIn7+USTXhwK4ObqFoDrx/skquPRYq6RmiGkquRqHI47Rot5fMd1Y2V2rnbqcqooYtsTF+pWvqc0CzUC03vbYrMYF4qRuvGttp2xb1zUAnxnfDHLTEIuFsD2I8yXhncz78tUSyykQigJXQWY/+U76lm0dRnScQw+DZVNXZ8DH2wgrs5cJD4D+QOi0tgI1RlVKQAAAABJRU5ErkJggg=="); --bear-think: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAAaCAYAAACgoey0AAABlElEQVR42sVVIU/DUBD+2tSiMCRMIoaZrBhJJZkgiOEqCEumMLgGsV8wxwRqSQkJOBximaxAIFGISQR+P6CoW66393rvtU34kiZd9vW+++7d3QMMGPZ75bDfK9ESdXECSQSA+SQBAGR5AQD4+P4JfAW1OHvCRCZkebH7QKsC59XFqQhz8uDqGgDw9fZcyVgGk5A8UxwSj7SyZXmhChJ4abVvQl4myriJqEzAFMt6xvIcm4iaSm9q0KiuQdABbBMR2sZBup0+rHCWvahCnDefJFYDoU/2p8eHnfEiV9Hl3agyIhI0MsTT4OWYi8ZJunvqEmot7BLYR9y6g38fn0oA2GzX1sBxkuKzeN0rNwCcHJwDAI5ubwIvx+PFrCIqEScp7i8Hu1JLbLZrjBczf8e2seLOyTF3attUXsKmK851W2lXqdM4mXZvW67zHHPHsslMpW7c1aYz1saFJ6CdcYh/QuDSWACwel86BRxdTNWbqVaYREmQAtoSkP/Tb69r0eTSxbEPP3QtG3/vgu+8QGzObCLaAvkD6kbanT5zqO8AAAAASUVORK5CYII="); --bear-wave: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAAaCAYAAACgoey0AAABsklEQVR42q1WLW/CUBQ9bWqnZpascqIzSESXVC4VqOEQZCRVE5urQk7hNk1CQjIcUxMEWTGBRE0g9w/4AZ3Za967ve+rcFR53N7z7nnvnluAQZrEdZrENU6EKU9AAwFgNskAAOWiAgB8//wGvoS2PC1iESxQLqrmBZsKcpwpj0IsB/eGYwDAfr1UdkyTUdA4Lo8gj2yylYvKSiggS2t7J5RlEjvuQko3wOVqSZ0mcc2dYxdSTnrugkZ00fUiuULXESFHwN3KLphNMm0BoUuP3pUfKN42OFeccqtN0t5eXzbPokUo9uulEudEnCZxvfmaN4v5oFCC5i95i7SfjZrnXbVCbzjG3OMYQtdAXaW+MaxzyX98Pr8CAA7HrTZxPxthV60UuQVuLu4BAFdPj4HxjGnfPrxPjX0sSCm5wOG4bZmIcTrRicKR08rlSnVOZSTWkfu4mOsojVw8l/NeH592Iv4fFi3nkn+7SN2pnbhJJQi5lqHrJqt06mNXebsgsH070a8JG2TXM12w6FwVCEJhvfmgUOa8l9TyWbtcINnv5eeTvNpXZjpovM5Y5+O0Go7EZiB/YoT4+UyQIJ4AAAAASUVORK5CYII="); }
   .input-bar { display: flex; align-items: flex-end; gap: 9px; padding: 8px 14px calc(12px + var(--safe-bottom)); background: var(--bg); flex-shrink: 0; border-top: 1px solid var(--line); }
   .input-wrap { flex: 1; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 9px 16px; display: flex; align-items: flex-end; transition: border-color .15s; }
@@ -5273,11 +5287,51 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     el.textContent = text; el.classList.add('show');
     clearTimeout(_bearSayT); _bearSayT = setTimeout(() => el.classList.remove('show'), ms || 2200);
   }
+  let _bearPokes = [];
   function bearPoke() {
     if (isLoading) { bearSay('嘘，TA 在想呢', 1600); return; }
+    const now = Date.now(); _bearPokes = _bearPokes.filter(t => now - t < 2500); _bearPokes.push(now);
+    if (_bearPokes.length >= 5 && !$('parsnip-field')) { _bearPokes = []; plantParsnips(); return; }
     let i; do { i = Math.floor(Math.random() * BEAR_LINES.length); } while (i === _bearLast && BEAR_LINES.length > 1);
     _bearLast = i; bearHop(); bearSay(BEAR_LINES[i]);
     const b = $('bear'); if (b) { b.classList.add('b-wave'); clearTimeout(b._waveT); b._waveT = setTimeout(() => b.classList.remove('b-wave'), 1400); }
+  }
+  /* 种地的留的：防风草。像素图 11×16，每格画成一个方块 */
+  const PARSNIP_PX = ['....G.G....','...GG.GG...','.g..GGG..g.','.gg.GGG.gg.','..gg.G.gg..','...ggGgg...','....RRR....','...RRRRR...','...RrRRR...','...RRRRr...','....RrR....','....RRR....','....RRr....','.....R.....','.....r.....','.....R.....'];
+  const PARSNIP_COLOR = { G: '#6bb34f', g: '#3f7f34', R: '#f1deb0', r: '#cdb07a' };
+  function parsnipSvg() {
+    let r = '';
+    PARSNIP_PX.forEach((row, y) => [...row].forEach((ch, x) => { if (PARSNIP_COLOR[ch]) r += '<rect x="' + x + '" y="' + y + '" width="1.02" height="1.02" fill="' + PARSNIP_COLOR[ch] + '"/>'; }));
+    return '<svg viewBox="0 0 11 16" shape-rendering="crispEdges" aria-hidden="true">' + r + '</svg>';
+  }
+  function plantParsnips() {
+    if ($('parsnip-field')) return;
+    const field = document.createElement('div'); field.id = 'parsnip-field'; field.className = 'parsnip-field';
+    const w = window.innerWidth, inp = $('msg-input'), floor = inp ? Math.max(90, window.innerHeight - inp.getBoundingClientRect().top + 24) : 120;
+    const cols = Math.max(5, Math.min(12, Math.floor(w / 58))), rows = 4, svg = parsnipSvg();
+    let total = 0, got = 0;
+    for (let r = rows - 1; r >= 0; r--) for (let c = 0; c < cols; c++) {
+      if (Math.random() < 0.12) continue;
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'pn'; b.setAttribute('aria-label', '拔防风草');
+      b.style.left = ((c + 0.5 + (r % 2 ? 0.25 : -0.15) + (Math.random() - 0.5) * 0.3) * w / cols) + 'px';
+      b.style.bottom = (floor + r * 58 + Math.random() * 10) + 'px';
+      b.style.animationDelay = ((rows - 1 - r) * 160 + c * 45 + Math.random() * 80) + 'ms';
+      b.innerHTML = '<span class="pn-clip">' + svg + '</span>'; total++;
+      b.onclick = () => {
+        if (b.classList.contains('pulled')) return;
+        b.classList.add('pulled'); got++;
+        const plus = document.createElement('span'); plus.className = 'pn-plus'; plus.textContent = '+1';
+        plus.style.left = (parseFloat(b.style.left) + 16) + 'px'; plus.style.bottom = (parseFloat(b.style.bottom) + 44) + 'px';
+        field.appendChild(plus); setTimeout(() => plus.remove(), 950);
+        setTimeout(() => b.remove(), 800);
+        if (got === total) { clearTimeout(field._t); bearHop(); bearSay('收成：' + total + ' 个防风草 🌾', 4000); setTimeout(() => field.remove(), 900); }
+        else if (got === 1) bearSay('拔拔看～', 1500);
+      };
+      field.appendChild(b);
+    }
+    document.body.appendChild(field);
+    bearHop(); bearSay('种地的来过了 🌱', 2600);
+    field._t = setTimeout(() => { field.classList.add('fade'); setTimeout(() => field.remove(), 700); }, 90000);
   }
   function bearThinking(v) {
     const b = $('bear'); if (!b) return;
