@@ -18,7 +18,7 @@
 ## 2. 技术栈与交付约束
 
 - **单文件交付**：所有 HTML、CSS、JavaScript 必须完整内联在单个 `index.html` 中，禁止省略任何代码（不要出现 `// ... rest of code`）。
-- **零外部资源**：使用 HTML5 Canvas 续制游戏画面与符咒；使用 Web Audio API 合成复古 8-bit 音效，包括：
+- **零外部资源**：使用 HTML5 Canvas 绘制游戏画面与符咒；使用 Web Audio API 合成复古 8-bit 音效，包括：
   - 挡住风控的清脆碰撞声；
   - 吸收养分的升级声；
   - 受伤警报声；
