@@ -4784,9 +4784,16 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   // 断点打在 system 和最后一条消息上：下一轮请求时，之前的整段前缀都能命中缓存。
   // 末条消息若挂着 _tail（记忆浮现块），拆成两个内容块：正文带断点，浮现块放断点之后——
   // 浮现块每回合都不同，放进前缀会让下一轮从这里失配；放在断点之外，它爱怎么变都不碍事。
-  // ⚠️ 此判断依赖 OpenRouter 的模型 id 格式（anthropic/claude-...）；若换直连官方 API 需同步修改
+  // ⚠️ 此判断依赖 OpenRouter 的模型 id 格式（anthropic/claude-...、openai/gpt-5.6...）；若换直连官方 API 需同步修改
+  // GPT-5.6 起 OpenAI 也支持显式断点，OpenRouter 会把同样的 cache_control 转成 prompt_cache_breakpoint。
+  // 不打断点时，它的自动缓存会把上一轮挂在末尾的浮现块也算进前缀，下一轮浮现块挪走，前缀就对不上了。
+  function usesCacheBreakpoints(model) {
+    if (model.startsWith('anthropic/')) return true;
+    const m = /^openai\/gpt-(\d+)(?:\.(\d+))?/.exec(model);
+    return !!m && (+m[1] > 5 || (+m[1] === 5 && +(m[2] || 0) >= 6));
+  }
   function withCacheBreakpoints(model, msgs) {
-    if (!model.startsWith('anthropic/')) return flattenTails(msgs);
+    if (!usesCacheBreakpoints(model)) return flattenTails(msgs);
     const ok = m => m.role !== 'tool' && !m.tool_calls && typeof m.content === 'string' && m.content;   // 工具往返不做断点，断点留在最后一条用户消息上
     let lastIdx = -1;
     for (let i = msgs.length - 1; i >= 0; i--) { if (ok(msgs[i])) { lastIdx = i; break; } }
