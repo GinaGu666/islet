@@ -4233,8 +4233,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (fresh.length) {
         for (const n of fresh) {
           const last = messages[messages.length - 1];
-          messages.push({ role: 'assistant', content: fitDiaryText(n.text, 400), ts: Math.max(n.at, last && Number.isFinite(last.ts) ? last.ts + 1 : 0),
-            time: new Date(n.at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), model: companionModel(c), freeNote: n.id });
+          // 时间记成它出现在对话里的那一刻：写好时她可能正在聊，等空下来才放进来，用写好的时间会排在后面却显示更早
+          const shownAt = Math.max(Date.now(), last && Number.isFinite(last.ts) ? last.ts + 1 : 0);
+          messages.push({ role: 'assistant', content: fitDiaryText(n.text, 400), ts: shownAt,
+            time: new Date(shownAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), model: companionModel(c), freeNote: n.id, noteAt: n.at });
         }
         saveCurrent();
         const back = loadSessionMsgs(currentId);

@@ -210,6 +210,17 @@ function nextSlot(now = new Date()) {
   const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
   return randomSlot(tomorrow);
 }
+// 她正在和 TA 聊天时先不去读书（读完的留言会插在聊天中间）：最近 20 分钟说过话就往后推 20 分钟。
+// 小岛最多每 10 分钟上报一次说话时间，所以 20 分钟足够覆盖一段连着的聊天。
+// 最多推到当天时段结束后 90 分钟；再晚还在聊，就照常读，免得聊一整天就一天不读。
+const BUSY_MS = 20 * 60e3, POSTPONE_MS = 20 * 60e3, LATE_MS = 90 * 60e3;
+function postponeFor(presence, now = Date.now()) {
+  const at = presence && Number(presence.lastChatAt);
+  if (!Number.isFinite(at) || now - at >= BUSY_MS) return 0;
+  const latest = new Date(now); latest.setHours(WIN_TO, 0, 0, 0);
+  const next = now + POSTPONE_MS;
+  return next <= latest.getTime() + LATE_MS ? next : 0;
+}
 const running = new Set();
 async function tick() {
   let ids = [];
@@ -227,6 +238,9 @@ async function tick() {
     if (state.lastReadDay && daysSince(state.lastReadDay) < every) {
       await writeJson(stateFile, { ...state, nextAt: tomorrowSlot(new Date(), every - daysSince(state.lastReadDay)) }); continue;
     }
+    const presence = await readJson(path.join(dirOf(cid), 'presence.json'), null).catch(() => null);
+    const later = postponeFor(presence);
+    if (later) { await writeJson(stateFile, { ...state, nextAt: later }); continue; }
     running.add(cid);
     try {
       await readNow(cid);
@@ -342,4 +356,4 @@ if (require.main === module) {
   setInterval(() => tick().catch(e => log('调度出错', e.message)), 5 * 60e3).unref();
   setTimeout(() => tick().catch(() => {}), 5e3).unref();
 }
-module.exports = { server, tick, parseReading, nextSlot, tomorrowSlot, daysSince, cleanSnapshot };
+module.exports = { server, tick, parseReading, nextSlot, tomorrowSlot, daysSince, cleanSnapshot, postponeFor };
