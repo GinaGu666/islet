@@ -2351,6 +2351,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         merge.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 7v10M18 11c0 4-6 4-11 6.5"/></svg>';
         merge.onclick = () => mergeChatBranch(cid, b.id);
         row.appendChild(merge);
+        const spin = document.createElement('button'); spin.type = 'button'; spin.className = 'icon-btn branch-spin'; spin.title = '变成新角色'; spin.setAttribute('aria-label', '把' + b.name + '变成新角色');
+        spin.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="3.5"/><path d="M3.5 20c.8-3.6 3.4-5.5 6.5-5.5 1.4 0 2.6.4 3.6 1M18 14v6M15 17h6"/></svg>';
+        spin.onclick = () => branchToCompanion(cid, b.id);
+        row.appendChild(spin);
         const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'icon-btn branch-delete'; remove.setAttribute('aria-label', '删除分支' + b.name);
         remove.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg>';
         remove.onclick = () => deleteChatBranch(cid, b.id);
@@ -2516,6 +2520,62 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       branchBusy = false; $('msg-input').disabled = false; $('send-btn').disabled = false;
       renderBranchBar();
       if ($('branch-overlay').classList.contains('show') && cid === activeCompanionId) openBranches();
+    }
+  }
+  /* 分支独立成新角色：只改索引里这几块的归属（companionId → 新角色，去掉分支标记），聊天内容不搬、不复制。
+   * 新角色沿用原角色的模型，记忆卡和大事记从空白开始；原角色那边不再有这条分支。 */
+  async function branchToCompanion(cid, bid) {
+    if (branchBusy || bid === MAIN_BRANCH) return;
+    if (isLoading) { toast('先停止回复，或等回复完成后再操作'); return; }
+    const c = companions.find(x => x.id === cid), b = branchesOf(cid).find(x => x.id === bid);
+    if (!c || !b) return;
+    const value = await uiPrompt('把「' + b.name + '」变成一个新角色', b.name, { sub: '这条分支的 ' + b.count + ' 条聊天记录会整段移到新角色那里，原角色的分支列表里不再有它。新角色用同一个模型，记忆卡和大事记从空白开始。', ok: '变成新角色' });
+    if (value == null) return;
+    const name = value.trim().slice(0, 60);
+    if (!name) { toast('先给新角色起个名字'); return; }
+    if (branchBusy || isLoading || !companions.includes(c) || !branchesOf(cid).some(x => x.id === bid)) return;
+    branchBusy = true; renderBranchBar();
+    $('msg-input').disabled = true; $('send-btn').disabled = true;
+    let committed = false;
+    try {
+      if (rebalanceJobs.has(cid)) await rebalanceJobs.get(cid);
+      const moving = companionChunks(cid).filter(s => branchOf(s) === bid);
+      if (!moving.length) throw new Error('这条分支还没有聊天记录');
+      const wasCurrent = cid === activeCompanionId && activeBranchFor(cid) === bid;
+      if (wasCurrent) saveCurrent();
+      const nc = { id: genId(), name, persona: '', mem: '', autoDistill: c.autoDistill !== false };
+      if (c.model) nc.model = c.model;
+      const names = Object.assign({}, c.branchNames); delete names[bid];
+      const merged = Object.assign({}, c.branchMerged); delete merged[bid];
+      const nextC = Object.assign({}, c, { branchNames: names, branchMerged: merged, activeBranchId: c.activeBranchId === bid ? MAIN_BRANCH : c.activeBranchId });
+      const ids = new Set(moving.map(s => s.id));
+      const nextSessions = sessions.map(s => {
+        if (!ids.has(s.id)) return s;
+        const x = Object.assign({}, s, { companionId: nc.id });
+        delete x.branchId; delete x.branchName; delete x.parentBranchId; delete x.forkSid; delete x.forkIdx;
+        return x;
+      });
+      const oldCompanions = localStorage.getItem('islet_companions');
+      const compRaw = JSON.stringify(companions.map(x => x === c ? nextC : x).concat([nc])), idxRaw = JSON.stringify(nextSessions);
+      // 先存角色，再提交索引；索引失败就把角色列表还原，聊天记录一直没动过
+      if (!lsSet('islet_companions', compRaw) || localStorage.getItem('islet_companions') !== compRaw) throw new Error('角色信息保存失败');
+      if (!lsSet('islet_idx', idxRaw) || localStorage.getItem('islet_idx') !== idxRaw) {
+        if (oldCompanions == null) localStorage.removeItem('islet_companions'); else lsSet('islet_companions', oldCompanions);
+        throw new Error('索引保存失败，分支保持原样');
+      }
+      // 不走 leaveCurrentSession：它会把这段对话交给原角色的自动提炼，而这段已经不属于原角色了
+      sessions = nextSessions; Object.assign(c, nextC); companions.push(nc); committed = true;
+      _tailCache = { key: '', msgs: [] }; _searchSeq++; _searchCache.clear();
+      if (wasCurrent) { enterCompanion(nc.id); renderAll(); }
+      renderDrawerCompanions(); renderCompanionTabs(); updatePill();
+      rebalanceChunks(nc.id).catch(() => {});
+      toast(wasCurrent ? '「' + name + '」诞生了，已经切过去' : '「' + name + '」诞生了，在角色列表里');
+    } catch (e) {
+      toast((committed ? '已完成，部分界面没刷新：' : '没有成功：') + (e.message || e));
+    } finally {
+      branchBusy = false; $('msg-input').disabled = false; $('send-btn').disabled = false;
+      renderBranchBar();
+      if ($('branch-overlay').classList.contains('show')) { if (activeBranchFor(activeCompanionId) !== bid) openBranches(); }
     }
   }
   function forkAtEnd() {
