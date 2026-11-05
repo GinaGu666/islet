@@ -1281,6 +1281,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div id="epi-list"></div>
       <div class="mem-hint">每场对话的小结自动落在这里，攒成你们的编年史；最近几条和「去年今天」会带进对话，给 TA 时间纵深。</div>
       <button class="comp-tab habit-add" type="button" onclick="exportMemoryMd()">导出记忆卡和大事记（Markdown）</button>
+      <button class="comp-tab habit-add" type="button" id="hist-prep-btn" onclick="prepHistForEditing()">把已有的聊天补提炼成记忆</button>
 
       <div id="hist-block" style="display:none">
         <div class="field-head">
@@ -2569,7 +2570,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (wasCurrent) { enterCompanion(nc.id); renderAll(); }
       renderDrawerCompanions(); renderCompanionTabs(); updatePill();
       rebalanceChunks(nc.id).catch(() => {});
-      toast(wasCurrent ? '「' + name + '」诞生了，已经切过去' : '「' + name + '」诞生了，在角色列表里');
+      // 这些聊天之前是记在原角色名下的，新角色的记忆是空的：整理一份原文，去记忆面板就能补提炼
+      let segs = 0; try { segs = await prepareHistFromRiver(nc); } catch (_) {}
+      toast((wasCurrent ? '「' + name + '」诞生了，已经切过去' : '「' + name + '」诞生了，在角色列表里') + (segs ? '。之前的聊天可以在 TA 的记忆面板里「历史提炼」补记忆' : ''), 4200);
     } catch (e) {
       toast((committed ? '已完成，部分界面没刷新：' : '没有成功：') + (e.message || e));
     } finally {
@@ -6216,6 +6219,39 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (!b.length || b[b.length - 1] < msgs.length) { if (b.length && n < HIST_CHUNK * 0.25) b[b.length - 1] = msgs.length; else b.push(msgs.length); }   // 太短的尾巴并进上一段
     return b;
   }
+  /* 把角色主线上已有的聊天整理成一份「历史原文」，交给历史提炼分批补记忆。
+   * 原文是另存的一份副本（imports 库），聊天记录本身不动；提炼完可以在面板里清掉副本。 */
+  async function prepareHistFromRiver(c) {
+    if (c.hist && !c.hist.cleared && (c.hist.done || 0) < (c.hist.bounds || []).length) throw new Error('这个角色还有没提炼完的历史，先把它跑完或清掉');
+    const all = [];
+    for (const s of riverChunks(c.id, MAIN_BRANCH)) {
+      const msgs = s.id === currentId ? messages : await loadChunk(s.id);
+      if (!Array.isArray(msgs) || (s.count && s.count !== msgs.length)) throw new Error('有一段对话读不完整，先不整理');
+      msgs.forEach(m => { if (m && !m.council && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim()) all.push({ role: m.role, content: m.content, ts: m.ts || 0 }); });
+    }
+    if (all.length < 4) throw new Error('聊天记录太少，不用补提炼');
+    const fileId = 'imp_' + genId();
+    await idbPut('imports', { id: fileId, name: c.name, msgs: all, created: Date.now() });
+    const back = await idbGet('imports', fileId);
+    if (!back || JSON.stringify(back.msgs) !== JSON.stringify(all)) { await idbDel('imports', fileId).catch(() => {}); throw new Error('整理时写入校验没通过'); }
+    if (c.hist && c.hist.fileId) await idbDel('imports', c.hist.fileId).catch(() => {});
+    const bounds = histBounds(all);
+    c.hist = { fileId, total: all.length, chars: all.reduce((n, m) => n + m.content.length, 0), bounds, done: 0, lastSummary: '', model: '' };
+    saveCompanions();
+    return bounds.length;
+  }
+  async function prepHistForEditing() {
+    const c = editingCompanion(); if (!c || histBusy) return;
+    const n = riverChunks(c.id, MAIN_BRANCH).reduce((a, s) => a + (s.count || 0), 0);
+    if (!(await uiConfirm('把「' + c.name + '」主线上已有的聊天补提炼成记忆？', { sub: '主线共约 ' + n + ' 条。会另存一份原文副本，按约两万字一段，分批提炼成记忆卡和大事记；每段一次请求，花的是你选的模型的钱。聊天记录本身不动，已有的记忆卡会自动去重。', ok: '整理' }))) return;
+    try { const segs = await prepareHistFromRiver(c); renderHistBlock(); renderHistPrep(); $('hist-status').textContent = '整理好了，共 ' + segs + ' 段。点「提炼下 5 段」开始。'; }
+    catch (e) { toast(e.message || String(e)); }
+  }
+  function renderHistPrep() {
+    const btn = $('hist-prep-btn'), c = editingCompanion(); if (!btn) return;
+    const h = c && c.hist, active = h && !h.cleared && (h.done || 0) < (h.bounds || []).length;
+    btn.style.display = c && !active ? '' : 'none';
+  }
   async function runCharacterImport() {
     if (!ciData || ciBusy || branchBusy) return;
     if (isLoading || histBusy) { toast('请等回复或历史提炼结束后再导入'); return; }
@@ -6300,6 +6336,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   /* 分批提炼：每段一次请求，结果直接进角色的记忆卡与大事记；进度存在 c.hist 里 */
   let histStop = false, histBusy = false;
   function renderHistBlock() {
+    renderHistPrep();
     const c = editingCompanion(), blk = $('hist-block'); if (!blk) return;
     const h = c && c.hist;
     if (!h || !h.bounds || !h.bounds.length) { blk.style.display = 'none'; return; }
