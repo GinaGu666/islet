@@ -92,18 +92,21 @@ async function app(storage, db = new IDBFactory()) {
   assert.equal((await r('allDiaries()')).length,0);assert.equal(a.w.document.querySelector('#diary-status').dataset.phase,'deciding');
   assert(r('messages[messages.length-1].thinking').includes('先好好说晚安'));assert(!JSON.stringify(plain(r('messages'))).includes('IGNORE THIS'));
   a.w.diaryOutput=JSON.stringify({write:true,title:'秘密标题',body:secret});r('diaryRelease(diaryOutput)');await r(`diaryWriteQueues.get('c1')`);
+  assert.equal(a.w.document.querySelector('#diary-status').dataset.phase,'saved');
   r(`globalThis.writeHandle=addAi('','',null,'qa','',false);writeHandle.row.dataset.sid='s1'`);
-  let out = await a.tool('write_diary',{},'s1','writeHandle');assert(JSON.parse(out.result).saved);assert.deepEqual(plain(out.args),{});assert.equal(r('diaryStarts'),1);
-  assert.equal(a.w.document.querySelector('#diary-status').dataset.phase,'saved');assert(!a.w.document.querySelector('#diary-status').textContent.includes('秘密标题'));
+  // A written day queues a background append decision; it never overwrites the original draft.
+  let out = await a.tool('write_diary',{},'s1','writeHandle');assert(JSON.parse(out.result).queued);assert(JSON.parse(out.result).append);assert.deepEqual(plain(out.args),{});assert.equal(r('diaryStarts'),1);
+  assert.equal(a.w.document.querySelector('#diary-status').dataset.phase,'queued');assert(!a.w.document.querySelector('#diary-status').textContent.includes('秘密标题'));
   assert(!a.w.document.body.textContent.includes(secret)); assert(!JSON.stringify(a.storage()).includes('PRIVATE ONLY'));
-  out = await a.tool('write_diary',{title:'第二版',body:'不能覆盖'},'s1','writeHandle');assert(JSON.parse(out.result).saved);assert.equal((await r('allDiaries()'))[0].entry.title,'秘密标题');
+  out = await a.tool('write_diary',{title:'第二版',body:'不能覆盖'},'s1','writeHandle');assert(JSON.parse(out.result).queued);assert(JSON.parse(out.result).append);assert.equal(r('writeHandle.diaryRequests.length'),1);assert.equal((await r('allDiaries()'))[0].entry.title,'秘密标题');
   out = await a.tool('read_diary',{date:today}); assert.equal(JSON.parse(out.result).body,secret); assert(!a.w.document.body.textContent.includes('PRIVATE ONLY'));
   assert(!JSON.stringify(await r(`buildApiMessages(messages,'s1')`)).includes('PRIVATE ONLY'));
   out = await a.tool('read_diary',{date:today},'s2'); assert(out.result.includes('未开启'));
   r(`selectMemoryCompanion('c2'); toggleDiarySetting(true); stopDiaryJobs('c2'); selectMemoryCompanion('c1')`);
   out = await a.tool('read_diary',{date:today},'s2'); assert(out.result.includes('没有日记'));
   for (const args of [{date:'2026-02-30'},{date:'9999-12-31'}]) assert((await a.tool('write_diary',args,'s1','writeHandle')).result.includes('出错'));
-  assert.throws(()=>r(`diaryEntry('x','x'.repeat(3001))`),/3000/);
+  assert.equal(r(`diaryEntry('x','x'.repeat(8000)).body.length`),8000);
+  assert.throws(()=>r(`diaryEntry('x','x'.repeat(8001))`),/8000/);
   r('globalThis.cancelled=new AbortController();cancelled.abort()'); assert((await a.tool('read_diary',{date:today},'s1','null','cancelled.signal')).result.includes('取消'));
   assert((await a.tool('read_diary',{},'unknown')).result.includes('未开启'));
   r(`globalThis.handle=addAi('给你看这一天。','',null,'qa','',false)`);
@@ -179,7 +182,8 @@ async function app(storage, db = new IDBFactory()) {
   await q('deleteCompanionDiaries("c1")'); q(`chatOnce=async()=>{n++;return '{"write":false}'}`); await q(`catchUpDiary('c1')`); await q(`catchUpDiary('c1')`); assert.equal(q('n'),2); assert.equal((await q('allDiaries()'))[0].entry,null);
   assert.equal(b.w.document.querySelector('#diary-status').dataset.phase,'skipped');assert(b.w.document.querySelector('#diary-status-hint').textContent.includes('可以关闭'));
   q(`globalThis.skipHandle=addAi('','',null,'qa','',false);skipHandle.row.dataset.sid='s1'`);
-  const decided=await b.tool('write_diary',{date:yesterday},'s1','skipHandle');assert(JSON.parse(decided.result).decided);assert(!q('skipHandle.diaryRequests'));assert.equal(q('n'),2);
+  // A skipped day may be reconsidered, still only after the current chat reply finishes.
+  const decided=await b.tool('write_diary',{date:yesterday},'s1','skipHandle');assert(JSON.parse(decided.result).queued);assert.equal(q('skipHandle.diaryRequests[0].mode'),'write');assert.equal(q('n'),2);
   // Atomic storage never overwrites existing written content, even if another job decided to skip.
   b.w.prior = yesterday; await q(`persistDiaryDecision(companions[0],prior,{title:'主动写',body:'稍后还是想写下来'})`);
   await q(`persistDiaryDecision(companions[0],prior,null)`); assert.equal((await q('allDiaries()'))[0].entry.title,'主动写');
