@@ -547,6 +547,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   textarea.field { resize: none; height: 84px; line-height: 1.5; }
   textarea.field.relationship { min-height: 84px; overflow: hidden; overflow-wrap: anywhere; }
   input.field.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .02em; }
+  /* iOS Safari 的日期框自带最小宽度，会顶出屏幕；空值时高度也会塌。去掉原生外观后按普通输入框排 */
+  input.field[type="date"] { -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%; min-height: 46px; line-height: 1.4; text-align: left; }
+  input.field[type="date"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
   .toggle-row { display: flex; align-items: center; justify-content: space-between; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; margin-top: 16px; }
   .toggle-row .tg-main { font-size: 14.5px; color: var(--ink); }
   .toggle-row .tg-sub { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
