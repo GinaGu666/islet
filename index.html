@@ -617,6 +617,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   textarea.field.persona { height: 110px; }
   .mem-divider { border: none; border-top: 1px solid var(--line); margin: 18px 0 2px; }
   .mem-hint { font-size: 11.5px; color: var(--ink-3); line-height: 1.5; margin-top: 6px; }
+  .prev-cur { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink-2); margin-bottom: 6px; }
+  .prev-cur span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .prev-cur button { flex: none; background: none; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-3); font: inherit; font-size: 12px; padding: 3px 9px; }
+  .prev-row { display: block; width: 100%; text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink); font: inherit; font-size: 13.5px; line-height: 1.45; padding: 8px 11px; margin-top: 6px; overflow-wrap: anywhere; }
+  .prev-row small { color: var(--ink-3); font-size: 11px; margin-left: 4px; }
   .distill-status { font-size: 12px; color: var(--accent); text-align: center; margin-top: 8px; min-height: 15px; }
   /* 记忆卡片 */
   #mem-cards { max-height: 320px; overflow-y: auto; margin: 2px 0 6px; }
@@ -1069,12 +1074,16 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <button class="sheet-x" onclick="closeCardEdit()">×</button>
     </div>
     <div class="form" style="padding-top:0">
-      <textarea class="field" id="card-text" placeholder="一句话，像索引卡那样短…" spellcheck="false" style="min-height:90px"></textarea>
+      <textarea class="field" id="card-text" placeholder="一句话，像索引卡那样短…" spellcheck="false" style="min-height:90px" oninput="if(!$('card-prev-q').value)renderCardPrevList()"></textarea>
       <label class="field-label" for="card-date" style="display:block;margin-top:10px">日期</label>
       <input class="field" id="card-date" type="date" min="0001-01-01" max="9999-12-31">
       <div class="mem-hint">记忆所对应的日期；留空则只保留记录时间。</div>
       <div class="field-label" style="margin-top:10px">分类<span style="text-transform:none;opacity:.6">（「约定」会常驻带进每次对话）</span></div>
       <div id="card-cat-tabs"></div>
+      <div class="field-label" style="margin-top:10px">接在哪张后面<span style="text-transform:none;opacity:.6">（这条是那件事的后续时选，想起时会连在一起）</span></div>
+      <div class="prev-cur" id="card-prev-cur"></div>
+      <input class="field" id="card-prev-q" placeholder="搜一张卡…" spellcheck="false" oninput="renderCardPrevList()">
+      <div id="card-prev-list"></div>
       <button class="btn-primary" onclick="saveCardEdit()">保存</button>
       <button class="btn-ghost" id="card-del-btn" style="display:none;margin-top:10px" onclick="deleteCardFromEdit()">删除这条</button>
     </div>
@@ -5659,7 +5668,42 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     });
     if (changed) { companions.forEach(c => epiOf(c).sort((a, b) => b.d - a.d)); saveCompanions(); }
   }
-  let cardEditId = null, cardEditCat = '';
+  let cardEditId = null, cardEditCat = '', cardEditPrev = '';
+  // 「接在哪张后面」：排除自己和接在自己后面的卡，免得连成环
+  function cardPrevBlocked(c) {
+    const out = new Set(); if (!cardEditId) return out;
+    const ix = memThreadIndex(memCardsOf(c)), stack = [cardEditId];
+    while (stack.length) { const id = stack.pop(); if (out.has(id)) continue; out.add(id); (ix.kids.get(id) || []).forEach(k => stack.push(k.id)); }
+    return out;
+  }
+  function renderCardPrev() {
+    const c = editingCompanion(), pk = cardEditPrev && memCardsOf(c).find(x => x.id === cardEditPrev);
+    if (cardEditPrev && !pk) cardEditPrev = '';
+    $('card-prev-cur').innerHTML = pk
+      ? '<span>接：' + esc(pk.t) + '</span><button type="button" onclick="setCardPrev(\'\')">不接了</button>'
+      : '<span style="color:var(--ink-3)">不接任何一张</span>';
+    renderCardPrevList();
+  }
+  function setCardPrev(id) { cardEditPrev = id || ''; $('card-prev-q').value = ''; renderCardPrev(); }
+  function renderCardPrevList() {
+    const wrap = $('card-prev-list'); if (!wrap) return;
+    const c = editingCompanion(), blocked = cardPrevBlocked(c), q = normMem($('card-prev-q').value);
+    let arr = memCardsOf(c).filter(k => !blocked.has(k.id) && k.id !== cardEditPrev);
+    if (q) arr = arr.filter(k => normMem(k.t + ' ' + normMemoryDate(k.date)).includes(q)).slice(0, 8);
+    else {   // 没搜的时候：按和正在写的这条的相似度推荐几张
+      const qt = memTokens($('card-text').value), df = memDF(c);
+      if (!qt.size) { wrap.innerHTML = ''; return; }
+      arr = arr.map(k => { let s = 0; for (const t of cardTokens(k)) if (qt.has(t)) s += tokenWeight(df.get(t) || 1); return { k, s }; })
+        .filter(x => x.s > 0.5).sort((a, b) => b.s - a.s || b.k.d - a.k.d).slice(0, 4).map(x => x.k);
+    }
+    wrap.innerHTML = arr.map(k => '<button type="button" class="prev-row" onclick="setCardPrev(\'' + k.id + '\')">' + esc(k.t.length > 60 ? k.t.slice(0, 60) + '…' : k.t) + '<small>' + (normMemoryDate(k.date) || fmtWhen(k.d)) + '</small></button>').join('')
+      || (q ? '<div class="mem-hint">没有匹配的卡</div>' : '');
+  }
+  // 删卡时把接在它后面的卡改接到它前一张，事件线不断
+  function memUnlinkCard(c, id) {
+    const arr = memCardsOf(c), k = arr.find(x => x.id === id); if (!k) return;
+    arr.forEach(x => { if (x.prev === id) { if (k.prev && k.prev !== x.id) x.prev = k.prev; else delete x.prev; } });
+  }
   function setCardCat(v) { cardEditCat = v; renderCardCatTabs(); }
   function renderCardCatTabs() {
     const wrap = $('card-cat-tabs'); if (!wrap) return;
@@ -5675,7 +5719,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     $('card-text').value = k ? k.t : '';
     $('card-date').value = k ? normMemoryDate(k.date) : dayKey();
     cardEditCat = (k && k.c) || '';
-    renderCardCatTabs();
+    cardEditPrev = (k && k.prev) || '';
+    $('card-prev-q').value = '';
+    renderCardCatTabs(); renderCardPrev();
     show('card-edit-overlay');
   }
   function closeCardEdit() { hide('card-edit-overlay'); cardEditId = null; }
@@ -5685,14 +5731,16 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (!text) { $('card-text').focus(); return; }
     const rawDate = $('card-date').value, date = normMemoryDate(rawDate);
     if (!$('card-date').checkValidity() || (rawDate && !date)) { toast('请填写有效日期'); $('card-date').focus(); return; }
-    if (cardEditId) { const k = memCardsOf(c).find(x => x.id === cardEditId); if (k) { k.t = text; k.c = cardEditCat; if (date) k.date = date; else delete k.date; c.memUpdated = Date.now(); } }
-    else if (!addMemCard(c, text, undefined, cardEditCat, date)) { toast('已经有一条很相近的记忆啦'); return; }
+    const prev = cardEditPrev && !cardPrevBlocked(c).has(cardEditPrev) && memCardsOf(c).some(x => x.id === cardEditPrev) ? cardEditPrev : '';
+    if (cardEditId) { const k = memCardsOf(c).find(x => x.id === cardEditId); if (k) { k.t = text; k.c = cardEditCat; if (date) k.date = date; else delete k.date; if (prev) k.prev = prev; else delete k.prev; c.memUpdated = Date.now(); } }
+    else if (!addMemCard(c, text, undefined, cardEditCat, date, prev)) { toast('已经有一条很相近的记忆啦'); return; }
     saveCompanions(); renderMemCards(); closeCardEdit();
   }
   async function deleteCardFromEdit() {
     if (!cardEditId) return;
     const c = editingCompanion();
     if (!(await uiConfirm('删除这条记忆？', { ok: '删除', danger: true }))) return;
+    memUnlinkCard(c, cardEditId);
     c.cards = memCardsOf(c).filter(x => x.id !== cardEditId);
     saveCompanions(); renderMemCards(); closeCardEdit();
   }
@@ -5700,6 +5748,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   async function deleteCardRow(id) {
     const c = editingCompanion(); const k = memCardsOf(c).find(x => x.id === id); if (!k) return;
     if (!(await uiConfirm('删除这条记忆？', { ok: '删除', danger: true }))) return;
+    memUnlinkCard(c, id);
     c.cards = memCardsOf(c).filter(x => x.id !== id);
     saveCompanions(); renderMemCards();
   }
