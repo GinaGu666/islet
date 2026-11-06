@@ -4,6 +4,7 @@
 
 ## 项目
 
+- **每次改 `index.html` 都顺手更新版本号**：在设置页底部那行 `islet · 日期 · 改动`（搜 `islet · 20`）。日期写提交当天（Asia/Taipei），后面换成这次的一两个主要改动的短名，用「 · 」隔开；同一天多次修改就沿用日期、更新改动名。和代码改动放在同一个提交里。
 - 单文件：`index.html`，约 5300 行，HTML + CSS + 原生 JS。**没有构建步骤，没有依赖**——不要引入打包工具、框架或 CDN 资源（只有 pdf.js / mammoth 是按需从 CDN 拉的，用来读 PDF / docx 附件）。
 - 另有 `tools/split_claude_export.py`：把 Claude.ai 的导出拆成「导入角色」用的 islet-import 文件。
 - ChatGPT 的原始聊天 JSON 可从「导入角色 / 聊天」直接导入（ZIP 先解压，支持多选编号 JSON）。先选窗口，再沿 `current_node` 的父链取唯一当前路线；只搬文字与非文字占位，不带图片/音频实体。来源消息 ID 随聊天块备份，用于重复导入检查。
