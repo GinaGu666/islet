@@ -73,6 +73,10 @@ async function fork(a, ref, name = '分支 A') {
   await a.run(`createChatBranch(${JSON.stringify(ref)})`);
   await sleep(30);
 }
+function appendMessage(a, msg) {
+  a.w.testMessage = msg;
+  a.run(`messages.push(globalThis.testMessage); saveCurrent(); delete globalThis.testMessage;`);
+}
 
 (async () => {
   const a = await app(fixture());
@@ -89,7 +93,7 @@ async function fork(a, ref, name = '分支 A') {
   assert.deepEqual(json(await a.run(`loadChunk('root-tail')`)), originalTail);
   assert.equal(a.run(`riverTotal('c1')`), 6);
   assert.equal(a.w.document.querySelectorAll('#chat .msg').length, 2); // Latest inherited chunk is rendered.
-  await a.run(`appendToRiver('c1', { role: 'user', content: 'branch-only', ts: Date.now(), time: '13:00' })`);
+  appendMessage(a, { role: 'user', content: 'branch-only', ts: Date.now(), time: '13:00' });
   a.run(`renderAll()`);
   const api = json(await a.run(`buildApiMessages(messages, currentId)`));
   assert(api.some(m => String(m.content).includes('branch-only')));
@@ -148,7 +152,7 @@ async function fork(a, ref, name = '分支 A') {
   const moving = race.run(`rebalanceChunks('c1')`);
   assert.equal(race.run(`rebalanceChunks('c1') === rebalanceJobs.get('c1')`), true);
   race.run(`switchChatBranch('c1', 'prior')`);
-  await race.run(`appendToRiver('c1', { role: 'user', content: 'saved-during-move', ts: Date.now() })`);
+  appendMessage(race, { role: 'user', content: 'saved-during-move', ts: Date.now() });
   race.run(`releaseMove()`);
   await moving;
   assert.equal(race.run(`sessions.find(s => s.id === 'root-old').cold || 0`), 0);
@@ -201,13 +205,13 @@ async function fork(a, ref, name = '分支 A') {
   await fork(d, { sid: 'root-tail', idx: 1 }, '可删除的父分支');
   const parent = d.run(`activeBranchFor('c1')`);
   await d.run(`filePut({ id: 'child-file', name: 'child.txt', text: 'shared with child' })`);
-  await d.run(`appendToRiver('c1', { role: 'user', content: 'child inherits this', ts: Date.now(), files: [{ id: 'child-file', name: 'child.txt' }] })`);
+  appendMessage(d, { role: 'user', content: 'child inherits this', ts: Date.now(), files: [{ id: 'child-file', name: 'child.txt' }] });
   const parentTail = d.run(`currentId`);
   await fork(d, { sid: parentTail, idx: 0 }, '保留的子分支');
   const child = d.run(`activeBranchFor('c1')`);
   d.run(`switchChatBranch('c1', ${JSON.stringify(parent)})`);
   await d.run(`filePut({ id: 'parent-file', name: 'parent.txt', text: 'delete me' }); imgPut({ id: 'parent-img', blob: 'synthetic image' })`);
-  await d.run(`appendToRiver('c1', { role: 'user', content: 'parent exclusive', ts: Date.now(), files: [{ id: 'parent-file', name: 'parent.txt' }], imgs: ['parent-img'] })`);
+  appendMessage(d, { role: 'user', content: 'parent exclusive', ts: Date.now(), files: [{ id: 'parent-file', name: 'parent.txt' }], imgs: ['parent-img'] });
   const parentIds = json(d.run(`riverChunks('c1').map(s => s.id)`));
   d.run(`switchChatBranch('c1', ${JSON.stringify(child)})`);
   await sleep(30);
@@ -262,9 +266,35 @@ async function fork(a, ref, name = '分支 A') {
   assert.equal(reloaded.run(`branchesOf('c1').length`), 1);
   assert.equal(reloaded.run(`activeBranchFor('c1')`), 'main');
   assert.deepEqual(await texts(reloaded), Array.from({ length: 8 }, (_, i) => 'root-' + i));
+
+  // Switching an idle role refreshes its header/status once; switching during
+  // generation must still abort the old reply and restore the send controls.
+  const ui = await app(fixture());
+  ui.run(`
+    companions.push({id:'c2',name:'Second',model:'openai/test-model',cards:[],epis:[],autoDistill:false}); saveCompanions();
+    globalThis.redraws={branches:0,diary:0};
+    const originalBranches=renderBranchBar, originalDiary=renderDiaryStatus;
+    renderBranchBar=(...args)=>{redraws.branches++;return originalBranches(...args)};
+    renderDiaryStatus=(...args)=>{redraws.diary++;return originalDiary(...args)};
+    switchCompanion('c2');
+  `);
+  assert.deepEqual(json(ui.w.redraws), { branches: 1, diary: 1 });
+  assert.equal(ui.w.document.getElementById('pill-name').textContent, 'Second');
+  assert.equal(ui.run('selectedModel'), 'openai/test-model');
+  assert(ui.w.document.getElementById('pill-sub').textContent.includes('test-model'));
+  assert.equal(ui.w.document.getElementById('branch-label').textContent, '主线');
+  assert.equal(ui.run('isLoading'), false);
+  ui.run(`currentAbort=new AbortController(); setLoading(true); switchCompanion('c1')`);
+  assert.equal(ui.run('currentAbort.signal.aborted'), true);
+  assert.equal(ui.run('isLoading'), false);
+  assert.equal(ui.w.document.getElementById('send-btn').getAttribute('aria-label'), '发送');
+  assert.equal(ui.w.document.getElementById('chat').classList.contains('streaming'), false);
+  assert.equal(ui.w.document.getElementById('pill-name').textContent, '测试角色');
+  assert.deepEqual(await texts(ui), Array.from({ length: 8 }, (_, i) => 'root-' + i));
+  assert.deepEqual(ui.errors, []);
   assert.deepEqual(a.errors, []);
   assert.deepEqual(b.errors, []);
   assert.deepEqual(d.errors, []);
   assert.deepEqual(reloaded.errors, []);
-  console.log('PASS: branching, deletion/cancellation/failure rollback, descendants, shared attachments/memory, active-branch fallback, reload, and backup/import.');
+  console.log('PASS: branching, deletion/cancellation/failure rollback, descendants, shared attachments/memory, active-branch fallback, reload, backup/import, single idle-switch refresh and generation cancellation.');
 })().catch(e => { console.error(e); process.exitCode = 1; }).finally(() => { for (const dom of contexts) dom.window.close(); });

@@ -2336,7 +2336,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     leaveCurrentSession();
     c.activeBranchId = bid; saveCompanions();
     enterCompanion(cid); _tailCache = { key: '', msgs: [] };
-    renderAll(); renderDrawerCompanions(); updatePill();
+    renderAll(); renderDrawerCompanions();
     setTimeout(memDeliverNotes, 300);   // 回到主线时补放攒着的留言
   }
   async function renameChatBranch(cid, bid) {
@@ -2588,7 +2588,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       c.activeBranchId = bid; c.branchNames = Object.assign({}, c.branchNames, { [bid]: name }); saveCompanions();
       currentId = tail.id; messages = []; localStorage.setItem('islet_cur', currentId);
       _tailCache = { key: '', msgs: [] };
-      renderAll(); renderDrawerCompanions(); updatePill();
+      renderAll(); renderDrawerCompanions();
       rebalanceChunks(cid).catch(() => {});
       toast('已进入「' + name + '」');
     } catch (e) {
@@ -2902,7 +2902,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (id === activeCompanionId) { return; }
     leaveCurrentSession();
     enterCompanion(id);
-    renderAll(); renderDrawerCompanions(); updatePill();
+    renderAll(); renderDrawerCompanions();
     setTimeout(memDeliverNotes, 300);   // 切到 TA 就看看有没有留言
   }
   function togglePinCompanion(id) {
@@ -2939,12 +2939,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   }
   function saveCompanions() { lsSet('islet_companions', JSON.stringify(companions)); }
   function activeCompanion() { return companions.find(c => c.id === activeCompanionId) || companions[0]; }
-  function setActiveCompanion(id) {
-    if (!companions.find(c => c.id === id)) return;
-    activeCompanionId = id;
-    localStorage.setItem('islet_active_companion', id);
-    updatePill();
-  }
   async function addCompanion() {
     const name = ((await uiPrompt('给新角色起个名字', '', { ok: '创建' })) || '').trim();
     if (!name) return;
@@ -2953,14 +2947,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     editingCompanionId = c.id;            // 只切编辑态，不影响正在聊的
     renderCompanionTabs(); loadMemoryForm(); renderDrawerCompanions();
     if (!$('memory-overlay').classList.contains('show')) { switchCompanion(c.id); closeDrawer(); }   // 从抽屉加的：直接进 TA 的空间
-  }
-  async function renameCompanion(id) {
-    const c = companions.find(x => x.id === id);
-    if (!c) return;
-    const v = await uiPrompt('重命名角色', c.name);
-    if (v == null) return;
-    c.name = v.trim() || c.name;
-    saveCompanions(); renderCompanionTabs(); renderDrawerCompanions(); updatePill();
   }
   async function deleteCompanion(id) {
     if (companions.length <= 1) { toast('至少保留一个角色'); return; }
@@ -3034,7 +3020,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const prevId = currentId, snap = messages.slice();
     if (currentAbort) currentAbort.abort();
     maybeAutoDistill(prevId, snap);
-    isLoading = false; setLoading(false);
+    if (isLoading) setLoading(false);
   }
 
   function saveCurrent() {
@@ -3134,7 +3120,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   function modelRoute(model) { return readModelRoutes()[routingModel(model)] || ''; }
   function routeName(slug) { return ({ anthropic: 'Anthropic', 'claude-on-aws': 'Claude Platform on AWS', 'amazon-bedrock': 'Amazon Bedrock', 'google-vertex': 'Google Vertex', azure: 'Azure' })[slug] || slug; }
   function applyModelRoute(payload, model) { const p = modelRoute(model); if (p) payload.provider = { only: [p], allow_fallbacks: false }; return payload; }
-  function routeError(message, payload) { const p = payload.provider && payload.provider.only && payload.provider.only[0]; return p ? '已指定 ' + routeName(p) + '，未切换供应商：' + message : message; }
 
   /* 请求诊断只在当前界面显示，不存入聊天、备份或模型上下文。不展示原始请求/响应头。 */
   function requestContext(model, payload, url) {
@@ -3376,8 +3361,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     return n + renderFrom.idx;
   }
   function renderAll() {
-    renderEpoch++; _loadingOlder = false; renderBranchBar();
-    renderDiaryStatus();
+    renderEpoch++; _loadingOlder = false;
+    updatePill();   // 整页刷新时统一更新角色、模型、分支与日记状态
     cancelEdit();   // 切换角色等场景下退出编辑态（未在编辑时是空操作，不影响草稿）
     const chat = $('chat');
     chat.innerHTML = '';
@@ -6173,7 +6158,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     return out;
   }
   function ciMsg(m) { const d = m.ts ? new Date(m.ts) : null; const o = { role: m.role, content: m.content }; if (d) { o.ts = m.ts; o.time = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); } if (m.importKey) o.importKey = m.importKey; return o; }
-  function fmtBytes(n) { return n < 1048576 ? Math.round(n / 1024) + 'K' : (n / 1048576).toFixed(2) + 'M'; }
   // 按字数切段，只在消息边界切；返回每段的结束下标（不含）
   function histBounds(msgs) {
     const b = []; let n = 0;
@@ -6246,7 +6230,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       companions = nextCompanions; sessions = nextSessions; committed = true;
       ciData = null; ciGptEntries = []; hide('charimport-overlay');
       _tailCache = { key: '', msgs: [] }; enterCompanion(c.id);
-      renderAll(); renderDrawerCompanions(); updatePill(); updateStoreMeter();
+      renderAll(); renderDrawerCompanions(); updateStoreMeter();
       rebalanceChunks(c.id).catch(() => {});
       await uiAlert(`已${isNew ? '导入' : '并入'}「${c.name}」`, { sub: `新增 ${all.length} 条消息，跳过重复 ${skipped} 条，全部写入并校验完成。\n\n去记忆面板的「历史提炼」分批提炼记忆卡和大事记；共 ${bounds.length} 段，需调用你选择的模型。` });
     } catch (e) {
@@ -6385,28 +6369,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     }
   }
 
-  // 往某个角色那条河的末尾追加一条消息：他正开着就直接进当前对话，否则写进他最新的那块
-  async function appendToRiver(cid, msg) {
-    if (cid === activeCompanionId && currentId) {
-      messages.push(msg); saveCurrent(); return true;
-    }
-    const chunks = riverChunks(cid);
-    let last = chunks[chunks.length - 1];
-    if (!last) {
-      last = { id: genId(), title: '', updated: msg.ts, first: msg.ts, companionId: cid, branchId: activeBranchFor(cid), branchName: branchName(cid, activeBranchFor(cid)), count: 0, distilled: 0 };
-      if (!lsSet('islet_s_' + last.id, '[]')) return false;
-      sessions.push(last);
-    }
-    const msgs = await loadChunk(last.id);
-    msgs.push(msg);
-    if (!(await saveChunk(last.id, msgs))) return false;
-    const back = await loadChunk(last.id);   // 读回校验
-    if (!back.length || back[back.length - 1].ts !== msg.ts) return false;
-    last.count = msgs.length; last.updated = msg.ts;
-    if (!last.first) last.first = msg.ts;
-    saveIndex();
-    return true;
-  }
   // 旧版议事厅纪要的只读兼容：正文可见、原话折叠，不再提供开会或生成纪要的入口
   function addCouncilCard(m, target) {
     dropEmpty();

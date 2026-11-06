@@ -21,7 +21,7 @@ const stream = () => run('streamCompletion(selectedModel,[],null,()=>{},()=>{})'
   w.localStorage.setItem('islet_companions',JSON.stringify([{id:'qa',name:'Saturn',cards:[],epis:[],autoDistill:false}]));
   w.localStorage.setItem('islet_active_companion','qa');w.localStorage.setItem('islet_cur','tail');
   run(source);w.onload=null;
-  run(`loadCompanions();selectedModel='anthropic/claude-sonnet-4.6';apiKey='TEST-OR-SECRET';localStorage.setItem('islet_notion_key','TEST-NOTION-SECRET');
+  run(`loadCompanions();selectedModel='anthropic/claude-sonnet-4.6';apiKey='TEST-OR-SECRET';localStorage.setItem('islet_notion_key','TEST-NOTION-SECRET');localStorage.setItem('islet_memsrv_key','TEST-MEMSRV-SECRET');
     sessions=[{id:'tail',companionId:'qa',count:1,first:1}];currentId='tail';messages=[{role:'user',content:'Hello',time:'10:00',ts:Date.now()}];saveCurrent();showMain();renderAll();
     delay=async()=>{};toast=t=>{globalThis.lastToast=t};globalThis.realAddAi=addAi;addAi=(...args)=>{const h=realAddAi(...args);if(h)globalThis.handle=h;return h};
     localStorage.setItem('islet_or_routes',JSON.stringify({[selectedModel]:'anthropic'}));`);
@@ -42,8 +42,8 @@ const stream = () => run('streamCompletion(selectedModel,[],null,()=>{},()=>{})'
   const oversized='A'.repeat(60000);reply=()=>new Response(oversized,{status:502});r=await stream();assert(r.failure.message.length<1850);
   reply=()=>json({request:{messages:'PRIVATE REQUEST ECHO'},padding:'x'.repeat(40000)},502);r=await stream();assert(!r.error.includes('PRIVATE REQUEST ECHO'));assert(r.error.includes('过长的 JSON'));
   // Redact active keys, bearer credentials, secret assignments and URL credentials/query/fragment.
-  reply=()=>json({error:{message:'TEST-OR-SECRET TEST-CC-SECRET TEST-NOTION-SECRET Bearer bearer_other sk-other-key password=pass123 api_key="apikey123" https://user:pass@host.test/v1?token=url_secret#hidden <img src=x onerror=alert(1)>'}},401);
-  r=await stream();for(const secret of ['TEST-OR-SECRET','TEST-CC-SECRET','TEST-NOTION-SECRET','bearer_other','sk-other-key','pass123','apikey123','url_secret','user:pass'])assert(!r.error.includes(secret),secret);
+  reply=()=>json({error:{message:'TEST-OR-SECRET TEST-MEMSRV-SECRET TEST-NOTION-SECRET Bearer bearer_other sk-other-key password=pass123 api_key="apikey123" https://user:pass@host.test/v1?token=url_secret#hidden <img src=x onerror=alert(1)>'}},401);
+  r=await stream();for(const secret of ['TEST-OR-SECRET','TEST-MEMSRV-SECRET','TEST-NOTION-SECRET','bearer_other','sk-other-key','pass123','apikey123','url_secret','user:pass'])assert(!r.error.includes(secret),secret);
   // Error events with HTTP 200, with or without a final newline, must not become successful replies.
   for(const withNewline of [true,false]){
     reply=()=>new Response('data: '+JSON.stringify(fail('SSE failed',502))+(withNewline?'\n\n':''),{headers:{'content-type':'text/event-stream','request-id':'stream-request'}});
