@@ -4437,8 +4437,15 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           }
           if (!picked.length) result = '没有和「' + q + '」相关的记忆（共 ' + arr.length + ' 条）';
           else {
-            picked.forEach(k => { k.u = Date.now(); k.n = (k.n || 0) + 1; }); saveCompanions();
-            result = picked.map(k => '- ' + (k.c ? '[' + k.c + '] ' : '') + k.t + '（' + memoryDateInfo(k) + '）').join('\n');
+            const ix = memThreadIndex(arr), done = new Set(), lines = [];
+            for (const k of picked) {   // 命中事件线上的任意一张，整条线按时间带出
+              if (done.has(k.id)) continue;
+              const thread = memThread(ix, k);
+              thread.forEach(x => { done.add(x.id); x.u = Date.now(); x.n = (x.n || 0) + 1; });
+              lines.push('- ' + thread.map(x => (x.c ? '[' + x.c + '] ' : '') + x.t + '（' + memoryDateInfo(x) + '）').join(MEM_THREAD_JOIN));
+            }
+            saveCompanions();
+            result = lines.join('\n');
           }
           label = q ? '翻了翻关于「' + q + '」的记忆' : '翻了翻记忆';
           break;
@@ -4612,7 +4619,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (persona) block += "\n\n## Who you are to them\n" + persona;
       if (rel) block += "\n\n## Where the two of you are right now\n" + rel + "\n（这是随相处推移的动态位置，不是人设）";
       if (epi) block += "\n\n## Milestones you've shared\n" + epi;
-      if (core.text) block += "\n\n## What you remember from your time together\n" + core.text + "\n\n（对话途中若见到【记忆浮现】标注，那是被当前话题勾起的更早记忆——自然地想起就好，不必逐条复述，也不要向用户提起这个机制本身。带【约定】的是你们说好的事，认真对待。）";
+      if (core.text) block += "\n\n## What you remember from your time together\n" + core.text + "\n\n（对话途中若见到【记忆浮现】标注，那是被当前话题勾起的更早记忆——自然地想起就好，不必逐条复述，也不要向用户提起这个机制本身。带【约定】的是你们说好的事，认真对待。用「→ 后来：」连起来的是同一件事的前后发展，按时间排列，现在的情况以最后一段为准。）";
       parts.push(block);
     }
     if (systemPrompt) parts.push(systemPrompt);
@@ -5430,14 +5437,15 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const m = String(text || '').match(/^([\s\S]*?)\s*[\[【](事实|偏好|事件|约定)[\]】]\s*$/);
     return m ? { t: m[1].trim(), c: m[2] } : { t: String(text || '').trim(), c: '' };
   }
-  function addMemCard(c, text, dedupe, cat, date) {
+  function addMemCard(c, text, dedupe, cat, date, prev) {
     const st = splitCatTag(text);
     const t = st.t.slice(0, 500);
     if (!t) return false;
     if (dedupe !== false && memDup(c, t)) return false;
     const memoryDate = normMemoryDate(date);
     if (date && !memoryDate) throw new Error('记忆日期无效，请使用 YYYY-MM-DD');
-    memCardsOf(c).unshift({ id: genId(), t, d: Date.now(), p: 0, c: cat || st.c || '', ...(memoryDate ? { date: memoryDate } : {}) });
+    const link = prev && memCardsOf(c).some(k => k.id === prev) ? { prev } : {};   // 后续卡：指向它接着的那张
+    memCardsOf(c).unshift({ id: genId(), t, d: Date.now(), p: 0, c: cat || st.c || '', ...(memoryDate ? { date: memoryDate } : {}), ...link });
     trimMemCards(c); c.memUpdated = Date.now();
     return true;
   }
@@ -5450,6 +5458,25 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       for (let i = arr.length - 1; i >= 0 && arr.length > MAX_CARDS; i--) if (drop(arr[i])) arr.splice(i, 1);
     if (arr.length > MAX_CARDS) arr.length = MAX_CARDS;
   }
+  /* 事件线：后续卡用 prev 指向它接着的那张（A ← B ← C）。召回时只要命中其中一张，就把整条线按时间一起带出，
+     免得只想起开头、不知道后来。原卡被删时 prev 悬空，那张卡就自己当开头。 */
+  const MEM_THREAD_MAX = 6;   // 一条线最多带几张：开头 + 最新几张
+  function memThreadIndex(arr) {
+    const byId = new Map(), kids = new Map();
+    arr.forEach(k => byId.set(k.id, k));
+    arr.forEach(k => { if (k.prev && byId.has(k.prev)) { if (!kids.has(k.prev)) kids.set(k.prev, []); kids.get(k.prev).push(k); } });
+    return { byId, kids };
+  }
+  function memThread(ix, k) {   // 返回 k 所在整条线，按事件日期/记录时间从早到晚
+    let root = k; const up = new Set([k.id]);
+    while (root.prev && ix.byId.has(root.prev) && !up.has(root.prev)) { root = ix.byId.get(root.prev); up.add(root.id); }
+    const seen = new Set(), all = [], stack = [root];
+    while (stack.length && seen.size < 50) { const x = stack.pop(); if (seen.has(x.id)) continue; seen.add(x.id); all.push(x); (ix.kids.get(x.id) || []).forEach(y => stack.push(y)); }
+    const when = x => { const dt = normMemoryDate(x.date); return dt ? Date.parse(dt + 'T12:00:00Z') : x.d; };
+    all.sort((a, b) => when(a) - when(b) || a.d - b.d);
+    return all.length > MEM_THREAD_MAX ? [all[0]].concat(all.slice(1 - MEM_THREAD_MAX)) : all;
+  }
+  const MEM_THREAD_JOIN = ' → 后来：';
   function memCoreParts(comp) {   // L0：置顶 → 约定 → 其余按新→旧，塞满预算为止；返回 {text, ids}
     const arr = memCardsOf(comp);
     if (!arr.length) return { text: '', ids: new Set() };
@@ -5457,11 +5484,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const vow = arr.filter(k => !k.p && k.c === '约定');
     const rest = arr.filter(k => !k.p && k.c !== '约定');
     const ids = new Set(); const out = []; let used = 0;
+    const ix = memThreadIndex(arr);
     for (const k of pin.concat(vow, rest)) {
-      const date = normMemoryDate(k.date);
-      const line = '- ' + (k.c === '约定' ? '【约定】' : '') + (date ? '【日期：' + date + '】' : '') + k.t;
+      if (ids.has(k.id)) continue;   // 已随同一条事件线写进去了
+      const thread = memThread(ix, k);
+      const line = '- ' + thread.map(x => { const date = normMemoryDate(x.date); return (x.c === '约定' ? '【约定】' : '') + (date ? '【日期：' + date + '】' : '') + x.t; }).join(MEM_THREAD_JOIN);
       if (out.length && used + line.length > MEM_CORE_BUDGET) continue;
-      out.push(line); used += line.length + 1; ids.add(k.id);
+      out.push(line); used += line.length + 1; thread.forEach(x => ids.add(x.id));
     }
     const dormant = arr.length - ids.size;
     if (dormant > 0) out.push('（另有 ' + dormant + ' 条旧记忆在沉睡，聊到相关话题时会自动浮现）');
@@ -5538,12 +5567,16 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     }
     scored.sort((a, b) => b.s - a.s || b.k.d - a.k.d);
     const out = []; let used = 0;
+    const ix = memThreadIndex(arr), done = new Set();
     for (const it of scored) {
       if (out.length >= MEM_RECALL_MAX) break;
-      const line = '- ' + it.k.t + '（' + memoryDateInfo(it.k) + '）';
+      if (done.has(it.k.id)) continue;   // 已随同一条事件线浮现
+      // 命中线上任意一张，整条线一起浮现（常驻层已写过的卡不重复）
+      const thread = memThread(ix, it.k).filter(x => x.id === it.k.id || !(exclude && exclude.has(x.id)));
+      const line = '- ' + thread.map(x => x.t + '（' + memoryDateInfo(x) + '）').join(MEM_THREAD_JOIN);
       if (out.length && used + line.length > MEM_RECALL_BUDGET) continue;
       out.push(line); used += line.length + 1;
-      it.k.u = Date.now(); it.k.n = (it.k.n || 0) + 1;            // 真被送进上下文才算「想起一次」
+      thread.forEach(x => { done.add(x.id); x.u = Date.now(); x.n = (x.n || 0) + 1; });   // 真被送进上下文才算「想起一次」
     }
     if (out.length) companionsDirty = true;                       // 只写 u/n，不动 memUpdated——词频缓存不受扰；落盘合并到 buildApiMessages 末尾
     return out;
@@ -5698,7 +5731,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <button class="mcard-pin" type="button" onclick="togglePinCard('${k.id}')" aria-label="置顶"><svg viewBox="0 0 24 24" width="15" height="15" fill="${k.p ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.2 4.1 1 5.8L12 16.4 6.7 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg></button>
         <div class="mcard-body" onclick="openCardEdit('${k.id}')">
           <div class="mcard-text">${esc(k.t)}</div>
-          <div class="mcard-date">${k.p ? '📌 ' : ''}${k.c ? '<span class="mem-chip">' + k.c + '</span> ' : ''}${normMemoryDate(k.date) || fmtWhen(k.d)}${k.n ? ' · 想起 ' + k.n + ' 次' : ''}</div>
+          <div class="mcard-date">${k.p ? '📌 ' : ''}${k.c ? '<span class="mem-chip">' + k.c + '</span> ' : ''}${normMemoryDate(k.date) || fmtWhen(k.d)}${k.n ? ' · 想起 ' + k.n + ' 次' : ''}${(() => { const pk = k.prev && memCardsOf(c).find(x => x.id === k.prev); return pk ? ' · 接：' + esc(pk.t.length > 16 ? pk.t.slice(0, 16) + '…' : pk.t) : ''; })()}</div>
         </div>
         <button class="mcard-del" type="button" onclick="deleteCardRow('${k.id}')" aria-label="删除">×</button>
       </div>`).join('') : '<div class="mcard-empty">' + (q || memFilter ? '没有匹配的记忆' : '还没有记忆卡片<br>聊过之后点下面「提炼」，或手动记一条') + '</div>';
@@ -5982,8 +6015,16 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         .map(m => (m.role === 'user' ? 'User: ' : 'AI: ') + (m.imgs && m.imgs.length ? '[发了图片] ' : '') + m.content).join('\n\n');
       if (!transcript.trim()) return null;
       if (transcript.length > 24000) transcript = '…（更早的内容已截去）\n\n' + transcript.slice(-24000);   // 双保险：就算增量也封顶
-      const existing = memCardsOf(comp).slice(0, 60).map(k => '- ' + k.t).join('\n');
-      const sys = "You maintain the long-term memory of an AI companion in a companion app: memory cards, a session summary, and a relationship-state line for one specific relationship. You will see the existing cards, the current relationship state, then a recent conversation between the user and the AI companion.\n\nOUTPUT FORMAT — exactly these parts, in this order, nothing else (no bullets, no numbering, no commentary, no code fences):\n1. One line starting with 'SUMMARY: ' — a short narrative recap of THIS conversation from the companion's own perspective (what was discussed, the emotional arc, any relationship beats, how it ended). If a summary of the earlier part of this conversation is provided, fold it in and output the updated recap of the WHOLE conversation, not just the new part. 2-4 short sentences, under 120 Chinese characters. Not a chat log — an arc.\n2. 0 to 5 lines, one NEW memory card per line: only durable information not already covered by existing cards — facts about the user's life, preferences, meaningful events, emotional notes that will still matter later. When a fact carries the user's emotional stance, fold the stance into the card: not just the fact ('哥哥去世') but the posture ('提起哥哥仍会流泪'). Facts with posture beat bare facts. Shared experiences between the user and the companion are the MOST important memories — dates, outings, trips, first times, confessions, anniversaries, gifts, fights and making up — including ones that took place inside the chat or were imagined/played out together, and adventures or stories you made up together: they are real to this relationship, never dismiss them as roleplay. Give EACH distinct occasion its own [事件] card (when, where, what happened, what made it special), even if an existing card mentions a similar kind of thing in general — a general card does not cover a specific occasion. Each card is ONE terse line, like an index card, ending with exactly one category tag: [事实] life facts about them · [偏好] tastes/likes/dislikes · [事件] things that happened · [约定] promises or plans made between the two of you (use 约定 strictly for real commitments). Example: '答应下个月一起重读《小王子》 [约定]'. If nothing new: output exactly NONE on its own line. Never put a tag on the SUMMARY or RELATION lines.\n3. Optionally, one line starting with 'RELATION: ' — ONLY if where-you-two-are-now has meaningfully shifted from the current relationship state shown. Describe the relationship's present position (not who anyone is), under 60 Chinese characters. Omit this line entirely if nothing shifted.\n\nNEVER record in cards: meta/technical talk (which AI model, the app itself, prompts, settings, API, testing), small talk that won't matter in a week, blow-by-blow accounts (keep outcome + feeling), or anything an existing card already covers in different words.\n\nWrite everything in the language the conversation is mostly in.";
+      // 给模型看的旧卡：最新 40 张 + 和这段对话最相关的 20 张（旧卡也能被认出来、被接上后续），带编号
+      const allCards = memCardsOf(comp), shown = allCards.slice(0, 40);
+      const userText = msgs.filter(m => m.role === 'user' && typeof m.content === 'string').map(m => m.content).join('\n').slice(-6000);
+      const qt = new Set(); for (let i = 0; i < userText.length; i += 1500) memTokens(userText.slice(i, i + 1500)).forEach(t => qt.add(t));
+      const df = memDF(comp), inShown = new Set(shown.map(k => k.id));
+      allCards.filter(k => !inShown.has(k.id))
+        .map(k => { let s = 0; for (const t of cardTokens(k)) if (qt.has(t)) s += tokenWeight(df.get(t) || 1); return { k, s }; })
+        .filter(x => x.s >= 1.1).sort((a, b) => b.s - a.s).slice(0, 20).forEach(x => shown.push(x.k));
+      const existing = shown.map((k, i) => '[' + (i + 1) + '] ' + k.t).join('\n');
+      const sys = "You maintain the long-term memory of an AI companion in a companion app: memory cards, a session summary, and a relationship-state line for one specific relationship. You will see the existing cards, the current relationship state, then a recent conversation between the user and the AI companion.\n\nOUTPUT FORMAT — exactly these parts, in this order, nothing else (no bullets, no numbering, no commentary, no code fences):\n1. One line starting with 'SUMMARY: ' — a short narrative recap of THIS conversation from the companion's own perspective (what was discussed, the emotional arc, any relationship beats, how it ended). If a summary of the earlier part of this conversation is provided, fold it in and output the updated recap of the WHOLE conversation, not just the new part. 2-4 short sentences, under 120 Chinese characters. Not a chat log — an arc.\n2. 0 to 5 lines, one NEW memory card per line: only durable information not already covered by existing cards — facts about the user's life, preferences, meaningful events, emotional notes that will still matter later. When a fact carries the user's emotional stance, fold the stance into the card: not just the fact ('哥哥去世') but the posture ('提起哥哥仍会流泪'). Facts with posture beat bare facts. Shared experiences between the user and the companion are the MOST important memories — dates, outings, trips, first times, confessions, anniversaries, gifts, fights and making up — including ones that took place inside the chat or were imagined/played out together, and adventures or stories you made up together: they are real to this relationship, never dismiss them as roleplay. Give EACH distinct occasion its own [事件] card (when, where, what happened, what made it special), even if an existing card mentions a similar kind of thing in general — a general card does not cover a specific occasion. Each card is ONE terse line, like an index card, ending with exactly one category tag: [事实] life facts about them · [偏好] tastes/likes/dislikes · [事件] things that happened · [约定] promises or plans made between the two of you (use 约定 strictly for real commitments). Example: '答应下个月一起重读《小王子》 [约定]'. If nothing new: output exactly NONE on its own line. Never put a tag on the SUMMARY or RELATION lines.\n   FOLLOW-UPS: existing cards are numbered like [12]. If a new card is a later development, outcome or change of something an existing card records (the interview → got the offer; a fight → making up; a plan → how it actually went), start that line with 'FOLLOWUP 12: ' using that card's number, and still write the card so it stands on its own — repeat the key names, places or keywords from that card, because it will be searched by them. Example: 'FOLLOWUP 12: 去X公司面试后拿到了offer，松了一口气 [事件]'. Use FOLLOWUP only for a real continuation of that specific card; other new cards have no prefix.\n3. Optionally, one line starting with 'RELATION: ' — ONLY if where-you-two-are-now has meaningfully shifted from the current relationship state shown. Describe the relationship's present position (not who anyone is), under 60 Chinese characters. Omit this line entirely if nothing shifted.\n\nNEVER record in cards: meta/technical talk (which AI model, the app itself, prompts, settings, API, testing), small talk that won't matter in a week, blow-by-blow accounts (keep outcome + feeling), or anything an existing card already covers in different words.\n\nWrite everything in the language the conversation is mostly in.";
       const user = "EXISTING MEMORY CARDS:\n" + (existing || '(empty)') + "\n\nCURRENT RELATIONSHIP STATE:\n" + ((comp.rel || '').trim() || '(not set yet)') + (prevSummary ? "\n\nSUMMARY OF THE EARLIER PART OF THIS CONVERSATION (already distilled — the transcript below is only what came after):\n" + prevSummary : '') + "\n\n----\n\nRECENT CONVERSATION" + (prevSummary ? ' (newest part only)' : '') + ":\n" + transcript + "\n\n----\n\nOutput now: the SUMMARY line, then memory lines (or NONE), then optionally the RELATION line.";
       const out = await chatOnce(sys, user, memoryModel(comp), 4096, { keepalive: true });   // 失败抛错 → 外层 catch 返回 null
       let added = 0, summary = '', relation = '';
@@ -5993,7 +6034,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         if (ms) { summary = ms[1].slice(0, 300); return; }
         if (mr) { relation = mr[1].slice(0, 120); return; }
         if (/^none$/i.test(l)) return;
-        if (added < 5 && addMemCard(comp, l)) added++;
+        const mf = l.match(/^follow[\s-]?up\s*\[?(\d{1,3})\]?\s*[:：]\s*(.+)$/i);   // 后续卡：接在第 n 张后面
+        const parent = mf ? shown[+mf[1] - 1] : null;
+        if (added < 5 && addMemCard(comp, mf ? mf[2] : l, undefined, undefined, undefined, parent && parent.id)) added++;
       });
       return { added, summary, relation };
     } catch (e) { return null; }
