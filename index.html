@@ -735,6 +735,28 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   .toast.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
 
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+
+  /* 通话：操作纵向分开，挂断独立放在底部，避免手机误触。 */
+  .voice-dialog { margin: auto; width: min(92vw, 420px); max-height: 90dvh; overflow-y: auto; padding: 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); color: var(--ink); font-family: var(--sans); }
+  .voice-dialog::backdrop { background: var(--scrim); }
+  .voice-dialog h3 { font-size: 19px; line-height: 1.5; margin-bottom: 18px; }
+  .voice-settings label { display: block; font-size: 13px; line-height: 1.6; color: var(--ink-2); }
+  .voice-settings .field { margin-top: 8px; min-height: 48px; font-size: 16px; }
+  .voice-help { margin-top: 10px; font-size: 12px; line-height: 1.7; color: var(--ink-3); }
+  #voice-status { margin: 18px 0; padding: 12px; border-radius: var(--radius-sm); background: var(--accent-weak); color: var(--ink-2); font-size: 14px; line-height: 1.6; text-align: center; }
+  .voice-caption { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 20dvh; overflow-y: auto; font-size: 16px; line-height: 1.8; margin-bottom: 18px; }
+  .voice-caption:empty { display: none; }
+  .voice-controls { display: flex; flex-direction: column; gap: 16px; }
+  .voice-dialog [hidden] { display: none !important; }
+  .voice-button { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 54px; padding: 14px 18px; border: 1px solid var(--accent-line); border-radius: 16px; background: transparent; color: var(--ink); font: 600 16px/1.5 var(--sans); cursor: pointer; touch-action: manipulation; }
+  .voice-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .voice-hold { min-height: 84px; font-size: 18px; }
+  .voice-button:disabled { opacity: .4; cursor: default; }
+  .voice-button:active:not(:disabled) { filter: brightness(.9); }
+  .voice-button:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+  .voice-footer { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--line); }
+  .voice-end { color: var(--ink-2); border-color: var(--line); font-weight: 500; }
+
 </style>
 </head>
 <body>
@@ -795,16 +817,20 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 </div>
 <div class="img-viewer" id="img-viewer" onclick="this.classList.remove('show')"><img id="img-viewer-img" alt=""></div>
 
-<dialog id="voice-dialog" style="margin:auto;width:min(90vw,440px);max-height:85dvh;overflow:auto;border:1px solid var(--border);border-radius:20px;padding:24px;background:var(--bg);color:var(--text)">
+<dialog id="voice-dialog" class="voice-dialog" aria-labelledby="voice-title">
   <h3 id="voice-title">语音通话</h3>
+  <div id="voice-settings" class="voice-settings">
   <label>这个角色的 ElevenLabs voice ID<input class="field mono" id="voice-id" autocomplete="off" spellcheck="false"></label>
-  <p style="font-size:13px">音色只保存在本机。通话沿用设置里的记忆库地址和门禁。</p>
+  <p class="voice-help">音色只保存在本机，下次接通会自动带入。</p>
+  </div>
   <p id="voice-status" role="status" aria-live="polite">准备接通</p>
-  <p id="voice-caption" style="white-space:pre-wrap;max-height:30vh;overflow:auto"></p>
-  <button class="comp-tab" id="voice-connect" onclick="connectVoiceCall()">接通</button>
-  <button class="comp-tab" id="voice-hold" disabled style="touch-action:none;user-select:none;-webkit-user-select:none" onpointerdown="voiceHold(event)" onpointerup="voiceRelease(event)" onpointercancel="voiceRelease(event, true)" onkeydown="if(event.code==='Space'&&!event.repeat)voiceHold(event)" onkeyup="if(event.code==='Space')voiceRelease(event)">按住说话</button>
-  <button class="comp-tab" id="voice-interrupt" disabled onclick="interruptVoiceCall()">打断</button>
-  <button class="comp-tab" onclick="closeVoiceCall()">挂断</button>
+  <p id="voice-caption" class="voice-caption"></p>
+  <button class="voice-button voice-primary" id="voice-connect" onclick="connectVoiceCall()">接通</button>
+  <div id="voice-controls" class="voice-controls" hidden>
+  <button class="voice-button voice-primary voice-hold" id="voice-hold" disabled style="touch-action:none;user-select:none;-webkit-user-select:none" onpointerdown="voiceHold(event)" onpointerup="voiceRelease(event)" onpointercancel="voiceRelease(event, true)" onkeydown="if(event.code==='Space'&&!event.repeat)voiceHold(event)" onkeyup="if(event.code==='Space')voiceRelease(event)">按住说话</button>
+  <button class="voice-button" id="voice-interrupt" disabled onclick="interruptVoiceCall()">打断</button>
+  </div>
+  <div class="voice-footer"><button class="voice-button voice-end" id="voice-hangup" onclick="closeVoiceCall()">取消</button></div>
 </dialog>
 
 <!-- 会话抽屉 -->
@@ -989,7 +1015,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-10 · 通话外放路由修复</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-10 · 通话按钮防误触</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -5132,6 +5158,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   function voiceStatus(c, text) { if (voiceCall === c) $('voice-status').textContent = text; }
   function voiceButtons(c) {
     if (voiceCall !== c) return;
+    $('voice-connect').hidden = !!c.ready;
+    $('voice-settings').hidden = !!c.ready;
+    $('voice-controls').hidden = !c.ready;
+    $('voice-hangup').textContent = c.ready ? '挂断通话' : '取消';
     $('voice-hold').disabled = !c.ready || (c.busy && !c.holding) || c.closing;
     $('voice-interrupt').disabled = !c.busy || c.closing;
   }
