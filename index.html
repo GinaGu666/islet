@@ -444,6 +444,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   @keyframes bear-tilt { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(3deg); } }
   @keyframes bear-hop { 0% { transform: translateY(0); } 40% { transform: translateY(-9px) scale(.97, 1.04); } 75% { transform: translateY(0) scale(1.05, .95); } 100% { transform: none; } }
   @media (prefers-reduced-motion: reduce) { .bear-pic, .bear.b-think .bear-pic, .bear.b-hop .bear-pic { animation: none; } }
+  #storage-warn { position: fixed; left: 8px; right: 8px; top: calc(env(safe-area-inset-top, 0px) + 6px); z-index: 60; padding: 9px 12px; border: 0; border-radius: 10px; background: var(--danger); color: #fff; font: inherit; font-size: 13px; line-height: 1.4; text-align: left; box-shadow: 0 4px 14px rgba(0,0,0,.18); cursor: pointer; }
   /* 防风草 */
   .parsnip-field { position: fixed; inset: 0; z-index: 40; pointer-events: none; overflow: hidden; transition: opacity .6s; }
   .parsnip-field.fade { opacity: 0; }
@@ -975,7 +976,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-10 · 留言显示读书时间</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-10 · 导入先备份 · 存储满常驻提示</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -1683,13 +1684,25 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   });
 
   /* ---------- 存储写入：满了要大声说，不能悄悄丢 ---------- */
+  // 写入失败：第一次弹窗，同时在顶部挂一条常驻提示，直到下一次写入成功才收起
   let storageAlerted = false;
+  function storageWarn(on) {
+    let el = document.getElementById('storage-warn');
+    if (!on) { if (el) el.remove(); return; }
+    if (el) return;
+    el = document.createElement('button');
+    el.id = 'storage-warn'; el.type = 'button';
+    el.textContent = '⚠ 本机存储写不进去了，最新内容可能没保存。点这里导出备份，再删些旧对话腾地方';
+    el.onclick = () => exportBackup();
+    document.body.appendChild(el);
+  }
   function lsSet(k, v) {
-    try { localStorage.setItem(k, v); return true; }
+    try { localStorage.setItem(k, v); storageWarn(false); return true; }
     catch (e) {
+      storageWarn(true);
       if (!storageAlerted) {
         storageAlerted = true;
-        uiAlert('本机存储空间已满，最新内容可能没有保存成功！', { sub: '请立刻在设置里「导出备份」，然后删除一些旧对话腾出空间。' });
+        uiAlert('本机存储空间已满，最新内容可能没有保存成功！', { sub: '请立刻在设置里「导出备份」，然后删除一些旧对话腾出空间。顶部的提示会一直挂着，直到能正常保存。' });
       }
       return false;
     }
@@ -2015,7 +2028,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   function dateStamp(d) { d = d || new Date(); const pad = n => String(n).padStart(2, '0'); return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()); }
   async function exportBackup() {
     let diaries;
-    try { diaries = await allDiaries(); } catch (e) { await uiAlert('日记未能完整读取，本次备份没有生成，请重试'); return; }
+    try { diaries = await allDiaries(); } catch (e) { await uiAlert('日记未能完整读取，本次备份没有生成，请重试'); return false; }
     const sessionMsgs = {};
     for (const s of sessions) sessionMsgs[s.id] = await loadChunk(s.id);   // 冷块在 IndexedDB 里，一并读出
     const attachments = await collectAttachments(Object.values(sessionMsgs));   // v2 起带图片与文件
@@ -2040,8 +2053,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       // 刻意不包含 API Key 和 Notion 钥匙：备份文件可能被分享或云同步，key 不应跟着走
     };
     downloadFile('islet-backup-' + dateStamp() + '.json', JSON.stringify(data));
-    localStorage.setItem('islet_last_backup', String(Date.now()));
+    try { localStorage.setItem('islet_last_backup', String(Date.now())); } catch (e) {}
     updateBackupHint();
+    return true;
   }
   // 归档：把久未活动的旧块导出成文件，确认文件存好了，再从本机删除（随时可用「导入归档」找回）。
   // 河的模型下「一块」是某个角色对话里连续的一段；删掉中间或末尾的块，河只是变短，界面照常。
@@ -2130,6 +2144,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     } catch (e) {}
     return storeChunkHot(x, msgs);   // 大仓库写不进去（极少见），退回 localStorage 试试
   }
+  /* 导入备份：确认后先自动导出一份当前数据；新块写进新的存储位置并逐块读回核对，
+   * 全部通过才替换日记、写角色和索引（提交点），之后才删旧块和没人用的旧附件。
+   * 提交前任何一步失败：删掉这次写进去的新块，旧数据原样不动。 */
   function importBackup(inp) {
     const file = inp.files && inp.files[0];
     inp.value = '';
@@ -2141,60 +2158,93 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (!data || data.app !== 'islet' || !Array.isArray(data.companions) || !Array.isArray(data.sessions)) { toast('这不是 islet 的备份文件'); return; }
       let diaries;
       try { diaries = validateDiaryBackup(data.diaries, data.companions); } catch (e) { toast('日记数据无效：' + e.message); return; }
-      if (!(await uiConfirm('导入将覆盖当前的全部角色、记忆与会话', { sub: 'API Key 不受影响。', ok: '覆盖导入', danger: true }))) return;
+      if (!(await uiConfirm('导入将覆盖当前的全部角色、记忆与会话', { sub: '会先自动导出一份当前数据的备份，再开始导入；中途出错就保留现在的数据。API Key 不受影响。', ok: '先备份，再覆盖导入', danger: true }))) return;
+      if (!(await exportBackup())) { await uiAlert('当前数据没能先备份，这次不导入', { sub: '现在的数据原样留着。' }); return; }
+      if (!(await uiConfirm('当前数据的备份已开始下载', { sub: '确认文件存好了，再继续导入。', ok: '存好了，继续导入', cancel: '先不导入' }))) return;
+      const staged = [];
+      let committed = false, oldDiaries = null;
+      const oldComp = localStorage.getItem('islet_companions'), oldIdx = localStorage.getItem('islet_idx');
       try {
         diaryRestoring = true;
         stopDiaryJobs();
-        await replaceDiaryBackup(diaries);   // 单个 IDB 事务：失败保留旧日记，尚不覆盖聊天
-        sessions.forEach(s => localStorage.removeItem('islet_s_' + s.id));   // 清掉现有会话存储
-        try { await idbClear('chunks'); } catch (e) {}
-        localStorage.setItem('islet_companions', JSON.stringify(data.companions));
+        // 旧数据：先记下来，提交后才删
+        const oldSessions = sessions.slice(), oldMsgs = [];
+        for (const s0 of oldSessions) oldMsgs.push(s0.id === currentId ? messages : await loadChunk(s0.id));
+        oldDiaries = await allDiaries();
+        // 备份里和本机重名的块换一个新 id，写入时绝不覆盖现有的块
+        const taken = new Set(oldSessions.map(x => x.id)), remap = {};
         const sm = data.sessionMsgs || {};
         const idx = (data.sessions || []).map(x => Object.assign({}, x));
-        // 每个角色最新的几块进 localStorage，其余进 IndexedDB——和平时的冷热分层一致，导入再多也不爆仓
+        idx.forEach(x => { if (taken.has(x.id)) { const nid = genId(); remap[x.id] = nid; x.id = nid; } });
+        const msgsOf = x => sm[Object.keys(remap).find(k => remap[k] === x.id) || x.id] || [];
+        if (Object.keys(remap).length) {
+          idx.forEach(x => { if (x.forkSid && remap[x.forkSid]) x.forkSid = remap[x.forkSid]; });
+          data.companions.forEach(c => (c.epis || []).forEach(e => { if (e && e.sid && remap[e.sid]) e.sid = remap[e.sid]; }));
+          if (data.currentId && remap[data.currentId]) data.currentId = remap[data.currentId];
+        }
+        // 每个角色最新的几块进 localStorage，其余进 IndexedDB，逐块读回核对
         const byC = {}; const lost = [];
         idx.forEach(x => { const k = x.companionId || ''; (byC[k] = byC[k] || []).push(x); });
         for (const list of Object.values(byC)) {
           list.sort((a, b) => ((a.first || a.updated || 0) - (b.first || b.updated || 0)));
           for (let i = 0; i < list.length; i++) {
-            const x = list[i], msgs = sm[x.id] || [];
+            const x = list[i], msgs = msgsOf(x);
             x.count = msgs.length; if (!x.first && msgs[0] && msgs[0].ts) x.first = msgs[0].ts;
-            // 最新一块先试 localStorage，放不下就进 IndexedDB——以前这里写失败是静默吞掉的，那一块就空了
             const ok = i >= list.length - HOT_CHUNKS ? await storeChunkHot(x, msgs) : await storeChunkCold(x, msgs);
-            if (!ok) lost.push(x);
+            if (ok) staged.push(x.id); else lost.push(x);
           }
         }
-        if (lost.length) {
-          // 两边都写不进去的块不进索引：索引里有、仓里没有，看起来像空对话，比直接说"没导进来"更糟
-          const bad = new Set(lost.map(x => x.id));
-          for (let i = idx.length - 1; i >= 0; i--) if (bad.has(idx[i].id)) idx.splice(i, 1);
-        }
-        localStorage.setItem('islet_idx', JSON.stringify(idx));
-        localStorage.setItem('islet_about', data.about || '');
-        if (data.activeCompanionId) localStorage.setItem('islet_active_companion', data.activeCompanionId);
-        if (data.currentId) localStorage.setItem('islet_cur', data.currentId);
-        const st = data.settings || {};
-        if (st.system != null) localStorage.setItem('or_system', st.system);
-        if (st.model) localStorage.setItem('or_model', st.model);
-        localStorage.setItem('islet_or_routes', JSON.stringify(sanitizeModelRoutes(st.orRoutes)));   // 旧备份无此设置，恢复自动路由
-        localStorage.setItem('islet_memory_models', JSON.stringify(sanitizeMemoryModels(st.memoryModels)));   // 旧备份恢复跟随聊天
-        if (st.reasoning) localStorage.setItem('or_reasoning', st.reasoning);
-        if (st.tools) localStorage.setItem('islet_tools', st.tools);
-        if (st.theme) localStorage.setItem('islet_theme', st.theme);
-        if (st.fontsize) localStorage.setItem('islet_fontsize', st.fontsize);
-        if (st.aifont) localStorage.setItem('islet_aifont', st.aifont);
-        // 旧备份里的 provider / ccBase（已移除的传话员线路）忽略，不写回本机
-        if (Array.isArray(data.quotes)) localStorage.setItem('islet_quotes', JSON.stringify(data.quotes));
-        if (Array.isArray(data.quotePeople)) localStorage.setItem('islet_quote_people', JSON.stringify(data.quotePeople));
-        if (Array.isArray(data.habits)) localStorage.setItem('islet_habits', JSON.stringify(data.habits));
-        if (Array.isArray(data.arena)) localStorage.setItem('islet_arena', JSON.stringify(data.arena));
-        // 附件：先清空本机的（旧对话已被覆盖，它们的图没人引用了），再把备份里的写回去
-        try { await idbClear('imgs'); await idbClear('files'); } catch (e) {}
+        if (lost.length) throw new Error('有 ' + lost.length + ' 块对话（共 ' + lost.reduce((n, x) => n + (x.count || 0), 0) + ' 条）写不进本机，本机存储可能满了');
         await restoreAttachments(data.attachments);
-        if (lost.length) await uiAlert('导入完成，但有 ' + lost.length + ' 块对话（共 ' + lost.reduce((n, x) => n + (x.count || 0), 0) + ' 条）存不进本机', { sub: '本机存储满了。备份文件本身没动，腾出空间后可以再导一次。即将刷新。' });
-        else await uiAlert('导入完成，即将刷新');
+        // 提交点：日记（单个事务）→ 角色 → 索引；任何一步失败都退回旧的
+        await replaceDiaryBackup(diaries);
+        const compRaw = JSON.stringify(data.companions), idxRaw = JSON.stringify(idx);
+        if (!lsSet('islet_companions', compRaw) || localStorage.getItem('islet_companions') !== compRaw) throw new Error('角色信息写不进本机');
+        if (!lsSet('islet_idx', idxRaw) || localStorage.getItem('islet_idx') !== idxRaw) throw new Error('对话索引写不进本机');
+        committed = true;
+        // 提交之后：设置类的小项，失败也不影响对话
+        try {
+          localStorage.setItem('islet_about', data.about || '');
+          if (data.activeCompanionId) localStorage.setItem('islet_active_companion', data.activeCompanionId);
+          if (data.currentId) localStorage.setItem('islet_cur', data.currentId);
+          const st = data.settings || {};
+          if (st.system != null) localStorage.setItem('or_system', st.system);
+          if (st.model) localStorage.setItem('or_model', st.model);
+          localStorage.setItem('islet_or_routes', JSON.stringify(sanitizeModelRoutes(st.orRoutes)));   // 旧备份无此设置，恢复自动路由
+          localStorage.setItem('islet_memory_models', JSON.stringify(sanitizeMemoryModels(st.memoryModels)));   // 旧备份恢复跟随聊天
+          if (st.reasoning) localStorage.setItem('or_reasoning', st.reasoning);
+          if (st.tools) localStorage.setItem('islet_tools', st.tools);
+          if (st.theme) localStorage.setItem('islet_theme', st.theme);
+          if (st.fontsize) localStorage.setItem('islet_fontsize', st.fontsize);
+          if (st.aifont) localStorage.setItem('islet_aifont', st.aifont);
+          // 旧备份里的 provider / ccBase（已移除的传话员线路）忽略，不写回本机
+          if (Array.isArray(data.quotes)) localStorage.setItem('islet_quotes', JSON.stringify(data.quotes));
+          if (Array.isArray(data.quotePeople)) localStorage.setItem('islet_quote_people', JSON.stringify(data.quotePeople));
+          if (Array.isArray(data.habits)) localStorage.setItem('islet_habits', JSON.stringify(data.habits));
+          if (Array.isArray(data.arena)) localStorage.setItem('islet_arena', JSON.stringify(data.arena));
+        } catch (e) {}
+        // 最后清旧块和新数据里没人引用的旧附件
+        const keep = new Set(idx.map(x => x.id));
+        for (const s0 of oldSessions) if (!keep.has(s0.id)) await removeChunkStore(s0.id);
+        const usedImgs = new Set(), usedFiles = new Set();
+        for (const x of idx) for (const m of msgsOf(x)) { (m.imgs || []).forEach(i => usedImgs.add(i)); (m.files || []).forEach(f => f && f.id && usedFiles.add(f.id)); }
+        for (const list of oldMsgs) for (const m of (list || [])) {
+          for (const i of (m.imgs || [])) if (!usedImgs.has(i)) await idbDel('imgs', i).catch(() => {});
+          for (const f of (m.files || [])) if (f && f.id && !usedFiles.has(f.id)) await idbDel('files', f.id).catch(() => {});
+        }
+        await uiAlert('导入完成，即将刷新');
         location.reload();
-      } catch (e) { diaryRestoring = false; uiAlert('导入失败：' + e.message); }
+      } catch (e) {
+        if (!committed) {
+          for (const id of staged) await removeChunkStore(id).catch(() => {});
+          if (oldDiaries) await replaceDiaryBackup(oldDiaries).catch(() => {});
+          if (oldComp != null) lsSet('islet_companions', oldComp);
+          if (oldIdx != null) lsSet('islet_idx', oldIdx);
+        }
+        diaryRestoring = false;
+        uiAlert((committed ? '导入完成，但收尾时出错：' : '导入没有完成，现在的数据原样保留：') + (e && e.message || e), { sub: committed ? '新数据已经生效，刷新后即可使用。' : '刚才自动导出的备份文件也在。' });
+        if (committed) location.reload();
+      }
     };
     reader.readAsText(file);
   }
@@ -2282,7 +2332,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   }
   function saveSessionMsgs(id, msgs) {
     // 历史记录完整保留（1000 条的安全上限只为防 localStorage 爆仓）；发给模型的截断在 buildApiMessages 里做
-    lsSet('islet_s_' + id, JSON.stringify(msgs.slice(-1000)));
+    return lsSet('islet_s_' + id, JSON.stringify(msgs.slice(-1000)));
   }
   function saveIndex() { return lsSet('islet_idx', JSON.stringify(sessions)); }
 
@@ -3037,7 +3087,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
   function saveCurrent() {
     if (!currentId) return;
-    saveSessionMsgs(currentId, messages);
+    // 没写进去就不改索引：索引的条数要和仓里存着的对得上，否则下次读会被当成「读不完整」
+    if (!saveSessionMsgs(currentId, messages)) return false;
     const s = sessions.find(x => x.id === currentId);
     if (s) {
       s.updated = Date.now();
@@ -3047,6 +3098,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       renderTokenBar();
       if ($('drawer-overlay').classList.contains('show')) renderDrawerCompanions();
     }
+    return true;
   }
 
   function fmtWhen(ts) {

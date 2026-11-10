@@ -44,7 +44,8 @@
   - `write_diary` / `read_diary` / `share_diary` 只操作请求所属角色。私密参数、读取结果不进入聊天存储/日志。普通聊天 reasoning 应显示、保存并可回看，安排后台写日记不会屏蔽聊天思考。因 `read_diary` / `share_diary` 可接触私密正文，每轮 reasoning 先暂存，完整响应确认没有翻阅/分享调用才公开；这些调用所在轮及本次回复后续轮次不公开 reasoning，未完成的暂存轮也不公开，避免内容先闪出再隐藏。下一次普通回复恢复。只有显式分享的日期快照 `message.diaryShares` 进入聊天和后续上下文。不要增加直接翻阅私密正文的 UI，也不要把所有日记自动塞进模型上下文。
   - 完整备份含 `diaries` 和已分享快照（本机存储和备份并非加密隐私边界）；旧备份缺少 diaries 时按空列表覆盖。恢复日记要先校验、用事务原子替换；删除角色一并删除其日记，删除分支不删除角色日记。
   - API Key（`or_key`）、传话员门禁（`cc_key`）、Notion 钥匙（`islet_notion_key`）只在本机，**刻意不进备份文件，也不写进代码**。
-  - `lsSet()` 写 localStorage 失败会弹窗提醒备份。设置里的存储表仍按硬编码的 5 MB 算百分比，没换成 `navigator.storage.estimate()`（待办，需她同意再动）。
+  - `lsSet()` 写 localStorage 失败：第一次弹窗，并在顶部挂常驻提示（`#storage-warn`，点它导出备份），直到下一次写入成功才收起。`saveCurrent()` 写失败就不更新索引里的条数，返回 false。
+  - 导入备份（`importBackup`）：确认后先自动 `exportBackup()`，她确认文件存好才继续。备份里与本机重名的块换新 id（同步改 `forkSid`、记忆 `epis.sid`、`currentId`），新块逐块写入读回核对；全部通过才替换日记、写角色和 `islet_idx`（提交点），之后才删旧块和没人引用的旧附件。提交前失败：删掉本次新块，日记、角色、索引还原。备份文件格式不变。设置里的存储表仍按硬编码的 5 MB 算百分比，没换成 `navigator.storage.estimate()`（待办，需她同意再动）。
 - **备份 / 归档**：导出备份 = 全量（`app: 'islet'`，v2 起带附件）；归档 = 把久未活动的旧块导出成 `islet-archive` 文件、她确认文件存好了才从本机删；两种都能导回来，格式要保持向后兼容，她手上有旧文件。导入时一块都不能静默丢：localStorage 放不下就进 IndexedDB，两边都不行就报出来、不进索引。
 
 ## 改动约定
