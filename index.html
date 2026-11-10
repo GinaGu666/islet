@@ -975,7 +975,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-06 · 记忆事件线 · 日期框修复</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-10 · 留言显示读书时间</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -4255,10 +4255,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (fresh.length) {
         for (const n of fresh) {
           const last = messages[messages.length - 1];
-          // 时间记成它出现在对话里的那一刻：写好时她可能正在聊，等空下来才放进来，用写好的时间会排在后面却显示更早
+          // 排序用放进对话的时刻（ts），显示的是 TA 实际读书留言的时间（noteAt）；不是同一天就带上日期
           const shownAt = Math.max(Date.now(), last && Number.isFinite(last.ts) ? last.ts + 1 : 0);
+          const wroteAt = Number.isFinite(n.at) && n.at > 0 ? n.at : shownAt, wd = new Date(wroteAt);
+          const hm = wd.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+          const sameDay = wd.toDateString() === new Date(shownAt).toDateString();
           messages.push({ role: 'assistant', content: fitDiaryText(n.text, 400), ts: shownAt,
-            time: new Date(shownAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), model: companionModel(c), freeNote: n.id, noteAt: n.at });
+            time: sameDay ? hm : (wd.getMonth() + 1) + '/' + wd.getDate() + ' ' + hm, model: companionModel(c), freeNote: n.id, noteAt: n.at });
         }
         saveCurrent();
         const back = loadSessionMsgs(currentId);
