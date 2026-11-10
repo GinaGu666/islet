@@ -120,3 +120,23 @@ echo "记忆库钥匙：$MEMKEY"   # 交给 Mimi，别贴到公开的地方
 - SSH 只用密钥登录，关掉密码登录。
 - 防火墙只开 22、80、443。服务本身只监听 127.0.0.1:8787，不直接对外。
 - 换钥匙：改 `/etc/islet-server.env` 里的 `ISLET_KEY` → `systemctl restart islet-server` → 小岛设置里同步改掉。
+
+## 语音通话（首版）
+
+在 `/etc/islet-server.env` 添加 `ELEVENLABS_API_KEY`，然后重启
+`islet-server`。密钥只放服务器，不发给浏览器、不进仓库或备份。
+需先在 ElevenLabs 账号确认当前套餐、语音额度和所选音色可用。
+
+小岛沿用设置中的服务器地址与门禁。点输入栏的电话按钮，填写当前角色的
+ElevenLabs voice ID，点「接通」允许麦克风。voice ID 逐角色仅保存在本机。
+按住后等「正在听」再说话，松开发送；回答时点「打断」停止，再按住说下一句。
+挂断回到原聊天。iPhone 请在 HTTPS 页面前台使用，切后台会挂断。
+
+认证接口为 `POST /voice/token`，需 `X-Islet-Key`，JSON 正文只接受
+`{"type":"realtime_scribe"}` 或 `{"type":"tts_websocket"}`。
+返回一次性令牌，禁止缓存。浏览器直连 ElevenLabs；服务器不接收聊天与音频。
+每次识别、每个合成短句各申请新令牌。首版按短句建立 TTS 连接，优先保证
+已播记录边界；连续语气与连接延迟仍需手机实测。
+
+仅完整播完的短句写入对话；合成失败或打断时丢弃未播稿。
+实时字幕是临时内容，未识别定稿不写聊天。首版不自动重连或恢复未播稿。
