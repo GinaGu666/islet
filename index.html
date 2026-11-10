@@ -989,7 +989,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-10 · 通话麦克风兼容 · 恢复流式播放</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-10 · 通话外放路由修复</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -5152,6 +5152,30 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (!res.ok) throw new Error('语音令牌申请失败（HTTP ' + res.status + '），请检查服务器配置');
     const j = await res.json(); if (!j.token) throw new Error('语音令牌无效'); return j.token;
   }
+  function voiceAudioMode(c, mode) {
+    // 只有支持 Audio Session API 的浏览器才显式切换；录音前必须先离开 playback。
+    try {
+      if (!navigator.audioSession || voiceCall !== c) return;
+      if (!('previousAudioMode' in c)) c.previousAudioMode = navigator.audioSession.type;
+      navigator.audioSession.type = mode;
+    } catch (_) {} // 不支持的浏览器继续使用自身路由策略
+  }
+  function voiceStopMic(c) {
+    if (c.input) { c.input.disconnect(); c.input = null; }
+    if (c.mic) { c.mic.getTracks().forEach(t => t.stop()); c.mic = null; }
+    voiceAudioMode(c, 'playback');
+  }
+  async function voiceOpenMic(c, turn) {
+    voiceAudioMode(c, 'auto');
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+    if (!voiceLive(c) || c.closing || c.turn !== turn || !c.holding) {
+      stream.getTracks().forEach(t => t.stop());
+      if (voiceLive(c) && c.turn === turn) voiceAudioMode(c, 'playback');
+      return false;
+    }
+    c.mic = stream; c.input = c.audio.createMediaStreamSource(stream); c.input.connect(c.node);
+    return true;
+  }
   async function connectVoiceCall() {
     const c = voiceCall; if (!c || c.connecting || c.ready) return;
     const id = $('voice-id').value.trim();
@@ -5162,6 +5186,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     try {
       // 在点击事件内解锁输出；不等网络或麦克风权限。
       c.audio = new (window.AudioContext || window.webkitAudioContext)(); await c.audio.resume();
+      voiceAudioMode(c, 'auto');
       // 手动轮流说话无需回声消除；部分 iOS 开启语音处理会使同时播放的音频爆裂。
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
       if (!voiceLive(c) || c.closing) { stream.getTracks().forEach(t => t.stop()); return; }
@@ -5187,6 +5212,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         for (const n of e.data) c.pcm.push(Math.round(n * (n < 0 ? 32768 : 32767)));
         if (c.pcm.length >= 1600) voiceSendPcm(c, false);
       };
+      voiceStopMic(c); // 空闲和回答期间彻底释放采集，避免 iOS 留在听筒/通话路由
       c.ready = true; voiceStatus(c, '已接通 · 按住说话，松开发送'); voiceButtons(c);
     } catch (e) { if (voiceCall === c && !c.closing) { toast('无法接通：' + e.message); await closeVoiceCall(); } }
   }
@@ -5208,6 +5234,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       const token = await voiceToken(c, 'realtime_scribe');
       if (!voiceLive(c) || c.turn !== turn || c.closing) return;
       if (c.release) { c.busy = false; voiceStatus(c, '按住稍久一点再说话'); voiceButtons(c); return; }
+      if (!await voiceOpenMic(c, turn)) return;
       const ws = c.stt = new WebSocket('wss://api.elevenlabs.io/v1/speech-to-text/realtime?' + new URLSearchParams({ token, model_id: 'scribe_v2_realtime', audio_format: 'pcm_16000', commit_strategy: 'manual' }));
       c.sockets.add(ws);
       c.recordTimer = setTimeout(() => { if (voiceLive(c) && c.turn === turn) interruptVoiceCall('识别超时，请重新说'); }, 90000);
@@ -5231,7 +5258,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     e.preventDefault(); const c = voiceCall; if (!c || !c.holding) return;
     c.holding = false; c.release = true;
     if (cancel || !c.sttReady || !c.stt || c.stt.readyState !== WebSocket.OPEN) { interruptVoiceCall(cancel ? '已取消这次录音' : '尚未开始收音，请重新按住'); return; }
-    c.sttReady = false; voiceButtons(c); voiceSendPcm(c, true); voiceStatus(c, '正在识别…');
+    c.sttReady = false; voiceButtons(c); voiceSendPcm(c, true); voiceStopMic(c); voiceStatus(c, '正在识别…');
   }
   function voiceAppend(c, msg) {
     if (!voiceLive(c)) throw new Error('对话已切换，通话停止');
@@ -5315,6 +5342,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   }
   function interruptVoiceCall(label) {
     const c = voiceCall; if (!c) return;
+    voiceStopMic(c);
     ++c.turn; c.holding = false; c.sttReady = false; c.release = true; clearTimeout(c.recordTimer);
     if (c.abort) c.abort.abort();
     for (const source of c.sources) { try { source.stop(); } catch (_) {} } c.sources.clear();
@@ -5331,7 +5359,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (c.node) c.node.disconnect(); if (c.input) c.input.disconnect(); if (c.mute) c.mute.disconnect();
     if (c.audio) c.audio.close().catch(() => {});
     if (c.task) await c.task;
-    if (voiceCall === c) { voiceCall = null; $('voice-dialog').close(); }
+    if (voiceCall === c) {
+      if ('previousAudioMode' in c) { try { navigator.audioSession.type = c.previousAudioMode; } catch (_) {} }
+      voiceCall = null; $('voice-dialog').close();
+    }
   }
   $('voice-dialog').addEventListener('cancel', e => { e.preventDefault(); closeVoiceCall(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden && voiceCall) { closeVoiceCall(); toast('通话已暂停，回到前台后请重新接通'); } });
