@@ -4929,7 +4929,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         else if (/fable|mythos/i.test(model)) payload.reasoning = { exclude: true };
         else payload.reasoning = { enabled: false, exclude: true };
       }
-      if (opts && opts.voice && modelSupportsReasoning(model)) payload.reasoning = { effort: 'low' };
+      // 通话：平时开着思考才降到低档；平时关着就保持关（上面已按关处理），免得一打电话反而变慢变贵
+      if (opts && opts.voice && reasoningEnabled && modelSupportsReasoning(model)) { payload.reasoning = { effort: 'low' }; payload.max_tokens = 8192; }
       if (opts && opts.tools && opts.tools.length) { payload.tools = opts.tools; payload.tool_choice = opts.toolChoice || 'auto'; }
       ctx = requestContext(payload.model, payload);
       res = await fetch(ctx.url, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
