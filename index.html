@@ -989,7 +989,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-10 · 语音通话首版</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-10 · 通话音频衔接修复</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -5281,33 +5281,49 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (!voiceLive(c) || c.turn !== turn || c.abort.signal.aborted) throw new Error('已取消');
     return new Promise((resolve, reject) => {
       const ws = new WebSocket('wss://api.elevenlabs.io/v1/text-to-speech/' + encodeURIComponent(c.voice) + '/stream-input?' + new URLSearchParams({ single_use_token: token, model_id: 'eleven_flash_v2_5', output_format: 'pcm_24000', auto_mode: 'true' }));
-      c.sockets.add(ws); let end = c.audio.currentTime, final = false, done = false, audioSeen = false, carry = null;
-      const timer = setTimeout(() => finish(new Error('语音合成超时')), 60000);
-      const poll = setInterval(() => { if (final && audioSeen && c.audio.currentTime >= end) finish(); }, 25);
+      // 网络块的到达时间不稳定。先收齐一个短句，再用一个音源连续播放，避免块间断粮和爆音。
+      c.sockets.add(ws); let final = false, done = false, total = 0, source = null;
+      const parts = [];
+      let timer = setTimeout(() => finish(new Error('语音合成超时')), 60000);
       const cancel = () => finish(new Error('已取消'));
-      function finish(err) { if (done) return; done = true; clearTimeout(timer); clearInterval(poll); c.abort.signal.removeEventListener('abort', cancel); c.sockets.delete(ws); ws.close(); err ? reject(err) : resolve(); }
+      function finish(err) {
+        if (done) return; done = true; clearTimeout(timer);
+        c.abort.signal.removeEventListener('abort', cancel); c.sockets.delete(ws); ws.close();
+        if (source) {
+          source.onended = null;
+          if (err) { try { source.stop(); } catch (_) {} }
+          c.sources.delete(source); source.disconnect();
+        }
+        parts.length = 0; err ? reject(err) : resolve();
+      }
       c.abort.signal.addEventListener('abort', cancel, { once: true });
-      ws.onopen = () => { ws.send(JSON.stringify({ text: ' ' })); ws.send(JSON.stringify({ text: text + ' ', try_trigger_generation: true })); ws.send(JSON.stringify({ text: '' })); };
+      ws.onopen = () => { if (done) return; ws.send(JSON.stringify({ text: ' ' })); ws.send(JSON.stringify({ text: text + ' ', try_trigger_generation: true })); ws.send(JSON.stringify({ text: '' })); };
       ws.onmessage = event => {
-        if (done || !voiceLive(c) || c.turn !== turn) return;
+        if (done || final || !voiceLive(c) || c.turn !== turn) return;
         try {
           const j = JSON.parse(event.data); if (j.error) throw new Error('语音合成失败');
           if (j.audio) {
-            const raw = atob(j.audio), bytes = [];
-            if (carry != null) bytes.push(carry); for (let i=0;i<raw.length;i++) bytes.push(raw.charCodeAt(i));
-            carry = bytes.length % 2 ? bytes.pop() : null;
-            if (bytes.length) {
-              audioSeen = true; const buffer = c.audio.createBuffer(1, bytes.length/2, 24000), out = buffer.getChannelData(0);
-              for(let i=0;i<out.length;i++){ const n=bytes[i*2]|bytes[i*2+1]<<8; out[i]=(n>32767?n-65536:n)/32768; }
-              const source = c.audio.createBufferSource(); source.buffer = buffer; source.connect(c.audio.destination); c.sources.add(source);
-              source.onended = () => { c.sources.delete(source); source.disconnect(); };
-              end = Math.max(end, c.audio.currentTime + .015); source.start(end); end += buffer.duration;
-            }
+            const raw = atob(j.audio), bytes = Uint8Array.from(raw, ch => ch.charCodeAt(0));
+            total += bytes.length;
+            if (total > 24000 * 2 * 60) throw new Error('单句语音过长，请重试');
+            parts.push(bytes);
           }
-          if (j.isFinal || j.is_final) { final = true; if (!audioSeen || carry != null) finish(new Error('没有收到完整语音')); }
+          if (j.isFinal || j.is_final) {
+            final = true;
+            if (!total || total % 2) throw new Error('没有收到完整语音');
+            const pcm = new Uint8Array(total); let offset = 0;
+            for (const part of parts) { pcm.set(part, offset); offset += part.length; }
+            parts.length = 0;
+            const view = new DataView(pcm.buffer), buffer = c.audio.createBuffer(1, total / 2, 24000), out = buffer.getChannelData(0);
+            for (let i = 0; i < out.length; i++) out[i] = view.getInt16(i * 2, true) / 32768;
+            source = c.audio.createBufferSource(); source.buffer = buffer; source.connect(c.audio.destination); c.sources.add(source);
+            source.onended = () => finish();
+            clearTimeout(timer); timer = setTimeout(() => finish(new Error('语音播放未完成，请重新接通')), (buffer.duration + 15) * 1000);
+            source.start(c.audio.currentTime + .04);
+          }
         } catch (e) { finish(e); }
       };
-      ws.onerror = () => finish(new Error('语音合成连接失败'));
+      ws.onerror = () => { if (!final) finish(new Error('语音合成连接失败')); };
       ws.onclose = () => { if (!final) finish(new Error('语音合成连接中断')); };
     });
   }

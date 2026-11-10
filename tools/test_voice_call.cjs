@@ -65,25 +65,31 @@ const path = require('node:path');
     assert.match(result.tail,/语音通话/);assert(result.closed&&result.dialogClosed);
     const audioResult = await page.evaluate(async () => {
       const NativeSocket=window.WebSocket, nativeToken=voiceToken;
-      const sent=[], samples=[], buffers=[];
+      const sent=[], samples=[], buffers=[]; let beforeFinalBuffers = -1, starts = 0;
       window.WebSocket=class {
         constructor(){this.readyState=1;setTimeout(()=>this.onopen(),0);}
-        send(text){sent.push(JSON.parse(text));if(JSON.parse(text).text==='')setTimeout(()=>this.onmessage({data:JSON.stringify({audio:btoa(String.fromCharCode(0,128,255,127)),isFinal:true})}),0);}
+        send(text){sent.push(JSON.parse(text));if(JSON.parse(text).text===''){
+          setTimeout(()=>this.onmessage({data:JSON.stringify({audio:btoa(String.fromCharCode(0))})}),0);
+          setTimeout(()=>this.onmessage({data:JSON.stringify({audio:btoa(String.fromCharCode(128,255))})}),60);
+          setTimeout(()=>{beforeFinalBuffers=buffers.length;this.onmessage({data:JSON.stringify({audio:btoa(String.fromCharCode(127)),isFinal:true})});},120);
+        }}
         close(){}
       };
       voiceToken=async()=> 'one-use-test';
       openVoiceCall();const c=voiceCall;c.life=new AbortController();c.abort=new AbortController();c.turn=7;c.voice='voice-test';
       c.audio={get currentTime(){return performance.now()/1000;},destination:{},
         createBuffer(channels,length,rate){const a=new Float32Array(length);buffers.push(a);return {duration:length/rate,getChannelData:()=>a};},
-        createBufferSource(){return {connect(){},disconnect(){},start(){},stop(){samples.push('stopped');}};},close:async()=>{}};
+        createBufferSource(){return {connect(){},disconnect(){},start(){starts++;setTimeout(()=>{if(this.onended)this.onended();},5);},stop(){samples.push('stopped');}};},close:async()=>{}};
       await voiceSpeak(c,'你好呀。',7);
       const pcm=Array.from(buffers[0]);
       c.pcm=[-32768,32767];c.stt={send:json=>samples.push(JSON.parse(json))};voiceSendPcm(c,true);
       const packet=samples.at(-1);
       await closeVoiceCall();window.WebSocket=NativeSocket;voiceToken=nativeToken;
-      return {pcm,sent,packet};
+      return {pcm,sent,packet,beforeFinalBuffers,starts};
     });
     assert.deepEqual(audioResult.pcm,[-1,32767/32768]);
+    assert.equal(audioResult.beforeFinalBuffers,0,'late network chunks must not cause playback gaps');
+    assert.equal(audioResult.starts,1,'one continuous source per sentence');
     assert.equal(audioResult.sent[0].text,' ');
     assert.equal(audioResult.sent.at(-1).text,'');
     assert.equal(audioResult.packet.audio_base_64,'AID/fw==');
