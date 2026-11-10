@@ -1,6 +1,6 @@
 # 小岛实时通话 · 方案（修订版）
 
-> 状态：方案，还没动工。方案由 GPT Astra 和 Fable 5.2 商议得出；文末「实现备注」是 Opus 5.5 的补充。
+> 状态：第一步已实现于开发分支，待配置 ElevenLabs 和手机实测。方案由 GPT Astra 和 Fable 5.2 商议得出；文末「实现备注」是 Opus 5.5 的补充。
 
 ## 目标
 
@@ -78,3 +78,11 @@
 
 - [ElevenLabs：创建一次性令牌](https://elevenlabs.io/docs/api-reference/tokens/create.md)
 - [ElevenLabs：浏览器端实时语音识别](https://elevenlabs.io/docs/cookbooks/speech-to-text/streaming)
+
+## 首版实现进度
+
+已接入按住说话、实时识别定稿、短句流式合成、手动打断与挂断。
+通话关闭工具调用，提示置于 `_tail`，沿用角色上下文；音色逐角色仅存本机。
+每个短句单独合成，以完整音频播放结束作为提交边界。
+后台切换会挂断；合成失败仅保留已播句子。
+自动重连、失败稿重播/全文展示、延迟面板仍留待后续。

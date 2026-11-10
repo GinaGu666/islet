@@ -275,6 +275,20 @@ async function route(req, url) {
   const parts = url.pathname.split('/').filter(Boolean);
   if (req.method === 'GET' && url.pathname === '/health') return { ok: true, freeTime: !!OR_KEY };
   if (!keyOk(req)) throw httpError(401, '钥匙不对');
+  if (url.pathname === '/voice/token' && req.method === 'POST') {
+    const input = await readBody(req), type = input && input.type;
+    if (!['realtime_scribe', 'tts_websocket'].includes(type)) throw httpError(400, '不支持的语音令牌类型');
+    const elevenKey = process.env.ELEVENLABS_API_KEY || '';
+    if (!elevenKey) throw httpError(503, '尚未配置语音服务');
+    // 仅代理认证；不接收语音、聊天或生成稿，也不转发上游错误正文。
+    let upstream;
+    try { upstream = await fetch('https://api.elevenlabs.io/v1/single-use-token/' + type, { method: 'POST', headers: { 'xi-api-key': elevenKey }, signal: AbortSignal.timeout(10000) }); }
+    catch (_) { throw httpError(502, '语音服务暂时不可用'); }
+    if (!upstream.ok) throw httpError(502, '语音服务拒绝签发令牌');
+    const result = await upstream.json().catch(() => null);
+    if (!result || typeof result.token !== 'string') throw httpError(502, '语音令牌无效');
+    return { token: result.token };
+  }
   const [area, cid, action] = parts;
   if (!validId(cid)) throw httpError(404, '找不到');
   const snapFile = path.join(dirOf(cid), 'snapshot.json');

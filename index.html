@@ -788,11 +788,24 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   <div class="input-wrap">
     <textarea id="msg-input" rows="1" placeholder="说点什么…" oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
   </div>
+  <button class="attach-btn" type="button" aria-label="语音通话" onclick="openVoiceCall()">☎</button>
   <button class="send-btn" id="send-btn" onclick="onSend()" aria-label="发送">
     <svg id="send-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
   </button>
 </div>
 <div class="img-viewer" id="img-viewer" onclick="this.classList.remove('show')"><img id="img-viewer-img" alt=""></div>
+
+<dialog id="voice-dialog" style="margin:auto;width:min(90vw,440px);max-height:85dvh;overflow:auto;border:1px solid var(--border);border-radius:20px;padding:24px;background:var(--bg);color:var(--text)">
+  <h3 id="voice-title">语音通话</h3>
+  <label>这个角色的 ElevenLabs voice ID<input class="field mono" id="voice-id" autocomplete="off" spellcheck="false"></label>
+  <p style="font-size:13px">音色只保存在本机。通话沿用设置里的记忆库地址和门禁。</p>
+  <p id="voice-status" role="status" aria-live="polite">准备接通</p>
+  <p id="voice-caption" style="white-space:pre-wrap;max-height:30vh;overflow:auto"></p>
+  <button class="comp-tab" id="voice-connect" onclick="connectVoiceCall()">接通</button>
+  <button class="comp-tab" id="voice-hold" disabled style="touch-action:none;user-select:none;-webkit-user-select:none" onpointerdown="voiceHold(event)" onpointerup="voiceRelease(event)" onpointercancel="voiceRelease(event, true)" onkeydown="if(event.code==='Space'&&!event.repeat)voiceHold(event)" onkeyup="if(event.code==='Space')voiceRelease(event)">按住说话</button>
+  <button class="comp-tab" id="voice-interrupt" disabled onclick="interruptVoiceCall()">打断</button>
+  <button class="comp-tab" onclick="closeVoiceCall()">挂断</button>
+</dialog>
 
 <!-- 会话抽屉 -->
 <div class="overlay drawer-overlay" id="drawer-overlay">
@@ -976,7 +989,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-10 · 导入先备份 · 存储满常驻提示</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-10 · 语音通话首版</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -3455,6 +3468,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       else if (m.role === 'user') addUser(m.content, m.time, i, m.imgs, m.files, target, m.drawn);
       else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true, m.reqModel, target, m.tools, m.providerName, m.diaryShares);
       const last = target.lastElementChild; if (last) { last.dataset.midx = i; last.dataset.sid = sid; }
+      if (m.call && last) { const t = last.querySelector('.t'); if (t) t.textContent += m.call.interrupted ? ' · ☎ 被打断' : ' · ☎'; }
       if (m.role === 'assistant' && m.freeNote && last) markNoteRow(last);
     }
     return prevDay;
@@ -4292,7 +4306,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   async function memDeliverNotes() {
     const c = companions.find(x => x.id === activeCompanionId);
     // 只投到主线：留言是正本，不该落进试验分支。分支上先攒在服务器，回到主线再放
-    const here = () => !isLoading && currentId && sessionCompanion(currentId) && sessionCompanion(currentId).id === c.id && activeCompanionId === c.id && activeBranchFor(c.id) === MAIN_BRANCH;
+    const here = () => !isLoading && !voiceCall && currentId && sessionCompanion(currentId) && sessionCompanion(currentId).id === c.id && activeCompanionId === c.id && activeBranchFor(c.id) === MAIN_BRANCH;
     // 正在聊（最近 3 分钟有消息）就先不放，免得「你不在的时候」的留言插在对话中间
     const busyChatting = () => { const last = [...messages].reverse().find(m => !m.freeNote); return !!(last && Number.isFinite(last.ts) && Date.now() - last.ts < 3 * 60e3); };
     if (memNotesBusy || !c || c.memSync !== true || !memSrvReady() || document.hidden || !here() || busyChatting()) return;
@@ -4785,6 +4799,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     for (let i = win.length - 1; i >= 0; i--) {
       const m = win[i];
       let content = _stamp[i] ? `${_stamp[i]} ${m.content}` : m.content;
+      if (m.role === 'assistant' && m.call && m.call.interrupted) content += '\n（这次通话回答在这里被打断。）';
       if (m.role === 'assistant' && m.freeNote) content = '（这是你之前空闲时主动留给她的话）\n' + content;
       if (m.mergedFrom) content = '（以下这段接自另一条分支「' + m.mergedFrom + '」，和上面那段是平行发生的）\n' + content;
       if (m.role === 'assistant' && Array.isArray(m.diaryShares)) content += m.diaryShares.map(s => validSharedDiary(s) ? '\n【已主动分享的日记 ' + s.date + ' · ' + s.title + '】\n' + s.body : '').join('');
@@ -4914,6 +4929,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         else if (/fable|mythos/i.test(model)) payload.reasoning = { exclude: true };
         else payload.reasoning = { enabled: false, exclude: true };
       }
+      if (opts && opts.voice && modelSupportsReasoning(model)) payload.reasoning = { effort: 'low' };
       if (opts && opts.tools && opts.tools.length) { payload.tools = opts.tools; payload.tool_choice = opts.toolChoice || 'auto'; }
       ctx = requestContext(payload.model, payload);
       res = await fetch(ctx.url, { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload), signal });
@@ -5107,6 +5123,215 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     h.row.appendChild(box); h._broke = box; maybeScroll();
   }
   function removeBroken(h) { if (h._broke) { h._broke.remove(); h._broke = null; } }
+
+
+  /* ---------- 通话：生成稿不进入聊天，短句完整播完才提交 ---------- */
+  let voiceCall = null;
+  const voiceLive = c => voiceCall === c && c.cid === activeCompanionId && c.sid === currentId;
+  function voiceStatus(c, text) { if (voiceCall === c) $('voice-status').textContent = text; }
+  function voiceButtons(c) {
+    if (voiceCall !== c) return;
+    $('voice-hold').disabled = !c.ready || (c.busy && !c.holding) || c.closing;
+    $('voice-interrupt').disabled = !c.busy || c.closing;
+  }
+  function openVoiceCall() {
+    if (voiceCall || isLoading || branchBusy || editingIdx != null) { toast('先完成当前操作'); return; }
+    if (!apiKey || !selectedModel || !memSrvReady()) { toast('请先设置聊天模型、API Key 和记忆库地址及门禁'); return; }
+    if (!navigator.mediaDevices || !window.AudioWorkletNode) { toast('这个浏览器暂不支持通话，请使用 HTTPS 和新版浏览器'); return; }
+    ensureSession();
+    const c = voiceCall = { cid: activeCompanionId, sid: currentId, model: selectedModel, turn: 0, sockets: new Set(), sources: new Set(), ready: false, busy: false, holding: false };
+    $('voice-title').textContent = '和「' + activeCompanion().name + '」通话';
+    $('voice-id').value = localStorage.getItem('islet_voice_' + c.cid) || '';
+    $('voice-id').disabled = false; $('voice-connect').disabled = false;
+    $('voice-caption').textContent = ''; voiceStatus(c, '准备接通'); voiceButtons(c);
+    $('voice-dialog').showModal();
+  }
+  async function voiceToken(c, type) {
+    const res = await fetch(memSrvUrl() + '/voice/token', { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json', 'X-Islet-Key': memSrvKey() }, body: JSON.stringify({ type }), signal: AbortSignal.any([c.life.signal, AbortSignal.timeout(15000)]) });
+    if (!res.ok) throw new Error('语音令牌申请失败（HTTP ' + res.status + '），请检查服务器配置');
+    const j = await res.json(); if (!j.token) throw new Error('语音令牌无效'); return j.token;
+  }
+  async function connectVoiceCall() {
+    const c = voiceCall; if (!c || c.connecting || c.ready) return;
+    const id = $('voice-id').value.trim();
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(id)) { toast('请填写这个角色的 voice ID'); return; }
+    if (!lsSet('islet_voice_' + c.cid, id)) return;
+    c.voice = id; c.connecting = true; c.life = new AbortController();
+    $('voice-connect').disabled = true; $('voice-id').disabled = true; voiceStatus(c, '正在打开麦克风…');
+    try {
+      // 在点击事件内解锁输出；不等网络或麦克风权限。
+      c.audio = new (window.AudioContext || window.webkitAudioContext)(); await c.audio.resume();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
+      if (!voiceLive(c) || c.closing) { stream.getTracks().forEach(t => t.stop()); return; }
+      c.mic = stream;
+      const worklet = `class IsletMic extends AudioWorkletProcessor {
+        constructor(){ super(); this.buf=[]; this.pos=0; }
+        process(inputs){ const a=inputs[0]&&inputs[0][0]; if(a){
+          this.buf.push(...a); const step=sampleRate/16000; const out=[];
+          while(this.pos+1<this.buf.length){ const i=Math.floor(this.pos), f=this.pos-i; out.push(Math.max(-1,Math.min(1,this.buf[i]*(1-f)+this.buf[i+1]*f))); this.pos+=step; }
+          const n=Math.floor(this.pos); this.buf.splice(0,n); this.pos-=n;
+          if(out.length)this.port.postMessage(out);
+        } return true; }
+      } registerProcessor('islet-mic',IsletMic);`;
+      const url = URL.createObjectURL(new Blob([worklet], { type: 'text/javascript' }));
+      try { await c.audio.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
+      if (!voiceLive(c) || c.closing) return;
+      c.node = new AudioWorkletNode(c.audio, 'islet-mic'); c.input = c.audio.createMediaStreamSource(stream);
+      c.mute = c.audio.createGain(); c.mute.gain.value = 0;
+      c.input.connect(c.node); c.node.connect(c.mute); c.mute.connect(c.audio.destination);
+      c.pcm = [];
+      c.node.port.onmessage = e => {
+        if (!voiceLive(c) || !c.holding || !c.sttReady || !c.stt || c.stt.readyState !== WebSocket.OPEN) return;
+        for (const n of e.data) c.pcm.push(Math.round(n * (n < 0 ? 32768 : 32767)));
+        if (c.pcm.length >= 1600) voiceSendPcm(c, false);
+      };
+      c.ready = true; voiceStatus(c, '已接通 · 按住说话，松开发送'); voiceButtons(c);
+    } catch (e) { if (voiceCall === c && !c.closing) { toast('无法接通：' + e.message); await closeVoiceCall(); } }
+  }
+  function voiceSendPcm(c, commit) {
+    const data = new ArrayBuffer(c.pcm.length * 2), view = new DataView(data);
+    c.pcm.forEach((n,i) => view.setInt16(i*2,n,true)); c.pcm = [];
+    let raw = ''; for (const b of new Uint8Array(data)) raw += String.fromCharCode(b);
+    c.stt.send(JSON.stringify({ message_type: 'input_audio_chunk', audio_base_64: btoa(raw), sample_rate: 16000, commit }));
+  }
+  // 每次按住新建识别连接，因此空闲与播放时都不会向识别端送音频。
+  async function voiceHold(e) {
+    e.preventDefault(); const c = voiceCall;
+    if (!c || !c.ready || c.busy || c.holding || c.closing) return;
+    if (e.pointerId != null) e.currentTarget.setPointerCapture(e.pointerId);
+    c.holding = true; c.busy = true; c.recordCancel = false; c.release = false; voiceButtons(c);
+    const turn = ++c.turn; c.pcm = []; c.transcript = ''; $('voice-caption').textContent = '';
+    voiceStatus(c, '连接识别中，请稍等…');
+    try {
+      const token = await voiceToken(c, 'realtime_scribe');
+      if (!voiceLive(c) || c.turn !== turn || c.closing) return;
+      if (c.release) { c.busy = false; voiceStatus(c, '按住稍久一点再说话'); voiceButtons(c); return; }
+      const ws = c.stt = new WebSocket('wss://api.elevenlabs.io/v1/speech-to-text/realtime?' + new URLSearchParams({ token, model_id: 'scribe_v2_realtime', audio_format: 'pcm_16000', commit_strategy: 'manual' }));
+      c.sockets.add(ws);
+      c.recordTimer = setTimeout(() => { if (voiceLive(c) && c.turn === turn) interruptVoiceCall('识别超时，请重新说'); }, 90000);
+      ws.onmessage = event => {
+        if (!voiceLive(c) || c.turn !== turn || c.closing) return;
+        let j; try { j = JSON.parse(event.data); } catch (_) { interruptVoiceCall('识别响应格式有误'); return; }
+        if (j.message_type === 'session_started') { c.sttReady = true; voiceStatus(c, '正在听 · 松开发送'); }
+        if (j.message_type === 'partial_transcript') $('voice-caption').textContent = j.text || '';
+        if (j.message_type === 'committed_transcript') {
+          clearTimeout(c.recordTimer); ws.onclose = null; ws.close(); c.sockets.delete(ws); c.stt = null;
+          if (!c.recordCancel && j.text && j.text.trim()) c.task = voiceAnswer(c, j.text.trim());
+          else { c.busy = false; voiceStatus(c, '没听清，请再说一次'); voiceButtons(c); }
+        }
+        if (j.error || /error|rate_limited|quota_exceeded/.test(j.message_type || '')) interruptVoiceCall('识别失败，请重新接通或稍后再试');
+      };
+      ws.onerror = () => { if (voiceLive(c) && c.turn === turn) interruptVoiceCall('识别连接失败'); };
+      ws.onclose = () => { c.sockets.delete(ws); if (voiceLive(c) && c.turn === turn && c.busy) interruptVoiceCall('识别连接已断开'); };
+    } catch (err) { if (voiceLive(c) && c.turn === turn && !c.closing) interruptVoiceCall(err.message); }
+  }
+  function voiceRelease(e, cancel = false) {
+    e.preventDefault(); const c = voiceCall; if (!c || !c.holding) return;
+    c.holding = false; c.release = true;
+    if (cancel || !c.sttReady || !c.stt || c.stt.readyState !== WebSocket.OPEN) { interruptVoiceCall(cancel ? '已取消这次录音' : '尚未开始收音，请重新按住'); return; }
+    c.sttReady = false; voiceButtons(c); voiceSendPcm(c, true); voiceStatus(c, '正在识别…');
+  }
+  function voiceAppend(c, msg) {
+    if (!voiceLive(c)) throw new Error('对话已切换，通话停止');
+    messages.push(msg);
+    if (!saveCurrent()) throw new Error('聊天保存失败，请先导出备份');
+    renderAll();
+  }
+  async function voiceAnswer(c, text) {
+    const turn = c.turn, played = []; let draft = '', pending = '', queue = Promise.resolve(), synthesisError = null, res = null;
+    c.abort = new AbortController(); setLoading(true); voiceStatus(c, '正在回答…');
+    const live = () => voiceLive(c) && c.turn === turn && !c.abort.signal.aborted;
+    const enqueue = sentence => { if (!sentence.trim()) return; queue = queue.then(async () => {
+      if (!live() || synthesisError) return;
+      try { await voiceSpeak(c, sentence, turn); if (live()) { played.push(sentence); $('voice-caption').textContent = played.join(''); } }
+      catch (e) { if (live()) { synthesisError = e; c.abort.abort(); } }
+    }); };
+    try {
+      if (messages.length >= CHUNK_MAX) { rolloverChunk(); c.sid = currentId; }
+      voiceAppend(c, { role: 'user', content: text, time: nowTime(), ts: Date.now(), call: { turn, interrupted: false } });
+      const api = await buildApiMessages(messages, c.sid);
+      if (!live()) return;
+      const last = api.findLast(m => m.role === 'user');
+      if (last) last._tail = (last._tail || '') + '\n\n现在正在语音通话。请自然地说话，用简短完整的句子，不用 Markdown、动作描写或工具。';
+      res = await streamCompletion(c.model, api, c.abort.signal, () => {}, chunk => {
+        if (!live()) return; draft += chunk; pending += chunk;
+        let match; while ((match = pending.match(/^[\s\S]*?[。！？!?\n](?:[”」』]*)/))) {
+          const sentence = match[0]; if (sentence.trim().length < 5 && sentence.length === pending.length) break;
+          enqueue(sentence); pending = pending.slice(sentence.length);
+        }
+      }, null, { voice: true });
+      if (live() && res.ended === 'done' && (!res.finish || res.finish === 'stop')) enqueue(pending);
+      await queue;
+    } catch (e) { if (voiceLive(c)) synthesisError = e; }
+    finally {
+      await queue;
+      const interrupted = c.turn !== turn || !res || res.ended !== 'done' || !!(res.finish && res.finish !== 'stop') || !!synthesisError;
+      if (played.length && voiceLive(c)) {
+        try { voiceAppend(c, { role: 'assistant', content: played.join('').trim(), model: c.model, time: nowTime(), ts: Date.now(), call: { turn, interrupted }, ...(res && res.usage ? { cacheUsage: [normalizedChatCacheUsage(res.usage, Date.now())] } : {}) }); }
+        catch (e) { synthesisError = e; }
+      }
+      if (synthesisError) { for (const source of c.sources) { try { source.stop(); } catch (_) {} } c.sources.clear(); }
+      c.busy = false; setLoading(false); voiceButtons(c);
+      if (!c.closing) voiceStatus(c, synthesisError ? '语音未完成，已保留播完的句子。' + synthesisError.message : interrupted ? '已打断 · 可以继续说话' : '按住说话，松开发送');
+    }
+  }
+  async function voiceSpeak(c, text, turn) {
+    const token = await voiceToken(c, 'tts_websocket');
+    if (!voiceLive(c) || c.turn !== turn || c.abort.signal.aborted) throw new Error('已取消');
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket('wss://api.elevenlabs.io/v1/text-to-speech/' + encodeURIComponent(c.voice) + '/stream-input?' + new URLSearchParams({ single_use_token: token, model_id: 'eleven_flash_v2_5', output_format: 'pcm_24000', auto_mode: 'true' }));
+      c.sockets.add(ws); let end = c.audio.currentTime, final = false, done = false, audioSeen = false, carry = null;
+      const timer = setTimeout(() => finish(new Error('语音合成超时')), 60000);
+      const poll = setInterval(() => { if (final && audioSeen && c.audio.currentTime >= end) finish(); }, 25);
+      const cancel = () => finish(new Error('已取消'));
+      function finish(err) { if (done) return; done = true; clearTimeout(timer); clearInterval(poll); c.abort.signal.removeEventListener('abort', cancel); c.sockets.delete(ws); ws.close(); err ? reject(err) : resolve(); }
+      c.abort.signal.addEventListener('abort', cancel, { once: true });
+      ws.onopen = () => { ws.send(JSON.stringify({ text: ' ' })); ws.send(JSON.stringify({ text: text + ' ', try_trigger_generation: true })); ws.send(JSON.stringify({ text: '' })); };
+      ws.onmessage = event => {
+        if (done || !voiceLive(c) || c.turn !== turn) return;
+        try {
+          const j = JSON.parse(event.data); if (j.error) throw new Error('语音合成失败');
+          if (j.audio) {
+            const raw = atob(j.audio), bytes = [];
+            if (carry != null) bytes.push(carry); for (let i=0;i<raw.length;i++) bytes.push(raw.charCodeAt(i));
+            carry = bytes.length % 2 ? bytes.pop() : null;
+            if (bytes.length) {
+              audioSeen = true; const buffer = c.audio.createBuffer(1, bytes.length/2, 24000), out = buffer.getChannelData(0);
+              for(let i=0;i<out.length;i++){ const n=bytes[i*2]|bytes[i*2+1]<<8; out[i]=(n>32767?n-65536:n)/32768; }
+              const source = c.audio.createBufferSource(); source.buffer = buffer; source.connect(c.audio.destination); c.sources.add(source);
+              source.onended = () => { c.sources.delete(source); source.disconnect(); };
+              end = Math.max(end, c.audio.currentTime + .015); source.start(end); end += buffer.duration;
+            }
+          }
+          if (j.isFinal || j.is_final) { final = true; if (!audioSeen || carry != null) finish(new Error('没有收到完整语音')); }
+        } catch (e) { finish(e); }
+      };
+      ws.onerror = () => finish(new Error('语音合成连接失败'));
+      ws.onclose = () => { if (!final) finish(new Error('语音合成连接中断')); };
+    });
+  }
+  function interruptVoiceCall(label) {
+    const c = voiceCall; if (!c) return;
+    ++c.turn; c.holding = false; c.sttReady = false; c.release = true; clearTimeout(c.recordTimer);
+    if (c.abort) c.abort.abort();
+    for (const source of c.sources) { try { source.stop(); } catch (_) {} } c.sources.clear();
+    for (const ws of c.sockets) { ws.onclose = null; ws.close(); } c.sockets.clear(); c.stt = null;
+    // 生成任务要先提交已播短句，再允许下一轮。
+    if (!c.task || !isLoading) c.busy = false;
+    voiceStatus(c, label || '正在打断…'); voiceButtons(c);
+  }
+  async function closeVoiceCall() {
+    const c = voiceCall; if (!c || c.closing) return; c.closing = true;
+    interruptVoiceCall(); voiceButtons(c); voiceStatus(c, '正在挂断…');
+    if (c.life) c.life.abort();
+    if (c.mic) c.mic.getTracks().forEach(t => t.stop());
+    if (c.node) c.node.disconnect(); if (c.input) c.input.disconnect(); if (c.mute) c.mute.disconnect();
+    if (c.audio) c.audio.close().catch(() => {});
+    if (c.task) await c.task;
+    if (voiceCall === c) { voiceCall = null; $('voice-dialog').close(); }
+  }
+  $('voice-dialog').addEventListener('cancel', e => { e.preventDefault(); closeVoiceCall(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && voiceCall) { closeVoiceCall(); toast('通话已暂停，回到前台后请重新接通'); } });
 
   /* ---------- 发送 / 生成 ---------- */
   /* ---------- 编辑消息 ---------- */
