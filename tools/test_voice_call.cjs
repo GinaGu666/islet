@@ -65,7 +65,7 @@ const path = require('node:path');
     assert.match(result.tail,/语音通话/);assert(result.closed&&result.dialogClosed);
     const audioResult = await page.evaluate(async () => {
       const NativeSocket=window.WebSocket, nativeToken=voiceToken;
-      const sent=[], samples=[], buffers=[]; let beforeFinalBuffers = -1, starts = 0;
+      const sent=[], samples=[], buffers=[]; let beforeFinalBuffers = -1, starts = 0; const startTimes = [];
       window.WebSocket=class {
         constructor(){this.readyState=1;setTimeout(()=>this.onopen(),0);}
         send(text){sent.push(JSON.parse(text));if(JSON.parse(text).text===''){
@@ -79,17 +79,18 @@ const path = require('node:path');
       openVoiceCall();const c=voiceCall;c.life=new AbortController();c.abort=new AbortController();c.turn=7;c.voice='voice-test';
       c.audio={get currentTime(){return performance.now()/1000;},destination:{},
         createBuffer(channels,length,rate){const a=new Float32Array(length);buffers.push(a);return {duration:length/rate,getChannelData:()=>a};},
-        createBufferSource(){return {connect(){},disconnect(){},start(){starts++;setTimeout(()=>{if(this.onended)this.onended();},5);},stop(){samples.push('stopped');}};},close:async()=>{}};
+        createBufferSource(){return {connect(){},disconnect(){},start(at){starts++;startTimes.push(at);setTimeout(()=>{if(this.onended)this.onended();},5);},stop(){samples.push('stopped');}};},close:async()=>{}};
       await voiceSpeak(c,'你好呀。',7);
-      const pcm=Array.from(buffers[0]);
+      const pcm=buffers.flatMap(a=>Array.from(a));
       c.pcm=[-32768,32767];c.stt={send:json=>samples.push(JSON.parse(json))};voiceSendPcm(c,true);
       const packet=samples.at(-1);
       await closeVoiceCall();window.WebSocket=NativeSocket;voiceToken=nativeToken;
-      return {pcm,sent,packet,beforeFinalBuffers,starts};
+      return {pcm,sent,packet,beforeFinalBuffers,starts,startTimes};
     });
     assert.deepEqual(audioResult.pcm,[-1,32767/32768]);
-    assert.equal(audioResult.beforeFinalBuffers,0,'late network chunks must not cause playback gaps');
-    assert.equal(audioResult.starts,1,'one continuous source per sentence');
+    assert.equal(audioResult.beforeFinalBuffers,1,'start before final audio arrives');
+    assert.equal(audioResult.starts,2);
+    assert(Math.abs(audioResult.startTimes[1]-audioResult.startTimes[0]-1/24000)<1e-8,'jitter buffer schedules chunks contiguously');
     assert.equal(audioResult.sent[0].text,' ');
     assert.equal(audioResult.sent.at(-1).text,'');
     assert.equal(audioResult.packet.audio_base_64,'AID/fw==');
@@ -105,6 +106,8 @@ const path = require('node:path');
         send(json){const p=JSON.parse(json);window.voicePackets.push(p);if(p.commit)setTimeout(()=>this.onmessage({data:JSON.stringify({message_type:'committed_transcript',text:'麦克风测试'})}),0);}
         close(){this.readyState=3;}
       };
+      window.originalGetUserMedia=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia=async constraints=>{window.micConstraints=constraints;return window.originalGetUserMedia(constraints);};
       openVoiceCall();$('voice-id').value='voice-test';
     });
     await page.locator('#voice-connect').click();
@@ -119,9 +122,11 @@ const path = require('node:path');
     const cleanup=await page.evaluate(async()=>{
       const c=voiceCall,tracks=c.mic.getTracks();await closeVoiceCall();
       voiceToken=window.voiceOriginals.token;voiceAnswer=window.voiceOriginals.answer;window.WebSocket=window.voiceOriginals.socket;
-      return {stopped:tracks.every(t=>t.readyState==='ended'),commits:window.voicePackets.filter(p=>p.commit).length};
+      navigator.mediaDevices.getUserMedia=window.originalGetUserMedia;
+      return {constraints:window.micConstraints,stopped:tracks.every(t=>t.readyState==='ended'),commits:window.voicePackets.filter(p=>p.commit).length};
     });
     assert(cleanup.stopped);assert.equal(cleanup.commits,1);
+    for(const key of ['echoCancellation','noiseSuppression','autoGainControl'])assert.equal(cleanup.constraints.audio[key],false);
     assert.deepEqual(errors,[]);
     console.log('PASS: mobile dialog, draft isolation, played-only interruption, full playback, synthesis failure, PCM input/output, real AudioWorklet with fake microphone, release commit, track cleanup, context tail.');
   } finally { await browser.close(); }
