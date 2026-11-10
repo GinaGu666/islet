@@ -97,9 +97,11 @@ const path = require('node:path');
     assert.equal(audioResult.packet.commit,true);
     await page.evaluate(() => {
       window.voiceOriginals={token:voiceToken,answer:voiceAnswer,socket:WebSocket};
-      window.voicePackets=[];window.heard='';
+      window.voicePackets=[];window.heard='';window.captureTracks=[];window.routeHistory=[];
+      const session={_type:'auto',get type(){return this._type;},set type(value){this._type=value;window.routeHistory.push(value);}};
+      Object.defineProperty(navigator,'audioSession',{configurable:true,value:session});
       voiceToken=async()=> 'test-token';
-      voiceAnswer=async(c,text)=>{window.heard=text;c.busy=false;voiceButtons(c);};
+      voiceAnswer=async(c,text)=>{if(c.mic||window.captureTracks.some(t=>t.readyState!=='ended')||navigator.audioSession.type!=='playback')throw Error('microphone still active during playback');window.heard=text;c.busy=false;voiceButtons(c);};
       window.WebSocket=class {
         static OPEN=1;
         constructor(){this.readyState=1;setTimeout(()=>this.onmessage({data:JSON.stringify({message_type:'session_started'})}),0);}
@@ -107,7 +109,7 @@ const path = require('node:path');
         close(){this.readyState=3;}
       };
       window.originalGetUserMedia=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-      navigator.mediaDevices.getUserMedia=async constraints=>{window.micConstraints=constraints;return window.originalGetUserMedia(constraints);};
+      navigator.mediaDevices.getUserMedia=async constraints=>{if(navigator.audioSession.type==='playback')throw Error('capture in playback mode');window.micConstraints=constraints;const stream=await window.originalGetUserMedia(constraints);window.captureTracks.push(...stream.getTracks());return stream;};
       openVoiceCall();$('voice-id').value='voice-test';
     });
     await page.locator('#voice-connect').click();
@@ -119,13 +121,32 @@ const path = require('node:path');
     await page.waitForFunction(()=>window.voicePackets.some(p=>!p.commit&&p.audio_base_64));
     await page.keyboard.up('Space');
     await page.waitForFunction(()=>window.heard==='麦克风测试');
+    // Reacquire for the next utterance, then release again before answering.
+    await page.evaluate(()=>{window.heard='';});
+    await page.keyboard.down('Space');
+    await page.waitForFunction(()=>voiceCall.sttReady);
+    await page.keyboard.up('Space');
+    await page.waitForFunction(()=>window.heard==='麦克风测试');
+    // A late permission result after cancel/hangup must be stopped, not attached.
+    await page.evaluate(()=>{navigator.mediaDevices.getUserMedia=()=>new Promise(resolve=>{window.releasePendingMic=resolve;});});
+    await page.keyboard.down('Space');
+    await page.waitForFunction(()=>!!window.releasePendingMic);
+    await page.keyboard.up('Space');
+    const lateStopped=await page.evaluate(async()=>{
+      await closeVoiceCall();let stopped=false;
+      window.releasePendingMic({getTracks:()=>[{stop(){stopped=true;}}]});
+      await new Promise(r=>setTimeout(r,20));return stopped;
+    });
+    assert(lateStopped,'late capture after hangup is released');
     const cleanup=await page.evaluate(async()=>{
-      const c=voiceCall,tracks=c.mic.getTracks();await closeVoiceCall();
+      const tracks=window.captureTracks;await closeVoiceCall();
       voiceToken=window.voiceOriginals.token;voiceAnswer=window.voiceOriginals.answer;window.WebSocket=window.voiceOriginals.socket;
       navigator.mediaDevices.getUserMedia=window.originalGetUserMedia;
-      return {constraints:window.micConstraints,stopped:tracks.every(t=>t.readyState==='ended'),commits:window.voicePackets.filter(p=>p.commit).length};
+      return {mode:navigator.audioSession.type,routes:window.routeHistory,constraints:window.micConstraints,stopped:tracks.every(t=>t.readyState==='ended'),commits:window.voicePackets.filter(p=>p.commit).length};
     });
-    assert(cleanup.stopped);assert.equal(cleanup.commits,1);
+    assert(cleanup.stopped);assert.equal(cleanup.commits,2);
+    assert.equal(cleanup.mode,'auto');assert(cleanup.routes.includes('playback'));
+    assert(cleanup.routes.filter(x=>x==='auto').length>=2);
     for(const key of ['echoCancellation','noiseSuppression','autoGainControl'])assert.equal(cleanup.constraints.audio[key],false);
     assert.deepEqual(errors,[]);
     console.log('PASS: mobile dialog, draft isolation, played-only interruption, full playback, synthesis failure, PCM input/output, real AudioWorklet with fake microphone, release commit, track cleanup, context tail.');
