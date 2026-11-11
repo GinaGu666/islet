@@ -110,7 +110,7 @@ const path = require('node:path');
         send(text){sent.push(JSON.parse(text));if(JSON.parse(text).text===''){
           setTimeout(()=>this.onmessage({data:JSON.stringify({audio:btoa(String.fromCharCode(0))})}),0);
           setTimeout(()=>this.onmessage({data:JSON.stringify({audio:btoa(String.fromCharCode(128,255))})}),60);
-          setTimeout(()=>{beforeFinalBuffers=buffers.length;this.onmessage({data:JSON.stringify({audio:btoa(String.fromCharCode(127)),isFinal:true})});},120);
+          setTimeout(()=>{if(beforeFinalBuffers<0)beforeFinalBuffers=buffers.length;this.onmessage({data:JSON.stringify({audio:btoa(String.fromCharCode(127)),isFinal:true})});},120);
         }}
         close(){}
       };
