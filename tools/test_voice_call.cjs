@@ -23,7 +23,8 @@ const path = require('node:path');
     const result = await page.evaluate(async () => {
       const c=voiceCall; c.ready=true; c.life=new AbortController(); c.busy=true; c.turn=1;
       c.audio={close:async()=>{}};
-      const originalBuild=buildApiMessages, originalStream=streamCompletion, originalSpeak=voiceSpeak;
+      const originalBuild=buildApiMessages, originalStream=streamCompletion, originalSpeak=voiceSpeak, originalPrepare=voicePrepare;
+      voicePrepare=()=>({played:Promise.resolve(),play:async()=>{}});
       let request, calls=0, reachedSecond;
       const second=new Promise(r=>reachedSecond=r);
       buildApiMessages=async (msgs,sid)=>{const out=await originalBuild(msgs,sid);request=out;return out;};
@@ -52,7 +53,7 @@ const path = require('node:path');
       f.task=voiceAnswer(f,'这句合成会失败');await f.task;
       const failed={added:messages.length-count,lastRole:messages.at(-1).role,busy:f.busy,status:$('voice-status').textContent};
       await closeVoiceCall();
-      buildApiMessages=originalBuild;streamCompletion=originalStream;voiceSpeak=originalSpeak;
+      buildApiMessages=originalBuild;streamCompletion=originalStream;voiceSpeak=originalSpeak;voicePrepare=originalPrepare;
       return {before,assistant,persisted,complete,failed,tail,closed:!voiceCall,dialogClosed:!$('voice-dialog').open};
     });
     assert.equal(result.before,0,'draft must not be committed before playback');
@@ -63,6 +64,44 @@ const path = require('node:path');
     assert.equal(result.complete.call.interrupted,false);
     assert.equal(result.failed.added,1);assert.equal(result.failed.lastRole,'user');assert.equal(result.failed.busy,false);assert.match(result.failed.status,/语音未完成/);
     assert.match(result.tail,/语音通话/);assert(result.closed&&result.dialogClosed);
+    const prefetchResult = await page.evaluate(async () => {
+      const originalStream=streamCompletion, originalPrepare=voicePrepare;
+      const prepared=[], started=[], cancelled=[];
+      let finishFirst, secondReady;
+      const ready=new Promise(r=>secondReady=r);
+      streamCompletion=async(model,msgs,signal,onReason,onContent)=>{
+        onContent('第一句话播放中。第二句话已预取。第三句话不要预取。');
+        return {ended:'done',finish:'stop'};
+      };
+      voicePrepare=(c,text)=>{
+        prepared.push(text);
+        let resolve, reject;
+        const played=new Promise((a,b)=>{resolve=a;reject=b;});played.catch(()=>{});
+        c.abort.signal.addEventListener('abort',()=>{cancelled.push(text);reject(new Error('cancel'));},{once:true});
+        return {played,play(){
+          started.push(text);
+          if(started.length===1){finishFirst=resolve;}else{secondReady();}
+          return played;
+        }};
+      };
+      openVoiceCall();const c=voiceCall;c.ready=true;c.life=new AbortController();c.busy=true;c.turn=1;
+      c.task=voiceAnswer(c,'说三句话');
+      while(prepared.length<2)await new Promise(r=>setTimeout(r,0));
+      const before={prepared:prepared.slice(),started:started.slice()};
+      finishFirst();await ready;
+      const after={prepared:prepared.slice(),started:started.slice()};
+      interruptVoiceCall();await c.task;
+      const saved=messages.at(-1);
+      await closeVoiceCall();
+      streamCompletion=originalStream;voicePrepare=originalPrepare;
+      return {before,after,saved,cancelled};
+    });
+    assert.deepEqual(prefetchResult.before.prepared,['第一句话播放中。','第二句话已预取。']);
+    assert.deepEqual(prefetchResult.before.started,['第一句话播放中。']);
+    assert.deepEqual(prefetchResult.after.prepared,['第一句话播放中。','第二句话已预取。','第三句话不要预取。']);
+    assert.equal(prefetchResult.saved.content,'第一句话播放中。');
+    assert.equal(prefetchResult.saved.call.interrupted,true);
+    assert(prefetchResult.cancelled.includes('第三句话不要预取。'));
     const audioResult = await page.evaluate(async () => {
       const NativeSocket=window.WebSocket, nativeToken=voiceToken;
       const sent=[], samples=[], buffers=[]; let beforeFinalBuffers = -1, starts = 0; const startTimes = [];
@@ -82,14 +121,26 @@ const path = require('node:path');
         createBufferSource(){return {connect(){},disconnect(){},start(at){starts++;startTimes.push(at);setTimeout(()=>{if(this.onended)this.onended();},5);},stop(){samples.push('stopped');}};},close:async()=>{}};
       await voiceSpeak(c,'你好呀。',7);
       const pcm=buffers.flatMap(a=>Array.from(a));
+      // A real prefetched socket may finish receiving PCM without scheduling any source.
+      const previousStarts=starts;
+      const ahead=voicePrepare(c,'提前取但不要播放。',7);
+      await new Promise(r=>setTimeout(r,160));
+      const bufferedStarts=starts-previousStarts;
+      c.turn++;c.abort.abort();
+      let cancelled=false;try{await ahead.play();}catch(_){cancelled=true;}
+      const lateStarts=starts-previousStarts;
+
       c.pcm=[-32768,32767];c.stt={send:json=>samples.push(JSON.parse(json))};voiceSendPcm(c,true);
       const packet=samples.at(-1);
       await closeVoiceCall();window.WebSocket=NativeSocket;voiceToken=nativeToken;
-      return {pcm,sent,packet,beforeFinalBuffers,starts,startTimes};
+      return {pcm,sent,packet,beforeFinalBuffers,starts,startTimes,bufferedStarts,lateStarts,cancelled};
     });
     assert.deepEqual(audioResult.pcm,[-1,32767/32768]);
     assert.equal(audioResult.beforeFinalBuffers,1,'start before final audio arrives');
     assert.equal(audioResult.starts,2);
+    assert.equal(audioResult.bufferedStarts,0,'prefetch must buffer without playing');
+    assert.equal(audioResult.lateStarts,0,'cancelled prefetch must never play');
+    assert(audioResult.cancelled);
     assert(Math.abs(audioResult.startTimes[1]-audioResult.startTimes[0]-1/24000)<1e-8,'jitter buffer schedules chunks contiguously');
     assert.equal(audioResult.sent[0].text,' ');
     assert.equal(audioResult.sent.at(-1).text,'');

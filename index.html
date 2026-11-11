@@ -1015,7 +1015,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-10 · 通话按钮防误触</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-11 · 通话提前合成</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -5297,14 +5297,37 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     renderAll();
   }
   async function voiceAnswer(c, text) {
-    const turn = c.turn, played = []; let draft = '', pending = '', queue = Promise.resolve(), synthesisError = null, res = null;
+    const turn = c.turn, played = [], sentences = []; let draft = '', pending = '', queue = Promise.resolve(), synthesisError = null, res = null;
+    let active = null, ahead = null, pumping = false;
     c.abort = new AbortController(); setLoading(true); voiceStatus(c, '正在回答…');
     const live = () => voiceLive(c) && c.turn === turn && !c.abort.signal.aborted;
-    const enqueue = sentence => { if (!sentence.trim()) return; queue = queue.then(async () => {
-      if (!live() || synthesisError) return;
-      try { await voiceSpeak(c, sentence, turn); if (live()) { played.push(sentence); $('voice-caption').textContent = played.join(''); } }
-      catch (e) { if (live()) { synthesisError = e; c.abort.abort(); } }
-    }); };
+    const fail = e => { if (live()) { synthesisError = e; c.abort.abort(); } };
+    const prepare = sentence => {
+      const audio = voicePrepare(c, sentence, turn);
+      audio.played.catch(fail);
+      return { sentence, audio };
+    };
+    const prefetch = () => { if (active && !ahead && sentences.length && live()) ahead = prepare(sentences.shift()); };
+    const pump = async () => {
+      try {
+        while (live() && (ahead || sentences.length)) {
+          active = ahead || prepare(sentences.shift()); ahead = null;
+          const current = active;
+          const playback = voiceSpeak(c, current.sentence, turn, current.audio);
+          prefetch();
+          await playback;
+          if (live()) { played.push(current.sentence); $('voice-caption').textContent = played.join(''); }
+          active = null;
+        }
+      } catch (e) { fail(e); }
+      finally { active = ahead = null; sentences.length = 0; pumping = false; }
+    };
+    const enqueue = sentence => {
+      if (!sentence.trim() || !live()) return;
+      sentences.push(sentence);
+      if (pumping) prefetch();
+      else { pumping = true; queue = pump(); }
+    };
     try {
       if (messages.length >= CHUNK_MAX) { rolloverChunk(); c.sid = currentId; }
       voiceAppend(c, { role: 'user', content: text, time: nowTime(), ts: Date.now(), call: { turn, interrupted: false } });
@@ -5321,7 +5344,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       }, null, { voice: true });
       if (live() && res.ended === 'done' && (!res.finish || res.finish === 'stop')) enqueue(pending);
       await queue;
-    } catch (e) { if (voiceLive(c)) synthesisError = e; }
+    } catch (e) { fail(e); }
     finally {
       await queue;
       const interrupted = c.turn !== turn || !res || res.ended !== 'done' || !!(res.finish && res.finish !== 'stop') || !!synthesisError;
@@ -5334,41 +5357,87 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (!c.closing) voiceStatus(c, synthesisError ? '语音未完成，已保留播完的句子。' + synthesisError.message : interrupted ? '已打断 · 可以继续说话' : '按住说话，松开发送');
     }
   }
-  async function voiceSpeak(c, text, turn) {
-    const token = await voiceToken(c, 'tts_websocket');
-    if (!voiceLive(c) || c.turn !== turn || c.abort.signal.aborted) throw new Error('已取消');
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket('wss://api.elevenlabs.io/v1/text-to-speech/' + encodeURIComponent(c.voice) + '/stream-input?' + new URLSearchParams({ single_use_token: token, model_id: 'eleven_flash_v2_5', output_format: 'pcm_24000', auto_mode: 'true' }));
-      c.sockets.add(ws); let end = c.audio.currentTime, final = false, done = false, audioSeen = false, carry = null;
-      const timer = setTimeout(() => finish(new Error('语音合成超时')), 60000);
-      const poll = setInterval(() => { if (final && audioSeen && c.audio.currentTime >= end) finish(); }, 25);
-      const cancel = () => finish(new Error('已取消'));
-      function finish(err) { if (done) return; done = true; clearTimeout(timer); clearInterval(poll); c.abort.signal.removeEventListener('abort', cancel); c.sockets.delete(ws); ws.close(); err ? reject(err) : resolve(); }
-      c.abort.signal.addEventListener('abort', cancel, { once: true });
-      ws.onopen = () => { ws.send(JSON.stringify({ text: ' ' })); ws.send(JSON.stringify({ text: text + ' ', try_trigger_generation: true })); ws.send(JSON.stringify({ text: '' })); };
-      ws.onmessage = event => {
-        if (done || !voiceLive(c) || c.turn !== turn) return;
-        try {
-          const j = JSON.parse(event.data); if (j.error) throw new Error('语音合成失败');
-          if (j.audio) {
-            const raw = atob(j.audio), bytes = [];
-            if (carry != null) bytes.push(carry); for (let i=0;i<raw.length;i++) bytes.push(raw.charCodeAt(i));
-            carry = bytes.length % 2 ? bytes.pop() : null;
-            if (bytes.length) {
-              if (!audioSeen) end = c.audio.currentTime + .15; // 短预缓冲，抵御分包抖动，不再等整句
-              audioSeen = true; const buffer = c.audio.createBuffer(1, bytes.length/2, 24000), out = buffer.getChannelData(0);
-              for(let i=0;i<out.length;i++){ const n=bytes[i*2]|bytes[i*2+1]<<8; out[i]=(n>32767?n-65536:n)/32768; }
-              const source = c.audio.createBufferSource(); source.buffer = buffer; source.connect(c.audio.destination); c.sources.add(source);
-              source.onended = () => { c.sources.delete(source); source.disconnect(); };
-              end = Math.max(end, c.audio.currentTime + .015); source.start(end); end += buffer.duration;
+  function voicePrepare(c, text, turn) {
+    const signal = c.abort.signal, chunks = [];
+    let ws = null, done = false, final = false, audioSeen = false, carry = null;
+    let end = 0, playing = false, poll = null, timer = null;
+    let resolvePlayed, rejectPlayed;
+    const played = new Promise((resolve, reject) => { resolvePlayed = resolve; rejectPlayed = reject; });
+    // Prefetch can fail before its playback slot is reached.
+    played.catch(() => {});
+    const live = () => voiceLive(c) && c.turn === turn && !signal.aborted;
+    function finish(err) {
+      if (done) return; done = true;
+      clearTimeout(timer); clearInterval(poll); signal.removeEventListener('abort', cancel);
+      chunks.length = 0;
+      if (ws) { c.sockets.delete(ws); ws.onclose = null; ws.close(); }
+      err ? rejectPlayed(err) : resolvePlayed();
+    }
+    const cancel = () => finish(new Error('已取消'));
+    function schedule(buffer) {
+      if (!live() || done) return;
+      const source = c.audio.createBufferSource(); source.buffer = buffer;
+      source.connect(c.audio.destination); c.sources.add(source);
+      source.onended = () => { c.sources.delete(source); source.disconnect(); };
+      end = Math.max(end, c.audio.currentTime + .015); source.start(end); end += buffer.duration;
+    }
+    signal.addEventListener('abort', cancel, { once: true });
+    timer = setTimeout(() => finish(new Error('语音合成超时')), 60000);
+    (async () => {
+      try {
+        const token = await voiceToken(c, 'tts_websocket');
+        if (done || !live()) { cancel(); return; }
+        ws = new WebSocket('wss://api.elevenlabs.io/v1/text-to-speech/' + encodeURIComponent(c.voice) + '/stream-input?' + new URLSearchParams({ single_use_token: token, model_id: 'eleven_flash_v2_5', output_format: 'pcm_24000', auto_mode: 'true' }));
+        c.sockets.add(ws);
+        ws.onopen = () => { if (done || !live()) return; ws.send(JSON.stringify({ text: ' ' })); ws.send(JSON.stringify({ text: text + ' ', try_trigger_generation: true })); ws.send(JSON.stringify({ text: '' })); };
+        ws.onmessage = event => {
+          if (done || !live()) return;
+          try {
+            const j = JSON.parse(event.data); if (j.error) throw new Error('语音合成失败');
+            if (j.audio) {
+              const raw = atob(j.audio), bytes = [];
+              if (carry != null) bytes.push(carry); for (let i=0;i<raw.length;i++) bytes.push(raw.charCodeAt(i));
+              carry = bytes.length % 2 ? bytes.pop() : null;
+              if (bytes.length) {
+                const buffer = c.audio.createBuffer(1, bytes.length/2, 24000), out = buffer.getChannelData(0);
+                for(let i=0;i<out.length;i++){ const n=bytes[i*2]|bytes[i*2+1]<<8; out[i]=(n>32767?n-65536:n)/32768; }
+                if (!audioSeen && playing) end = c.audio.currentTime + .15;
+                audioSeen = true;
+                if (playing) schedule(buffer); else chunks.push(buffer);
+              }
             }
-          }
-          if (j.isFinal || j.is_final) { final = true; if (!audioSeen || carry != null) finish(new Error('没有收到完整语音')); }
-        } catch (e) { finish(e); }
-      };
-      ws.onerror = () => finish(new Error('语音合成连接失败'));
-      ws.onclose = () => { if (!final) finish(new Error('语音合成连接中断')); };
-    });
+            if (j.isFinal || j.is_final) {
+              final = true;
+              if (!audioSeen || carry != null) { finish(new Error('没有收到完整语音')); return; }
+              c.sockets.delete(ws); ws.onclose = null; ws.close();
+              // Synthesis timeout must not include time waiting for the playback slot.
+              clearTimeout(timer);
+            }
+          } catch (e) { finish(e); }
+        };
+        ws.onerror = () => finish(new Error('语音合成连接失败'));
+        ws.onclose = () => { if (!final) finish(new Error('语音合成连接中断')); };
+      } catch (e) { finish(e); }
+    })();
+    return {
+      played,
+      play() {
+        if (done) return played;
+        if (!live()) { cancel(); return played; }
+        if (!playing) {
+          playing = true; end = c.audio.currentTime + (chunks.length ? .015 : .15);
+          for (const buffer of chunks) schedule(buffer); chunks.length = 0;
+          poll = setInterval(() => {
+            if (!live()) cancel();
+            else if (final && audioSeen && c.audio.currentTime >= end) finish();
+          }, 25);
+        }
+        return played;
+      }
+    };
+  }
+  async function voiceSpeak(c, text, turn, prepared) {
+    return (prepared || voicePrepare(c, text, turn)).play();
   }
   function interruptVoiceCall(label) {
     const c = voiceCall; if (!c) return;
