@@ -102,6 +102,55 @@ const path = require('node:path');
     assert.equal(prefetchResult.saved.content,'第一句话播放中。');
     assert.equal(prefetchResult.saved.call.interrupted,true);
     assert(prefetchResult.cancelled.includes('第三句话不要预取。'));
+    const splitResult = await page.evaluate(() => {
+      const feed=chunks=>{let pending='';const out=[];
+        for(const chunk of chunks){pending+=chunk;const cut=voiceSplit(pending,false);out.push(...cut.sentences);pending=cut.rest;}
+        const cut=voiceSplit(pending,true);out.push(...cut.sentences);if(cut.rest.trim())out.push(cut.rest);return out;};
+      return {
+        short:feed(['嗯。','我在','呢。你今天','过得怎么样？']),
+        english:feed(['Sure. I was thinking about ','what you said earlier. It costs 3.5 dollars, ','e.g. at Dr. Lee\'s shop. Okay?']),
+        early:feed(['First sentence is done. Second one is still ']).length,
+        quote:feed(['她说：“好的。','”然后就走了。']),
+        dots:feed(['我想想……','也许吧；','明天再说。']),
+        list:feed(['1. First thing here. 2. Second thing.']),
+        whole:feed(['Hello there. How are you? ','“嗯。”她笑了。\n好。']).join('')
+      };
+    });
+    assert.deepEqual(splitResult.short,['嗯。我在呢。','你今天过得怎么样？'],'short sentences merge forward');
+    assert.deepEqual(splitResult.english,['Sure. I was thinking about what you said earlier.',' It costs 3.5 dollars, e.g. at Dr. Lee\'s shop.',' Okay?'],'English periods split; decimals and abbreviations do not');
+    assert.equal(splitResult.early,2,'first English sentence leaves before the reply ends');
+    assert.deepEqual(splitResult.quote,['她说：“好的。”','然后就走了。'],'closing quote stays with its sentence');
+    assert.deepEqual(splitResult.dots,['我想想……','也许吧；明天再说。'],'ellipsis and semicolon are break points');
+    assert.deepEqual(splitResult.list,['1. First thing here.',' 2. Second thing.']);
+    assert.equal(splitResult.whole,'Hello there. How are you? “嗯。”她笑了。\n好。','splitting never drops or reorders text');
+    const aheadFailure = await page.evaluate(async () => {
+      const originalStream=streamCompletion, originalPrepare=voicePrepare;
+      let finishFirst, n=0;
+      streamCompletion=async(model,msgs,signal,onReason,onContent)=>{
+        onContent('这一句正在播放中。下一句预取会失败。还有第三句话。');
+        return {ended:'done',finish:'stop'};
+      };
+      voicePrepare=()=>{
+        const first=++n===1;
+        const played=first?new Promise(r=>finishFirst=r):Promise.reject(new Error('quota used up'));played.catch(()=>{});
+        return {played,play:()=>played};
+      };
+      openVoiceCall();const c=voiceCall;c.ready=true;c.life=new AbortController();c.busy=true;c.turn=1;
+      c.task=voiceAnswer(c,'说几句话');
+      while(n<2)await new Promise(r=>setTimeout(r,0));
+      await new Promise(r=>setTimeout(r,30));
+      const during={aborted:c.abort.signal.aborted,saved:messages.at(-1).role,busy:c.busy};
+      finishFirst();await c.task;
+      const saved=messages.at(-1),status=$('voice-status').textContent;
+      await closeVoiceCall();
+      streamCompletion=originalStream;voicePrepare=originalPrepare;
+      return {during,saved,status,prepared:n};
+    });
+    assert.deepEqual(aheadFailure.during,{aborted:false,saved:'user',busy:true},'failed prefetch must not cut off the sentence being played');
+    assert.equal(aheadFailure.saved.content,'这一句正在播放中。');
+    assert.equal(aheadFailure.saved.call.interrupted,true);
+    assert.match(aheadFailure.status,/语音未完成.*quota used up/);
+    assert.equal(aheadFailure.prepared,2,'nothing further is fetched after a failed prefetch');
     const audioResult = await page.evaluate(async () => {
       const NativeSocket=window.WebSocket, nativeToken=voiceToken;
       const sent=[], samples=[], buffers=[]; let beforeFinalBuffers = -1, starts = 0; const startTimes = [];
@@ -155,7 +204,8 @@ const path = require('node:path');
       voiceAnswer=async(c,text)=>{if(c.mic||window.captureTracks.some(t=>t.readyState!=='ended')||navigator.audioSession.type!=='playback')throw Error('microphone still active during playback');window.heard=text;c.busy=false;voiceButtons(c);};
       window.WebSocket=class {
         static OPEN=1;
-        constructor(){this.readyState=1;setTimeout(()=>this.onmessage({data:JSON.stringify({message_type:'session_started'})}),0);}
+        constructor(){this.readyState=1;const start=()=>this.onmessage({data:JSON.stringify({message_type:'session_started'})});
+          if(window.holdSession)window.startSession=start;else setTimeout(start,0);}
         send(json){const p=JSON.parse(json);window.voicePackets.push(p);if(p.commit)setTimeout(()=>this.onmessage({data:JSON.stringify({message_type:'committed_transcript',text:'麦克风测试'})}),0);}
         close(){this.readyState=3;}
       };
@@ -169,15 +219,39 @@ const path = require('node:path');
     await page.keyboard.down('Space');
     await page.waitForFunction(()=>voiceCall.sttReady);
     assert.equal(await page.locator('#voice-hold').isDisabled(),false,'hold control must receive release');
-    await page.waitForFunction(()=>window.voicePackets.some(p=>!p.commit&&p.audio_base_64));
+    await page.waitForFunction(()=>window.voicePackets.some(p=>!p.commit&&p.audio_base_64)&&voiceCall.heard>=4800);
     await page.keyboard.up('Space');
     await page.waitForFunction(()=>window.heard==='麦克风测试');
     // Reacquire for the next utterance, then release again before answering.
     await page.evaluate(()=>{window.heard='';});
     await page.keyboard.down('Space');
-    await page.waitForFunction(()=>voiceCall.sttReady);
+    await page.waitForFunction(()=>voiceCall.sttReady&&voiceCall.heard>=4800);
     await page.keyboard.up('Space');
     await page.waitForFunction(()=>window.heard==='麦克风测试');
+    // Record from the press: audio captured before the recognizer connects is kept and
+    // replayed, and releasing before it connects still commits instead of failing.
+    await page.evaluate(()=>{window.heard='';window.holdSession=true;window.startSession=null;window.voicePackets.length=0;});
+    await page.keyboard.down('Space');
+    await page.waitForFunction(()=>window.startSession&&voiceCall.heard>=8000);
+    const early=await page.evaluate(()=>({status:$('voice-status').textContent,ready:voiceCall.sttReady,sent:window.voicePackets.length,buffered:voiceCall.pcm.length,heard:voiceCall.heard}));
+    assert.match(early.status,/正在听/);assert.equal(early.ready,false);assert.equal(early.sent,0);assert.equal(early.buffered,early.heard);
+    await page.keyboard.up('Space');
+    const waiting=await page.evaluate(()=>({status:$('voice-status').textContent,busy:voiceCall.busy,mic:!!voiceCall.mic,sent:window.voicePackets.length,samples:voiceCall.pcm.length}));
+    assert.match(waiting.status,/正在识别/);assert.equal(waiting.busy,true);assert.equal(waiting.mic,false,'microphone released on let-go');assert.equal(waiting.sent,0);
+    await page.evaluate(()=>window.startSession());
+    await page.waitForFunction(()=>window.heard==='麦克风测试');
+    const backfill=await page.evaluate(()=>{const sizes=window.voicePackets.map(p=>atob(p.audio_base_64).length/2);window.holdSession=false;
+      return {total:sizes.reduce((a,b)=>a+b,0),max:Math.max(...sizes),commits:window.voicePackets.map(p=>p.commit).indexOf(true),count:sizes.length};});
+    assert.equal(backfill.total,waiting.samples,'every buffered sample is sent');
+    assert(backfill.max<=1600);assert.equal(backfill.commits,backfill.count-1,'only the last chunk commits');
+    // A tap too short to hold any speech is a hint, not a failure.
+    await page.keyboard.down('Space');await page.keyboard.up('Space');
+    const tap=await page.evaluate(()=>({status:$('voice-status').textContent,busy:voiceCall.busy}));
+    assert.match(tap.status,/按住稍久一点/);assert.equal(tap.busy,false);
+    // Unsent audio is capped before the recognizer connects.
+    const capped=await page.evaluate(()=>{const c=voiceCall;c.busy=c.holding=true;c.sttReady=false;c.pcm=new Array(16000*15).fill(0);
+      c.node.port.onmessage({data:[0,0]});return {status:$('voice-status').textContent,holding:c.holding,left:c.pcm.length};});
+    assert.match(capped.status,/没连上/);assert.equal(capped.holding,false);assert.equal(capped.left,0);
     // A late permission result after cancel/hangup must be stopped, not attached.
     await page.evaluate(()=>{navigator.mediaDevices.getUserMedia=()=>new Promise(resolve=>{window.releasePendingMic=resolve;});});
     await page.keyboard.down('Space');
@@ -195,11 +269,11 @@ const path = require('node:path');
       navigator.mediaDevices.getUserMedia=window.originalGetUserMedia;
       return {mode:navigator.audioSession.type,routes:window.routeHistory,constraints:window.micConstraints,stopped:tracks.every(t=>t.readyState==='ended'),commits:window.voicePackets.filter(p=>p.commit).length};
     });
-    assert(cleanup.stopped);assert.equal(cleanup.commits,2);
+    assert(cleanup.stopped);assert.equal(cleanup.commits,1);
     assert.equal(cleanup.mode,'auto');assert(cleanup.routes.includes('playback'));
     assert(cleanup.routes.filter(x=>x==='auto').length>=2);
     for(const key of ['echoCancellation','noiseSuppression','autoGainControl'])assert.equal(cleanup.constraints.audio[key],false);
     assert.deepEqual(errors,[]);
-    console.log('PASS: mobile dialog, draft isolation, played-only interruption, full playback, synthesis failure, PCM input/output, real AudioWorklet with fake microphone, release commit, track cleanup, context tail.');
+    console.log('PASS: mobile dialog, draft isolation, played-only interruption, full playback, synthesis failure, PCM input/output, sentence splitting, failed prefetch, real AudioWorklet with fake microphone, record-on-press backfill, release commit, track cleanup, context tail.');
   } finally { await browser.close(); }
 })().catch(e=>{console.error(e);process.exitCode=1;});
