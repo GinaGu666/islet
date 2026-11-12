@@ -637,6 +637,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   .mcard-text { font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: var(--ink); }
   .mcard-date { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
   .mcard-del { background: none; border: none; padding: 2px 4px; color: var(--ink-3); font-size: 16px; flex: none; cursor: pointer; }
+  .mcard.archived .mcard-text { color: var(--ink-2); }
+  .mcard-restore { background: none; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-3); font: inherit; font-size: 12px; padding: 2px 8px; flex: none; cursor: pointer; margin-top: 1px; }
   .mcard-empty { text-align: center; color: var(--ink-3); font-size: 12.5px; padding: 14px 0; line-height: 1.7; }
   /* 分层记忆库：分类筛选 / 标签 / 大事记 / 整理提案 */
   .mini-tab { flex-shrink: 0; background: var(--card); border: 1px solid var(--line); color: var(--ink-3); font-size: 12px; padding: 4px 10px; border-radius: 999px; cursor: pointer; white-space: nowrap; font-family: inherit; }
@@ -1021,7 +1023,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-12 · 通话识别语言 · 按住插话</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-12 · 记忆卡归档</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -1316,6 +1318,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       </div>
       <input class="field" id="mem-search" placeholder="搜记忆…" oninput="memQuery=this.value;renderMemCards()" spellcheck="false" style="margin-top:2px">
       <div id="mem-cat-tabs"></div>
+      <div class="mem-hint" id="mem-arch-hint" style="display:none;margin:0 0 4px"></div>
       <div id="mem-cards"></div>
       <button class="comp-tab habit-add" type="button" onclick="openCardEdit()">＋ 手动记一条</button>
       <button class="btn-ghost" id="distill-btn" onclick="distillNow()">
@@ -4538,21 +4541,22 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           break;
         }
         case 'recall': {
-          const arr = memCardsOf(c);
+          const arr = memCardsOf(c), arch = memArchOf(c);
           const q = String(args.query || '').trim();
-          if (!arr.length) { result = '还没有任何记忆卡片'; label = '翻了翻记忆，还是空的'; break; }
+          if (!arr.length && !arch.length) { result = '还没有任何记忆卡片'; label = '翻了翻记忆，还是空的'; break; }
           let picked;
           if (!q) picked = arr.slice().sort((a, b) => (b.p || 0) - (a.p || 0) || (b.d || 0) - (a.d || 0)).slice(0, 10);
-          else {
+          else {   // 有关键词时连归档一起查：归档的卡平时不带进对话，但翻记忆时能找到
             const qt = memTokens(q), df = memDF(c);
-            picked = arr.map(k => { let sc = 0; for (const t of cardTokens(k)) if (qt.has(t)) sc += tokenWeight(df.get(t) || 1); return { k, sc }; })
+            picked = arr.concat(arch).map(k => { let sc = 0; for (const t of cardTokens(k)) if (qt.has(t)) sc += tokenWeight(df.get(t) || 1); return { k, sc }; })
               .filter(x => x.sc > 0).sort((a, b) => b.sc - a.sc || b.k.d - a.k.d).slice(0, 10).map(x => x.k);
           }
-          if (!picked.length) result = '没有和「' + q + '」相关的记忆（共 ' + arr.length + ' 条）';
+          if (!picked.length) result = '没有和「' + q + '」相关的记忆（共 ' + (arr.length + arch.length) + ' 条）';
           else {
-            const ix = memThreadIndex(arr), done = new Set(), lines = [];
+            const ix = memThreadIndex(arr), archIds = new Set(arch.map(k => k.id)), done = new Set(), lines = [];
             for (const k of picked) {   // 命中事件线上的任意一张，整条线按时间带出
               if (done.has(k.id)) continue;
+              if (archIds.has(k.id)) { done.add(k.id); lines.push('- （很久以前的旧记忆）' + (k.c ? '[' + k.c + '] ' : '') + k.t + '（' + memoryDateInfo(k) + '）'); continue; }
               const thread = memThread(ix, k);
               thread.forEach(x => { done.add(x.id); x.u = Date.now(); x.n = (x.n || 0) + 1; });
               lines.push('- ' + thread.map(x => (x.c ? '[' + x.c + '] ' : '') + x.t + '（' + memoryDateInfo(x) + '）').join(MEM_THREAD_JOIN));
@@ -5924,7 +5928,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
    *            热度（被想起过的卡更容易再被想起）、遗忘坡度（久未想起的旧卡略微退后——只降序，不删卡）
    * L3 沉睡层：其余卡片平时不打扰模型，被话题勾起时经 L2 浮现，或在面板里搜索
    * 写入端：提炼是增量式的——只把上次提炼之后的对话发给模型，长会话不再整场重发 */
-  const MAX_CARDS = 500;           // 每角色卡片上限，超出自动清最旧的未置顶（常驻注入另有字数预算，卡多不涨成本）
+  const MAX_CARDS = 2000;          // 每角色在用卡片上限（和服务器收卡上限一致）；超出时最旧的未置顶卡挪进归档，不删
+  const MEM_TIDY_HINT = 400;       // 卡片到这么多时，在记忆面板提示可以整理一次
   const MEM_CORE_BUDGET = 900;     // L0 常驻注入字数：置顶 → 约定 → 新→旧
   const MEM_RECALL_BUDGET = 600;   // L2 每回合按话题召回的字数
   const MEM_RECALL_MAX = 8;        // L2 每回合最多召回几条
@@ -5933,6 +5938,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   const EPI_MAX = 300;             // 大事记条数上限
   const MEM_CATS = ['事实', '偏好', '事件', '约定'];   // 分类；约定类保证常驻注入
   function memCardsOf(c) { if (!Array.isArray(c.cards)) c.cards = []; return c.cards; }
+  // 归档：超上限被挪出的卡。不进 L0 常驻、不参与 L2 浮现，但 recall 工具和面板搜索能查到，面板里能恢复。
+  // 和在用的卡放在同一份 islet_companions 里，随备份走；旧备份没有这个字段，按空处理。
+  function memArchOf(c) { if (!Array.isArray(c.cardsArchived)) c.cardsArchived = []; return c.cardsArchived; }
   // 记忆对应日期独立于原有 d（记录时间），按日保存字符串，避免跨时区偏移。
   function normMemoryDate(value) {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith('0000')) return '';
@@ -5961,14 +5969,42 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     trimMemCards(c); c.memUpdated = Date.now();
     return true;
   }
-  function trimMemCards(c) {
+  function trimMemCards(c, keepId) {   // 超上限：挪进归档，不删；keepId 是刚恢复、这次不挪的那张；返回挪了几张
     const arr = memCardsOf(c);
-    // 超上限的淘汰顺序：先淘「从没被想起过的最旧普通卡」，再淘「最旧普通卡」，最后才轮到约定；
-    // 置顶永远豁免。约定压轴是因为那是说好的事——静默消失比多占几张卡糟糕得多。
+    if (arr.length <= MAX_CARDS) return 0;
+    // 淘汰顺序：先挪「从没被想起过的最旧普通卡」，再挪「最旧普通卡」，最后才轮到约定；置顶永远豁免。
     const rounds = [k => !k.p && k.c !== '约定' && !k.n, k => !k.p && k.c !== '约定', k => !k.p];
-    for (const drop of rounds)
-      for (let i = arr.length - 1; i >= 0 && arr.length > MAX_CARDS; i--) if (drop(arr[i])) arr.splice(i, 1);
-    if (arr.length > MAX_CARDS) arr.length = MAX_CARDS;
+    const out = [];
+    for (const pick of rounds)
+      for (let i = arr.length - 1; i >= 0 && arr.length > MAX_CARDS; i--) if (arr[i].id !== keepId && pick(arr[i])) {
+        memUnlinkCard(c, arr[i].id);   // 接在它后面的卡改接到它前一张，线不断
+        out.push(arr.splice(i, 1)[0]);
+      }
+    if (!out.length) return 0;          // 全是置顶：宁可超上限，也不挪
+    const now = Date.now();
+    out.forEach(k => { k.ar = now; });
+    memArchOf(c).unshift(...out);
+    c.memUpdated = now;
+    c.archNote = { n: out.length, at: now };   // 记忆面板里显示一行；第一次发生时另弹一次提示
+    if (!c.archToasted) { c.archToasted = 1; try { toast((c.name || '') + ' 的记忆卡超过 ' + MAX_CARDS + ' 张，最旧的 ' + out.length + ' 张挪进了归档（没删），在记忆面板「归档」里看', 6000); } catch (e) {} }
+    return out.length;
+  }
+  function restoreArchivedCard(id) {
+    const c = editingCompanion(), arch = memArchOf(c), i = arch.findIndex(k => k.id === id); if (i < 0) return;
+    const k = arch.splice(i, 1)[0]; delete k.ar;
+    const arr = memCardsOf(c);
+    if (k.prev && !arr.some(x => x.id === k.prev)) delete k.prev;   // 原来接的那张不在用了，就自己当开头
+    const at = arr.findIndex(x => (x.d || 0) < (k.d || 0));
+    arr.splice(at < 0 ? arr.length : at, 0, k);
+    c.memUpdated = Date.now();
+    trimMemCards(c, k.id);
+    saveCompanions(); renderMemCards(); toast('已恢复');
+  }
+  async function deleteArchivedCard(id) {
+    const c = editingCompanion();
+    if (!(await uiConfirm('彻底删除这条归档的记忆？', { ok: '删除', danger: true }))) return;
+    c.cardsArchived = memArchOf(c).filter(x => x.id !== id);
+    saveCompanions(); renderMemCards();
   }
   /* 事件线：后续卡用 prev 指向它接着的那张（A ← B ← C）。召回时只要命中其中一张，就把整条线按时间一起带出，
      免得只想起开头、不知道后来。原卡被删时 prev 悬空，那张卡就自己当开头。 */
@@ -6141,6 +6177,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     L.push('## 大事记', '');
     if (!epis.length) L.push('（还没有）', '');
     epis.forEach(e => L.push('- **' + day(e.d) + '** ' + one(e.t)));
+    const arch = memArchOf(c);
+    if (arch.length) {
+      L.push('', '## 已归档的记忆卡（' + arch.length + '）', '');
+      arch.forEach(k => L.push('- ' + (k.c ? '[' + k.c + '] ' : '') + one(k.t) + '（' + (normMemoryDate(k.date) ? '日期 ' + k.date + '；记录于 ' : '') + day(k.d) + '）'));
+    }
     // 文件名只用英文数字：部分浏览器遇到中文文件名会退回成 "download"；角色名写在文件标题里
     downloadFile('islet-memory-' + dateStamp() + '.md', L.join('\n') + '\n', 'text/markdown;charset=utf-8');
   }
@@ -6261,24 +6302,53 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const wrap = $('mem-cat-tabs'); if (!wrap) return;
     const arr = memCardsOf(editingCompanion());
     const cnt = f => f === '' ? arr.length : f === 'pin' ? arr.filter(k => k.p).length : f === '未' ? arr.filter(k => !k.c).length : arr.filter(k => k.c === f).length;
-    const tabs = [['', '全部'], ['pin', '📌'], ['事实', '事实'], ['偏好', '偏好'], ['事件', '事件'], ['约定', '约定'], ['未', '未分类']];
+    const tabs = [['', '全部'], ['pin', '📌'], ['事实', '事实'], ['偏好', '偏好'], ['事件', '事件'], ['约定', '约定'], ['未', '未分类'], ['arch', '归档']];
+    const nArch = memArchOf(editingCompanion()).length;
     wrap.innerHTML = tabs.map(function (tb) {
-      const n = cnt(tb[0]);
+      const n = tb[0] === 'arch' ? nArch : cnt(tb[0]);
       if (!n && tb[0] !== '' && memFilter !== tb[0]) return '';
       return '<button type="button" class="mini-tab ' + (memFilter === tb[0] ? 'sel' : '') + '" onclick="setMemFilter(\'' + tb[0] + '\')">' + tb[1] + (n ? ' ' + n : '') + '</button>';
     }).join('');
+  }
+  function archRowHtml(k) {
+    return `
+      <div class="mcard archived">
+        <div class="mcard-body" style="cursor:default">
+          <div class="mcard-text">${esc(k.t)}</div>
+          <div class="mcard-date"><span class="mem-chip">已归档</span> ${k.c ? '<span class="mem-chip">' + k.c + '</span> ' : ''}${normMemoryDate(k.date) || fmtWhen(k.d)}${k.ar ? ' · 归档于 ' + fmtWhen(k.ar) : ''}</div>
+        </div>
+        <button class="mcard-restore" type="button" onclick="restoreArchivedCard('${k.id}')">恢复</button>
+        <button class="mcard-del" type="button" onclick="deleteArchivedCard('${k.id}')" aria-label="删除">×</button>
+      </div>`;
+  }
+  function renderMemArchHint(c) {
+    const el = $('mem-arch-hint'); if (!el) return;
+    const n = memCardsOf(c).length, na = memArchOf(c).length, lines = [];
+    if (na) lines.push('有 ' + na + ' 张旧卡在归档里' + (c.archNote ? '（最近一次 ' + fmtWhen(c.archNote.at) + ' 挪进 ' + c.archNote.n + ' 张）' : '') + '：不会带进对话，TA 用「翻记忆」时还能查到。点上面「归档」查看、恢复。');
+    if (n >= MEM_TIDY_HINT) lines.push('卡片有 ' + n + ' 张了，可以点一次下面的「整理记忆」，合并重复的。');
+    el.innerHTML = lines.map(esc).join('<br>');
+    el.style.display = lines.length ? '' : 'none';
   }
   function renderMemCards() {
     const wrap = $('mem-cards'); if (!wrap) return;
     const c = editingCompanion();
     const q = normMem(memQuery);
+    const hitQ = k => normMem(k.t + ' ' + normMemoryDate(k.date)).includes(q);
+    renderMemArchHint(c);
+    if (memFilter === 'arch') {
+      const arch = memArchOf(c).filter(k => !q || hitQ(k));
+      wrap.innerHTML = arch.length ? arch.map(archRowHtml).join('') : '<div class="mcard-empty">' + (q ? '没有匹配的归档记忆' : '归档是空的') + '</div>';
+      renderMemCatTabs(); updateMemCount();
+      return;
+    }
     let arr = memCardsOf(c);
     if (memFilter === 'pin') arr = arr.filter(k => k.p);
     else if (memFilter === '未') arr = arr.filter(k => !k.c);
     else if (memFilter) arr = arr.filter(k => k.c === memFilter);
-    if (q) arr = arr.filter(k => normMem(k.t + ' ' + normMemoryDate(k.date)).includes(q));
+    if (q) arr = arr.filter(hitQ);
     const ordered = arr.filter(k => k.p).concat(arr.filter(k => !k.p));
-    wrap.innerHTML = ordered.length ? ordered.map(k => `
+    const archHits = q && !memFilter ? memArchOf(c).filter(hitQ) : [];   // 搜索时把归档里匹配的也列在后面
+    wrap.innerHTML = ordered.length || archHits.length ? ordered.map(k => `
       <div class="mcard ${k.p ? 'pinned' : ''}">
         <button class="mcard-pin" type="button" onclick="togglePinCard('${k.id}')" aria-label="置顶"><svg viewBox="0 0 24 24" width="15" height="15" fill="${k.p ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.2 4.1 1 5.8L12 16.4 6.7 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg></button>
         <div class="mcard-body" onclick="openCardEdit('${k.id}')">
@@ -6286,7 +6356,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <div class="mcard-date">${k.p ? '📌 ' : ''}${k.c ? '<span class="mem-chip">' + k.c + '</span> ' : ''}${normMemoryDate(k.date) || fmtWhen(k.d)}${k.n ? ' · 想起 ' + k.n + ' 次' : ''}${(() => { const pk = k.prev && memCardsOf(c).find(x => x.id === k.prev); return pk ? ' · 接：' + esc(pk.t.length > 16 ? pk.t.slice(0, 16) + '…' : pk.t) : ''; })()}</div>
         </div>
         <button class="mcard-del" type="button" onclick="deleteCardRow('${k.id}')" aria-label="删除">×</button>
-      </div>`).join('') : '<div class="mcard-empty">' + (q || memFilter ? '没有匹配的记忆' : '还没有记忆卡片<br>聊过之后点下面「提炼」，或手动记一条') + '</div>';
+      </div>`).join('') + archHits.map(archRowHtml).join('') : '<div class="mcard-empty">' + (q || memFilter ? '没有匹配的记忆' : '还没有记忆卡片<br>聊过之后点下面「提炼」，或手动记一条') + '</div>';
     renderMemCatTabs();
     updateMemCount();
   }
@@ -6508,7 +6578,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const c = editingCompanion();
     const arr = c ? memCardsOf(c) : [];
     const pins = arr.filter(k => k.p).length;
+    const na = c ? memArchOf(c).length : 0;
     let t = arr.length ? (arr.length + ' 条' + (pins ? ' · 置顶 ' + pins : '')) : '空';
+    if (na) t += ' · 归档 ' + na;
     const st = c && distillState[c.id];
     if (st && st.st === 'running') t += ' · 提炼中…';
     else if (st && st.st === 'fail') t += ' · 自动提炼失败';
