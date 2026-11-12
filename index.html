@@ -1015,7 +1015,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-11 · 通话提前合成</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-12 · 通话按下即录 · 断句</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -5238,40 +5238,66 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       c.input.connect(c.node); c.node.connect(c.mute); c.mute.connect(c.audio.destination);
       c.pcm = [];
       c.node.port.onmessage = e => {
-        if (!voiceLive(c) || !c.holding || !c.sttReady || !c.stt || c.stt.readyState !== WebSocket.OPEN) return;
+        // 按住期间一直录；识别还没连上就先攒着，连上后补发。
+        if (!voiceLive(c) || !c.holding) return;
         for (const n of e.data) c.pcm.push(Math.round(n * (n < 0 ? 32768 : 32767)));
-        if (c.pcm.length >= 1600) voiceSendPcm(c, false);
+        c.heard += e.data.length;
+        if (voiceSttOpen(c)) { if (c.pcm.length >= 1600) voiceSendPcm(c, false); }
+        else if (c.pcm.length > VOICE_BACKLOG_MAX) interruptVoiceCall('识别一直没连上，请重新说');
       };
       voiceStopMic(c); // 空闲和回答期间彻底释放采集，避免 iOS 留在听筒/通话路由
       c.ready = true; voiceStatus(c, '已接通 · 按住说话，松开发送'); voiceButtons(c);
     } catch (e) { if (voiceCall === c && !c.closing) { toast('无法接通：' + e.message); await closeVoiceCall(); } }
   }
+  const VOICE_BACKLOG_MAX = 16000 * 15; // 识别连上之前最多攒 15 秒
+  const VOICE_MIN_SAMPLES = 16000 * .3; // 不到 0.3 秒当作没说话
+  const voiceSttOpen = c => !!(c.sttReady && c.stt && c.stt.readyState === WebSocket.OPEN);
+  // 每块 0.1 秒；攒下的也按这个大小补发，只有最后一块带 commit。
   function voiceSendPcm(c, commit) {
-    const data = new ArrayBuffer(c.pcm.length * 2), view = new DataView(data);
-    c.pcm.forEach((n,i) => view.setInt16(i*2,n,true)); c.pcm = [];
-    let raw = ''; for (const b of new Uint8Array(data)) raw += String.fromCharCode(b);
-    c.stt.send(JSON.stringify({ message_type: 'input_audio_chunk', audio_base_64: btoa(raw), sample_rate: 16000, commit }));
+    const all = c.pcm; c.pcm = []; let at = 0;
+    do {
+      const part = all.slice(at, at + 1600); at += 1600;
+      const data = new ArrayBuffer(part.length * 2), view = new DataView(data);
+      part.forEach((n,i) => view.setInt16(i*2,n,true));
+      let raw = ''; for (const b of new Uint8Array(data)) raw += String.fromCharCode(b);
+      c.stt.send(JSON.stringify({ message_type: 'input_audio_chunk', audio_base_64: btoa(raw), sample_rate: 16000, commit: commit && at >= all.length }));
+    } while (at < all.length);
   }
-  // 每次按住新建识别连接，因此空闲与播放时都不会向识别端送音频。
+  function voiceRecordTimer(c, turn, ms, label) {
+    clearTimeout(c.recordTimer);
+    c.recordTimer = setTimeout(() => { if (voiceLive(c) && c.turn === turn) interruptVoiceCall(label); }, ms);
+  }
+  // 松手后：把剩下的发完并提交，等定稿的时间单独计，不用等满 90 秒。
+  function voiceCommit(c, turn) {
+    c.sttReady = false; voiceSendPcm(c, true);
+    voiceRecordTimer(c, turn, 15000, '识别超时，请重新说');
+  }
+  // 按下就录：麦克风和识别连接同时开始。每次按住新建识别连接，空闲与播放时不向识别端送音频。
   async function voiceHold(e) {
     e.preventDefault(); const c = voiceCall;
     if (!c || !c.ready || c.busy || c.holding || c.closing) return;
     if (e.pointerId != null) e.currentTarget.setPointerCapture(e.pointerId);
-    c.holding = true; c.busy = true; c.recordCancel = false; c.release = false; voiceButtons(c);
-    const turn = ++c.turn; c.pcm = []; c.transcript = ''; $('voice-caption').textContent = '';
-    voiceStatus(c, '连接识别中，请稍等…');
+    c.holding = true; c.busy = true; c.recordCancel = false; c.sttReady = false; voiceButtons(c);
+    const turn = ++c.turn; c.pcm = []; c.heard = 0; c.transcript = ''; $('voice-caption').textContent = '';
+    const mine = () => voiceLive(c) && c.turn === turn && !c.closing;
+    voiceStatus(c, '正在打开麦克风…');
+    voiceRecordTimer(c, turn, 90000, '识别超时，请重新说');
     try {
-      const token = await voiceToken(c, 'realtime_scribe');
-      if (!voiceLive(c) || c.turn !== turn || c.closing) return;
-      if (c.release) { c.busy = false; voiceStatus(c, '按住稍久一点再说话'); voiceButtons(c); return; }
-      if (!await voiceOpenMic(c, turn)) return;
+      const [token, mic] = await Promise.all([
+        voiceToken(c, 'realtime_scribe'),
+        voiceOpenMic(c, turn).then(ok => { if (ok && mine() && c.holding) voiceStatus(c, '正在听 · 松开发送'); return ok; })
+      ]);
+      if (!mic || !mine()) return;
       const ws = c.stt = new WebSocket('wss://api.elevenlabs.io/v1/speech-to-text/realtime?' + new URLSearchParams({ token, model_id: 'scribe_v2_realtime', audio_format: 'pcm_16000', commit_strategy: 'manual' }));
       c.sockets.add(ws);
-      c.recordTimer = setTimeout(() => { if (voiceLive(c) && c.turn === turn) interruptVoiceCall('识别超时，请重新说'); }, 90000);
       ws.onmessage = event => {
-        if (!voiceLive(c) || c.turn !== turn || c.closing) return;
+        if (!mine()) return;
         let j; try { j = JSON.parse(event.data); } catch (_) { interruptVoiceCall('识别响应格式有误'); return; }
-        if (j.message_type === 'session_started') { c.sttReady = true; voiceStatus(c, '正在听 · 松开发送'); }
+        if (j.message_type === 'session_started') {
+          c.sttReady = true;
+          if (!c.holding) voiceCommit(c, turn); // 松手早于连接：补发后直接提交
+          else if (c.pcm.length) voiceSendPcm(c, false);
+        }
         if (j.message_type === 'partial_transcript') $('voice-caption').textContent = j.text || '';
         if (j.message_type === 'committed_transcript') {
           clearTimeout(c.recordTimer); ws.onclose = null; ws.close(); c.sockets.delete(ws); c.stt = null;
@@ -5280,15 +5306,18 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         }
         if (j.error || /error|rate_limited|quota_exceeded/.test(j.message_type || '')) interruptVoiceCall('识别失败，请重新接通或稍后再试');
       };
-      ws.onerror = () => { if (voiceLive(c) && c.turn === turn) interruptVoiceCall('识别连接失败'); };
-      ws.onclose = () => { c.sockets.delete(ws); if (voiceLive(c) && c.turn === turn && c.busy) interruptVoiceCall('识别连接已断开'); };
+      ws.onerror = () => { if (voiceLive(c) && c.turn === turn) interruptVoiceCall('识别连接失败，请重新按住'); };
+      ws.onclose = () => { c.sockets.delete(ws); if (voiceLive(c) && c.turn === turn && c.busy) interruptVoiceCall('识别连接已断开，请重新按住'); };
     } catch (err) { if (voiceLive(c) && c.turn === turn && !c.closing) interruptVoiceCall(err.message); }
   }
   function voiceRelease(e, cancel = false) {
     e.preventDefault(); const c = voiceCall; if (!c || !c.holding) return;
-    c.holding = false; c.release = true;
-    if (cancel || !c.sttReady || !c.stt || c.stt.readyState !== WebSocket.OPEN) { interruptVoiceCall(cancel ? '已取消这次录音' : '尚未开始收音，请重新按住'); return; }
-    c.sttReady = false; voiceButtons(c); voiceSendPcm(c, true); voiceStopMic(c); voiceStatus(c, '正在识别…');
+    c.holding = false;
+    if (cancel) { interruptVoiceCall('已取消这次录音'); return; }
+    if (!c.mic || c.heard < VOICE_MIN_SAMPLES) { interruptVoiceCall('按住稍久一点再说话'); return; }
+    voiceStopMic(c); voiceButtons(c); voiceStatus(c, '正在识别…');
+    if (voiceSttOpen(c)) voiceCommit(c, c.turn);
+    else voiceRecordTimer(c, c.turn, 20000, '识别连接超时，请重新按住'); // 连上后由 session_started 补发并提交
   }
   function voiceAppend(c, msg) {
     if (!voiceLive(c)) throw new Error('对话已切换，通话停止');
@@ -5296,18 +5325,45 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (!saveCurrent()) throw new Error('聊天保存失败，请先导出备份');
     renderAll();
   }
+  // 通话断句。只切到「句末标点后面还有字」的地方（流结束时除外），这样能带上紧跟的后引号，
+  // 也能判断英文句号后面是不是空白。太短的句子不单独送出，继续并到下一个句末。
+  function voiceSplit(text, final) {
+    const TERM = '。！？!?…；;\n', CLOSE = '”」』’"）)', sentences = [];
+    let start = 0, i = 0;
+    while (i < text.length) {
+      const ch = text[i]; let stop = TERM.includes(ch);
+      if (ch === '.') {
+        if (i + 1 === text.length && !final) break; // 还看不到后面是什么
+        const next = text[i + 1], word = (text.slice(start, i).match(/[A-Za-z.]+$/) || [''])[0];
+        // 小数、编号（1. 2.）、常见缩写和姓名首字母不算句末
+        stop = (next == null || /\s/.test(next) || CLOSE.includes(next)) && !/\d/.test(text[i - 1] || '')
+          && !/^(?:Mr|Mrs|Ms|Dr|Prof|St|Jr|Sr|vs|etc|e\.g|i\.e|[A-Z])$/.test(word);
+      }
+      if (!stop) { i++; continue; }
+      let j = i + 1;
+      while (j < text.length && (TERM.includes(text[j]) || CLOSE.includes(text[j]))) j++;
+      if (j === text.length && !final) break;
+      const sentence = text.slice(start, j), size = sentence.trim().length;
+      // 中文按 5 个字算短；纯西文一个词就有好几个字母，放宽到 12
+      if (size >= (/[\u3400-\u9fff]/.test(sentence) ? 5 : 12)) { sentences.push(sentence); start = j; }
+      i = j;
+    }
+    return { sentences, rest: text.slice(start) };
+  }
   async function voiceAnswer(c, text) {
     const turn = c.turn, played = [], sentences = []; let draft = '', pending = '', queue = Promise.resolve(), synthesisError = null, res = null;
     let active = null, ahead = null, pumping = false;
     c.abort = new AbortController(); setLoading(true); voiceStatus(c, '正在回答…');
     const live = () => voiceLive(c) && c.turn === turn && !c.abort.signal.aborted;
     const fail = e => { if (live()) { synthesisError = e; c.abort.abort(); } };
+    // 提前取的那句如果失败，先留在它自己的 played 里；轮到它播时 pump 才会收到并收尾，
+    // 不打断正在播的这一句。
     const prepare = sentence => {
-      const audio = voicePrepare(c, sentence, turn);
-      audio.played.catch(fail);
-      return { sentence, audio };
+      const item = { sentence, audio: voicePrepare(c, sentence, turn), failed: false };
+      item.audio.played.catch(() => { item.failed = true; });
+      return item;
     };
-    const prefetch = () => { if (active && !ahead && sentences.length && live()) ahead = prepare(sentences.shift()); };
+    const prefetch = () => { if (active && !active.failed && !ahead && sentences.length && live()) ahead = prepare(sentences.shift()); };
     const pump = async () => {
       try {
         while (live() && (ahead || sentences.length)) {
@@ -5337,12 +5393,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (last) last._tail = (last._tail || '') + '\n\n现在正在语音通话。请自然地说话，用简短完整的句子，不用 Markdown、动作描写或工具。';
       res = await streamCompletion(c.model, api, c.abort.signal, () => {}, chunk => {
         if (!live()) return; draft += chunk; pending += chunk;
-        let match; while ((match = pending.match(/^[\s\S]*?[。！？!?\n](?:[”」』]*)/))) {
-          const sentence = match[0]; if (sentence.trim().length < 5 && sentence.length === pending.length) break;
-          enqueue(sentence); pending = pending.slice(sentence.length);
-        }
+        const cut = voiceSplit(pending, false);
+        cut.sentences.forEach(enqueue); pending = cut.rest;
       }, null, { voice: true });
-      if (live() && res.ended === 'done' && (!res.finish || res.finish === 'stop')) enqueue(pending);
+      if (live() && res.ended === 'done' && (!res.finish || res.finish === 'stop')) {
+        const cut = voiceSplit(pending, true);
+        cut.sentences.forEach(enqueue); enqueue(cut.rest);
+      }
       await queue;
     } catch (e) { fail(e); }
     finally {
@@ -5442,7 +5499,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   function interruptVoiceCall(label) {
     const c = voiceCall; if (!c) return;
     voiceStopMic(c);
-    ++c.turn; c.holding = false; c.sttReady = false; c.release = true; clearTimeout(c.recordTimer);
+    ++c.turn; c.holding = false; c.sttReady = false; c.pcm = []; clearTimeout(c.recordTimer);
     if (c.abort) c.abort.abort();
     for (const source of c.sources) { try { source.stop(); } catch (_) {} } c.sources.clear();
     for (const ws of c.sockets) { ws.onclose = null; ws.close(); } c.sockets.clear(); c.stt = null;
