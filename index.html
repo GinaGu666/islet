@@ -821,14 +821,20 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   <h3 id="voice-title">语音通话</h3>
   <div id="voice-settings" class="voice-settings">
   <label>这个角色的 ElevenLabs voice ID<input class="field mono" id="voice-id" autocomplete="off" spellcheck="false"></label>
-  <p class="voice-help">音色只保存在本机，下次接通会自动带入。</p>
+  <label>识别语言<select class="field" id="voice-lang">
+    <option value="">自动判断</option>
+    <option value="zh">中文</option>
+    <option value="zh+en">中文为主，夹英文</option>
+    <option value="en">英文</option>
+    <option value="en+zh">英文为主，夹中文</option>
+  </select></label>
+  <p class="voice-help">音色和识别语言只保存在本机，下次接通会自动带入。选定语言后不会再被听成别的语种。</p>
   </div>
   <p id="voice-status" role="status" aria-live="polite">准备接通</p>
   <p id="voice-caption" class="voice-caption"></p>
   <button class="voice-button voice-primary" id="voice-connect" onclick="connectVoiceCall()">接通</button>
   <div id="voice-controls" class="voice-controls" hidden>
   <button class="voice-button voice-primary voice-hold" id="voice-hold" disabled style="touch-action:none;user-select:none;-webkit-user-select:none" onpointerdown="voiceHold(event)" onpointerup="voiceRelease(event)" onpointercancel="voiceRelease(event, true)" onkeydown="if(event.code==='Space'&&!event.repeat)voiceHold(event)" onkeyup="if(event.code==='Space')voiceRelease(event)">按住说话</button>
-  <button class="voice-button" id="voice-interrupt" disabled onclick="interruptVoiceCall()">打断</button>
   </div>
   <div class="voice-footer"><button class="voice-button voice-end" id="voice-hangup" onclick="closeVoiceCall()">取消</button></div>
 </dialog>
@@ -1015,7 +1021,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-12 · 通话按下即录 · 断句</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-12 · 通话识别语言 · 按住插话</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -5162,8 +5168,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     $('voice-settings').hidden = !!c.ready;
     $('voice-controls').hidden = !c.ready;
     $('voice-hangup').textContent = c.ready ? '挂断通话' : '取消';
-    $('voice-hold').disabled = !c.ready || (c.busy && !c.holding) || c.closing;
-    $('voice-interrupt').disabled = !c.busy || c.closing;
+    // 对方在说话时按钮也亮着：按下去就是打断并开始说。只有「正在识别」那一小段锁住。
+    $('voice-hold').disabled = !c.ready || c.closing || (c.busy && !c.holding && !c.answering);
+    $('voice-hold').textContent = c.holding ? '松开发送' : c.answering && !c.barging ? '按住插话' : '按住说话';
   }
   function openVoiceCall() {
     if (voiceCall || isLoading || branchBusy || editingIdx != null) { toast('先完成当前操作'); return; }
@@ -5173,7 +5180,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const c = voiceCall = { cid: activeCompanionId, sid: currentId, model: selectedModel, turn: 0, sockets: new Set(), sources: new Set(), ready: false, busy: false, holding: false };
     $('voice-title').textContent = '和「' + activeCompanion().name + '」通话';
     $('voice-id').value = localStorage.getItem('islet_voice_' + c.cid) || '';
-    $('voice-id').disabled = false; $('voice-connect').disabled = false;
+    $('voice-lang').value = localStorage.getItem('islet_voice_lang_' + c.cid) || '';
+    $('voice-id').disabled = false; $('voice-lang').disabled = false; $('voice-connect').disabled = false;
     $('voice-caption').textContent = ''; voiceStatus(c, '准备接通'); voiceButtons(c);
     $('voice-dialog').showModal();
   }
@@ -5211,8 +5219,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const id = $('voice-id').value.trim();
     if (!/^[A-Za-z0-9_-]{1,100}$/.test(id)) { toast('请填写这个角色的 voice ID'); return; }
     if (!lsSet('islet_voice_' + c.cid, id)) return;
-    c.voice = id; c.connecting = true; c.life = new AbortController();
-    $('voice-connect').disabled = true; $('voice-id').disabled = true; voiceStatus(c, '正在打开麦克风…');
+    const lang = $('voice-lang').value;
+    if (!lsSet('islet_voice_lang_' + c.cid, lang)) return;
+    c.voice = id; c.lang = lang; c.connecting = true; c.life = new AbortController();
+    $('voice-connect').disabled = true; $('voice-id').disabled = true; $('voice-lang').disabled = true; voiceStatus(c, '正在打开麦克风…');
     try {
       // 在点击事件内解锁输出；不等网络或麦克风权限。
       c.audio = new (window.AudioContext || window.webkitAudioContext)(); await c.audio.resume();
@@ -5273,10 +5283,28 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     voiceRecordTimer(c, turn, 15000, '识别超时，请重新说');
   }
   // 按下就录：麦克风和识别连接同时开始。每次按住新建识别连接，空闲与播放时不向识别端送音频。
+  // 识别语言：主语言传 language_code，夹杂的那种再加 secondary_languages，把候选锁死在这两种里。
+  function voiceSttParams(c) {
+    const [main, second] = (c.lang || '').split('+');
+    const q = { model_id: 'scribe_v2_realtime', audio_format: 'pcm_16000', commit_strategy: 'manual' };
+    if (main) q.language_code = main;
+    if (second) q.secondary_languages = second;
+    return q;
+  }
   async function voiceHold(e) {
     e.preventDefault(); const c = voiceCall;
-    if (!c || !c.ready || c.busy || c.holding || c.closing) return;
+    if (!c || !c.ready || c.holding || c.closing || c.barging) return;
     if (e.pointerId != null) e.currentTarget.setPointerCapture(e.pointerId);
+    if (c.busy) {
+      // 对方还在说：按下就是打断。等这一轮把已播的句子存好，手还按着就接着录。
+      if (!c.answering) return;
+      c.barging = true; c.holdWanted = true; interruptVoiceCall('已打断…'); voiceButtons(c);
+      try { if (c.task) await c.task; } catch (_) {}
+      c.barging = false;
+      const wanted = c.holdWanted; c.holdWanted = false;
+      if (!voiceLive(c) || c.closing || c.busy) { voiceButtons(c); return; }
+      if (!wanted) { voiceStatus(c, '已打断 · 可以继续说话'); voiceButtons(c); return; }
+    }
     c.holding = true; c.busy = true; c.recordCancel = false; c.sttReady = false; voiceButtons(c);
     const turn = ++c.turn; c.pcm = []; c.heard = 0; c.transcript = ''; $('voice-caption').textContent = '';
     const mine = () => voiceLive(c) && c.turn === turn && !c.closing;
@@ -5288,7 +5316,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         voiceOpenMic(c, turn).then(ok => { if (ok && mine() && c.holding) voiceStatus(c, '正在听 · 松开发送'); return ok; })
       ]);
       if (!mic || !mine()) return;
-      const ws = c.stt = new WebSocket('wss://api.elevenlabs.io/v1/speech-to-text/realtime?' + new URLSearchParams({ token, model_id: 'scribe_v2_realtime', audio_format: 'pcm_16000', commit_strategy: 'manual' }));
+      const ws = c.stt = new WebSocket('wss://api.elevenlabs.io/v1/speech-to-text/realtime?' + new URLSearchParams({ token, ...voiceSttParams(c) }));
       c.sockets.add(ws);
       ws.onmessage = event => {
         if (!mine()) return;
@@ -5311,7 +5339,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     } catch (err) { if (voiceLive(c) && c.turn === turn && !c.closing) interruptVoiceCall(err.message); }
   }
   function voiceRelease(e, cancel = false) {
-    e.preventDefault(); const c = voiceCall; if (!c || !c.holding) return;
+    e.preventDefault(); const c = voiceCall; if (!c) return;
+    if (c.barging) { c.holdWanted = false; return; } // 还没轮到录音就松手了：只算打断
+    if (!c.holding) return;
     c.holding = false;
     if (cancel) { interruptVoiceCall('已取消这次录音'); return; }
     if (!c.mic || c.heard < VOICE_MIN_SAMPLES) { interruptVoiceCall('按住稍久一点再说话'); return; }
@@ -5353,7 +5383,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   async function voiceAnswer(c, text) {
     const turn = c.turn, played = [], sentences = []; let draft = '', pending = '', queue = Promise.resolve(), synthesisError = null, res = null;
     let active = null, ahead = null, pumping = false;
-    c.abort = new AbortController(); setLoading(true); voiceStatus(c, '正在回答…');
+    c.abort = new AbortController(); c.answering = true; setLoading(true); voiceStatus(c, '正在回答…'); voiceButtons(c);
     const live = () => voiceLive(c) && c.turn === turn && !c.abort.signal.aborted;
     const fail = e => { if (live()) { synthesisError = e; c.abort.abort(); } };
     // 提前取的那句如果失败，先留在它自己的 played 里；轮到它播时 pump 才会收到并收尾，
@@ -5410,8 +5440,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         catch (e) { synthesisError = e; }
       }
       if (synthesisError) { for (const source of c.sources) { try { source.stop(); } catch (_) {} } c.sources.clear(); }
-      c.busy = false; setLoading(false); voiceButtons(c);
-      if (!c.closing) voiceStatus(c, synthesisError ? '语音未完成，已保留播完的句子。' + synthesisError.message : interrupted ? '已打断 · 可以继续说话' : '按住说话，松开发送');
+      c.busy = false; c.answering = false; setLoading(false); voiceButtons(c);
+      if (!c.closing && !c.barging) voiceStatus(c, synthesisError ? '语音未完成，已保留播完的句子。' + synthesisError.message : interrupted ? '已打断 · 可以继续说话' : '按住说话，松开发送');
     }
   }
   function voicePrepare(c, text, turn) {
