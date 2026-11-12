@@ -61,7 +61,7 @@ const cleanEvery = n => Number.isFinite(n) ? Math.min(14, Math.max(1, Math.round
 function cleanSnapshot(body) {
   if (!body || typeof body !== 'object') throw httpError(400, '格式不对');
   const cards = Array.isArray(body.cards) ? body.cards.slice(0, 2000).map(k => ({
-    t: str(k && k.t, 2000), d: num(k && k.d), p: !!(k && k.p), c: str(k && k.c, 40), date: str(k && k.date, 10),
+    t: str(k && k.t, 2000), d: num(k && k.d), p: !!(k && k.p), c: str(k && k.c, 40), date: str(k && k.date, 10), done: !!(k && k.done),
   })).filter(k => k.t) : [];
   const epis = Array.isArray(body.epis) ? body.epis.slice(0, 1000).map(e => ({ d: num(e && e.d), t: str(e && e.t, 600) })).filter(e => e.t) : [];
   const updatedAt = num(body.updatedAt);
@@ -131,8 +131,10 @@ function agoText(ms) {
   return h < 1 ? '不到一小时' : h < 48 ? '约 ' + Math.round(h) + ' 小时' : '约 ' + Math.round(h / 24) + ' 天';
 }
 function freeTimePrompt(snap, past, presence) {
-  const pinned = snap.cards.filter(k => k.p || k.c === '约定');
-  const recentCards = snap.cards.filter(k => !k.p && k.c !== '约定').sort((a, b) => (b.d || 0) - (a.d || 0)).slice(0, 40);
+  // 和小岛的常驻层一致：置顶 + 还没兑现的约定（done = 已兑现，按普通卡对待）
+  const isCore = k => k.p || (k.c === '约定' && !k.done);
+  const pinned = snap.cards.filter(isCore);
+  const recentCards = snap.cards.filter(k => !isCore(k)).sort((a, b) => (b.d || 0) - (a.d || 0)).slice(0, 40);
   const epis = snap.epis.slice().sort((a, b) => (b.d || 0) - (a.d || 0)).slice(0, 8);
   const name = snap.name || '你';
   const lines = [];

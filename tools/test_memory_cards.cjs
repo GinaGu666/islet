@@ -82,5 +82,79 @@ const c3 = { id: 'p', name: 'P', cards: [] };
 for (let i = 0; i < MAX_CARDS + 2; i++) c3.cards.push(mk('p' + i, '置顶' + i, t0 + i, { p: 1 }));
 eq(trimMemCards(c3), 0, 'all-pinned: nothing archived');
 eq(c3.cards.length, MAX_CARDS + 2, 'all-pinned: nothing removed');
-return 'archive instead of delete, thread kept, not in L0/L2, recall tool + panel search, snapshot, backup + old backup, restore, pinned exempt';
+// ---- 2. English queries reach Chinese cards; whole-word, stemmed matching.
+const e = { id: 'e', name: 'E', cards: [] };
+[['父亲住院了，她很担心', 'k1'], ['家里的猫叫团子', 'k2'], ['在找新工作', 'k3'], ['喜欢看分类整理的视频', 'k4'], ['周末去海边散步', 'k5'], ['Loves her two dogs', 'k6']]
+  .forEach(([t, id], i) => e.cards.push(mk(id, t, t0 + i)));
+const hit = q => memRecall(e, [{ role: 'user', content: q }], new Set()).join('\n');
+ok(hit('My dad is in the hospital').includes('父亲住院'), 'dad → 父亲');
+ok(hit('how is your cat doing').includes('团子'), 'cat → 猫');
+ok(!hit('this category of videos').includes('团子'), 'cat does not match category');
+ok(hit('still looking for a job').includes('新工作'), 'job → 工作');
+ok(hit('walking my dog today').includes('two dogs'), 'dog ↔ dogs');
+ok(!memTokens('the and you').size, 'English stop words ignored');
+eq(memStem('moving'), memStem('moved'), 'stem moving/moved');
+// ---- 3. Promises: fulfilled ones leave the core; reserve for newest normal cards; panel shows occupancy.
+const v = { id: 'v', name: 'V', cards: [] };
+for (let i = 0; i < 12; i++) v.cards.push(mk('v' + i, '答应过的第' + i + '件事：' + '一起去很远很远的地方看看那片海和山'.repeat(3), t0 + 100 + i, { c: '约定' }));
+v.cards.push(mk('new1', '今天新学会了做蛋糕', t0 + 999));
+v.cards.sort((a, b) => b.d - a.d);
+let core = memCoreParts(v);
+ok(core.ids.has('new1'), 'reserve keeps the newest normal card in L0');
+ok(core.stats.vowMissed > 0, 'missed promises are counted');
+ok(core.stats.pvUsed <= core.stats.pvLimit, 'promises stay within their share');
+v.cards.find(k => k.id === 'v11').done = 1;
+core = memCoreParts(v);
+ok(!core.text.includes('【约定】答应过的第11件事') , 'fulfilled promise no longer tagged as open');
+ok(!memVow(v.cards.find(k => k.id === 'v11')), 'memVow false when done');
+ok(memSnapshot(v).cards.find(k => k.t.includes('第11件')).done === true, 'snapshot carries done');
+companions.push(v); editingCompanionId = 'v'; loadMemoryForm();
+ok(document.querySelector('#mem-arch-hint').textContent.includes('常驻'), 'panel shows core occupancy');
+ok(document.querySelector('#mem-arch-hint').textContent.includes('约定放不下'), 'panel shows missed promises');
+openCardEdit('v3'); ok(document.querySelector('#card-done-row').style.display !== 'none', 'done toggle shown for 约定');
+document.querySelector('#card-done').checked = true; saveCardEdit();
+ok(v.cards.find(k => k.id === 'v3').done === 1, 'done saved from editor');
+openCardEdit('new1'); ok(document.querySelector('#card-done-row').style.display === 'none', 'done toggle hidden for others'); closeCardEdit();
+// distill marks a promise done only via explicit FOLLOWUP n DONE
+const dv = { id: 'dv', name: 'DV', model: 'anthropic/chat', cards: [mk('p1', '答应一起重读小王子', t0, { c: '约定' }), mk('p2', '答应教她做饭', t0 - 1, { c: '约定' })], epis: [] };
+companions.push(dv);
+const realChat = chatOnce;
+chatOnce = async () => 'SUMMARY: 读完了。\nFOLLOWUP 1 DONE: 一起重读完了小王子 [事件]\nFOLLOWUP 2: 约好下周教做饭 [事件]';
+await distillMemory([{ role: 'user', content: '我们读完小王子了' }, { role: 'assistant', content: '嗯' }], dv);
+chatOnce = realChat;
+ok(dv.cards.find(k => k.id === 'p1').done === 1, 'FOLLOWUP DONE marks promise');
+ok(!dv.cards.find(k => k.id === 'p2').done, 'plain FOLLOWUP does not');
+// ---- 4. Heat: one recall per natural day.
+const h = { id: 'h', name: 'H', cards: [] };
+['雨天会想喝热可可', 'a', 'b', 'c', 'd'].forEach((t, i) => h.cards.push(mk('h' + i, t === '雨天会想喝热可可' ? t : '无关记录' + t, t0 + i)));
+for (let i = 0; i < 10; i++) memRecall(h, [{ role: 'user', content: '下雨了想喝热可可' }], new Set());
+eq(h.cards[0].n, 1, 'ten turns same day → n = 1');
+h.cards[0].u -= 2 * day;
+memRecall(h, [{ role: 'user', content: '下雨了想喝热可可' }], new Set());
+eq(h.cards[0].n, 2, 'another day → n = 2');
+// ---- 5. Tidy: batches cover old cards; merge keeps threads.
+const tc = { id: 'tc', name: 'TC', model: 'anthropic/chat', cards: [], epis: [] };
+for (let i = 0; i < 300; i++) tc.cards.push(mk('t' + i, '记录' + i, t0 + i, { c: i % 2 ? '事件' : '' }));
+tc.cards.sort((a, b) => b.d - a.d);
+const bs = tidyBatches(tc.cards);
+ok(bs.length >= 3, 'many cards → several batches');
+ok(bs.every(b => b.length <= TIDY_BATCH), 'batch size capped');
+eq(bs.reduce((n, b) => n + b.length, 0), 300, 'every card is in some batch');
+companions.push(tc); editingCompanionId = 'tc';
+let calls = 0; chatOnce = async (sys, user) => { calls++; return calls === 1 ? 'D: 1 = 过时' : 'NONE'; };
+await tidyNow(); chatOnce = realChat;
+eq(calls, bs.length, 'one request per batch');
+ok(tidyPlan && tidyPlan.items.length === 1, 'proposals gathered in one plan');
+closeTidy();
+// merge in the middle of a thread: A ← B ← C, merge B with a duplicate D → A ← M ← C
+const mc = { id: 'mc', name: 'MC', cards: [mk('C', '后来和好了', t0 + 3, { prev: 'B' }), mk('D', '吵了一架', t0 + 2), mk('B', '和他吵架了', t0 + 1, { prev: 'A' }), mk('A', '认识了他', t0)] };
+companions.push(mc);
+tidyPlan = { compId: 'mc', items: [{ kind: 'M', ids: ['D', 'B'], olds: [], text: '和他吵了一架', cat: '事件', on: true }] }; applyTidy();
+const M = mc.cards.find(k => k.t === '和他吵了一架');
+eq(M.prev, 'A', 'merged card takes the old prev');
+eq(mc.cards.find(k => k.id === 'C').prev, M.id, 'follow-up re-linked to merged card');
+// drop in the middle of a thread keeps it joined
+tidyPlan = { compId: 'mc', items: [{ kind: 'D', ids: [M.id], olds: [], on: true }] }; applyTidy();
+eq(mc.cards.find(k => k.id === 'C').prev, 'A', 'drop re-links thread');
+return 'archive instead of delete, thread kept, not in L0/L2, recall tool + panel search, snapshot, backup + old backup, restore, pinned exempt; EN↔ZH recall, promise done + reserve + panel, heat once a day, tidy batches + thread-safe merge/drop';
 /*END*/
