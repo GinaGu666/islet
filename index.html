@@ -1023,7 +1023,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-12 · 记忆卡归档</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-12 · 记忆卡归档 · 中英召回 · 约定兑现 · 分批整理</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -1129,8 +1129,15 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <label class="field-label" for="card-date" style="display:block;margin-top:10px">日期</label>
       <input class="field" id="card-date" type="date" min="0001-01-01" max="9999-12-31">
       <div class="mem-hint">记忆所对应的日期；留空则只保留记录时间。</div>
-      <div class="field-label" style="margin-top:10px">分类<span style="text-transform:none;opacity:.6">（「约定」会常驻带进每次对话）</span></div>
+      <div class="field-label" style="margin-top:10px">分类<span style="text-transform:none;opacity:.6">（「约定」会优先常驻带进对话）</span></div>
       <div id="card-cat-tabs"></div>
+      <div class="toggle-row" id="card-done-row" style="display:none;margin-top:6px">
+        <div>
+          <div class="tg-main">已兑现</div>
+          <div class="tg-sub">说好的事做到了：不再优先常驻，按普通记忆对待</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="card-done"><span class="slider"></span></label>
+      </div>
       <div class="field-label" style="margin-top:10px">接在哪张后面<span style="text-transform:none;opacity:.6">（这条是那件事的后续时选，想起时会连在一起）</span></div>
       <div class="prev-cur" id="card-prev-cur"></div>
       <input class="field" id="card-prev-q" placeholder="搜一张卡…" spellcheck="false" oninput="renderCardPrevList()">
@@ -4241,7 +4248,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     return {
       name: c.name || '', about: sharedAbout(), model: companionModel(c), freeTime: true, freeEvery: [1, 3, 7].includes(c.freeEvery) ? c.freeEvery : 1,
       // 只带内容字段；u/n 是记忆热度，每轮都会变，带上就会每轮重推
-      cards: memCardsOf(c).map(k => ({ t: k.t, d: k.d, p: !!k.p, c: k.c || '', date: k.date || '' })),
+      cards: memCardsOf(c).map(k => ({ t: k.t, d: k.d, p: !!k.p, c: k.c || '', date: k.date || '', ...(k.done ? { done: true } : {}) })),
       epis: epiOf(c).map(e => ({ d: e.d, t: e.t })),
     };
   }
@@ -4558,7 +4565,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
               if (done.has(k.id)) continue;
               if (archIds.has(k.id)) { done.add(k.id); lines.push('- （很久以前的旧记忆）' + (k.c ? '[' + k.c + '] ' : '') + k.t + '（' + memoryDateInfo(k) + '）'); continue; }
               const thread = memThread(ix, k);
-              thread.forEach(x => { done.add(x.id); x.u = Date.now(); x.n = (x.n || 0) + 1; });
+              thread.forEach(x => { done.add(x.id); memTouch(x); });
               lines.push('- ' + thread.map(x => (x.c ? '[' + x.c + '] ' : '') + x.t + '（' + memoryDateInfo(x) + '）').join(MEM_THREAD_JOIN));
             }
             saveCompanions();
@@ -4736,7 +4743,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (persona) block += "\n\n## Who you are to them\n" + persona;
       if (rel) block += "\n\n## Where the two of you are right now\n" + rel + "\n（这是随相处推移的动态位置，不是人设）";
       if (epi) block += "\n\n## Milestones you've shared\n" + epi;
-      if (core.text) block += "\n\n## What you remember from your time together\n" + core.text + "\n\n（对话途中若见到【记忆浮现】标注，那是被当前话题勾起的更早记忆——自然地想起就好，不必逐条复述，也不要向用户提起这个机制本身。带【约定】的是你们说好的事，认真对待。用「→ 后来：」连起来的是同一件事的前后发展，按时间排列，现在的情况以最后一段为准。）";
+      if (core.text) block += "\n\n## What you remember from your time together\n" + core.text + "\n\n（对话途中若见到【记忆浮现】标注，那是被当前话题勾起的更早记忆——自然地想起就好，不必逐条复述，也不要向用户提起这个机制本身。带【约定】的是你们说好的事，认真对待；【已兑现的约定】是已经做到了的。用「→ 后来：」连起来的是同一件事的前后发展，按时间排列，现在的情况以最后一段为准。）";
       parts.push(block);
     }
     if (systemPrompt) parts.push(systemPrompt);
@@ -5930,13 +5937,15 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
    * 写入端：提炼是增量式的——只把上次提炼之后的对话发给模型，长会话不再整场重发 */
   const MAX_CARDS = 2000;          // 每角色在用卡片上限（和服务器收卡上限一致）；超出时最旧的未置顶卡挪进归档，不删
   const MEM_TIDY_HINT = 400;       // 卡片到这么多时，在记忆面板提示可以整理一次
-  const MEM_CORE_BUDGET = 900;     // L0 常驻注入字数：置顶 → 约定 → 新→旧
+  const MEM_CORE_BUDGET = 900;     // L0 常驻注入字数：置顶 → 未兑现的约定 → 新→旧
+  const MEM_CORE_RESERVE = 300;    // 其中留给最新普通卡的保底，不被置顶和约定挤光
   const MEM_RECALL_BUDGET = 600;   // L2 每回合按话题召回的字数
   const MEM_RECALL_MAX = 8;        // L2 每回合最多召回几条
   const EPI_BUDGET = 400;          // L1 大事记注入字数
   const LIST_MARK = /^\s*(?:[-•·*]+\s*|\d{1,2}[.、)）](?!\d)\s*)+/;   // 只剥列表符号；「3月2日第一次约会」这种以日期开头的卡不能被吃掉数字
   const EPI_MAX = 300;             // 大事记条数上限
-  const MEM_CATS = ['事实', '偏好', '事件', '约定'];   // 分类；约定类保证常驻注入
+  const MEM_CATS = ['事实', '偏好', '事件', '约定'];   // 分类；未兑现的约定优先常驻（仍受预算约束，放不下的靠话题浮现）
+  const memVow = k => k.c === '约定' && !k.done;      // 约定标了「已兑现」（done）就按普通卡对待
   function memCardsOf(c) { if (!Array.isArray(c.cards)) c.cards = []; return c.cards; }
   // 归档：超上限被挪出的卡。不进 L0 常驻、不参与 L2 浮现，但 recall 工具和面板搜索能查到，面板里能恢复。
   // 和在用的卡放在同一份 islet_companions 里，随备份走；旧备份没有这个字段，按空处理。
@@ -5973,7 +5982,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const arr = memCardsOf(c);
     if (arr.length <= MAX_CARDS) return 0;
     // 淘汰顺序：先挪「从没被想起过的最旧普通卡」，再挪「最旧普通卡」，最后才轮到约定；置顶永远豁免。
-    const rounds = [k => !k.p && k.c !== '约定' && !k.n, k => !k.p && k.c !== '约定', k => !k.p];
+    const rounds = [k => !k.p && !memVow(k) && !k.n, k => !k.p && !memVow(k), k => !k.p];
     const out = [];
     for (const pick of rounds)
       for (let i = arr.length - 1; i >= 0 && arr.length > MAX_CARDS; i--) if (arr[i].id !== keepId && pick(arr[i])) {
@@ -6025,48 +6034,86 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     return all.length > MEM_THREAD_MAX ? [all[0]].concat(all.slice(1 - MEM_THREAD_MAX)) : all;
   }
   const MEM_THREAD_JOIN = ' → 后来：';
-  function memCoreParts(comp) {   // L0：置顶 → 约定 → 其余按新→旧，塞满预算为止；返回 {text, ids}
+  // L0：置顶 → 未兑现的约定 → 其余按新→旧。置顶和约定最多用到 预算 - 保底，保底留给最新的普通卡。
+  // 返回 {text, ids, stats}；stats 给记忆面板显示常驻层的占用。
+  function memCoreParts(comp) {
     const arr = memCardsOf(comp);
-    if (!arr.length) return { text: '', ids: new Set() };
+    const stats = { pvUsed: 0, pvLimit: MEM_CORE_BUDGET, vowMissed: 0, pinMissed: 0 };
+    if (!arr.length) return { text: '', ids: new Set(), stats };
     const pin = arr.filter(k => k.p);
-    const vow = arr.filter(k => !k.p && k.c === '约定');
-    const rest = arr.filter(k => !k.p && k.c !== '约定');
+    const vow = arr.filter(k => !k.p && memVow(k));
+    const rest = arr.filter(k => !k.p && !memVow(k));
     const ids = new Set(); const out = []; let used = 0;
     const ix = memThreadIndex(arr);
-    for (const k of pin.concat(vow, rest)) {
-      if (ids.has(k.id)) continue;   // 已随同一条事件线写进去了
-      const thread = memThread(ix, k);
-      const line = '- ' + thread.map(x => { const date = normMemoryDate(x.date); return (x.c === '约定' ? '【约定】' : '') + (date ? '【日期：' + date + '】' : '') + x.t; }).join(MEM_THREAD_JOIN);
-      if (out.length && used + line.length > MEM_CORE_BUDGET) continue;
-      out.push(line); used += line.length + 1; thread.forEach(x => ids.add(x.id));
-    }
+    const tag = x => memVow(x) ? '【约定】' : x.c === '约定' ? '【已兑现的约定】' : '';
+    const put = (list, limit) => {
+      for (const k of list) {
+        if (ids.has(k.id)) continue;   // 已随同一条事件线写进去了
+        const thread = memThread(ix, k);
+        const line = '- ' + thread.map(x => { const date = normMemoryDate(x.date); return tag(x) + (date ? '【日期：' + date + '】' : '') + x.t; }).join(MEM_THREAD_JOIN);
+        if (out.length && used + line.length > limit) continue;
+        out.push(line); used += line.length + 1; thread.forEach(x => ids.add(x.id));
+      }
+    };
+    stats.pvLimit = MEM_CORE_BUDGET - (rest.length ? MEM_CORE_RESERVE : 0);
+    put(pin.concat(vow), stats.pvLimit);
+    stats.pvUsed = used;
+    stats.pinMissed = pin.filter(k => !ids.has(k.id)).length;
+    stats.vowMissed = vow.filter(k => !ids.has(k.id)).length;
+    put(rest, MEM_CORE_BUDGET);
     const dormant = arr.length - ids.size;
     if (dormant > 0) out.push('（另有 ' + dormant + ' 条旧记忆在沉睡，聊到相关话题时会自动浮现）');
-    return { text: out.join('\n'), ids };
+    return { text: out.join('\n'), ids, stats };
   }
 
   /* L2 相关性召回：中文按字二元组 + 英文单词做轻量匹配，罕见词权重高（不调 API，零成本） */
   /* 同义词组：词面召回的近义词补丁。文本里出现组内任一词，就往词袋里加一枚该组的记号（§n），
      于是「我爸」和「父亲」共享同一枚记号，能互相勾起。组记号和普通词条一样参与罕见度降权：
      某组要是出现在几十张卡里（比如吃饭组），权重自动掉到地板，不会变成噪声源。想扩充直接往里加。 */
+  // 通话是英文、卡片多是中文：每组也带上英文词，两边打同一枚组记号，说 "my dad" 也能勾起写着「父亲」的卡。
   const SYN_GROUPS = [
-    ['爸', '父亲', '爹'], ['妈', '母亲'], ['爷爷', '祖父'], ['奶奶', '祖母'], ['外公', '姥爷'], ['外婆', '姥姥'],
-    ['老婆', '妻子', '媳妇', '太太'], ['老公', '丈夫'], ['男朋友', '男友'], ['女朋友', '女友'],
-    ['孩子', '小孩', '儿子', '女儿'], ['猫', '喵'], ['狗'],
-    ['工作', '上班', '加班', '打工', '职场'], ['公司', '单位'], ['考试', '考研', '高考', '期末'],
-    ['生病', '看病', '医院', '就医'], ['睡觉', '睡眠', '入睡', '失眠', '熬夜'],
-    ['难过', '伤心', '难受', '委屈', '低落'], ['开心', '高兴', '快乐', '兴奋'],
-    ['焦虑', '紧张', '压力', '烦躁'], ['生气', '愤怒', '火大'],
-    ['减肥', '健身', '运动', '锻炼', '跑步'], ['旅行', '旅游', '出游', '出去玩'],
-    ['电影', '观影'], ['音乐', '听歌', '歌曲', '唱歌'], ['做饭', '下厨', '厨艺', '菜谱'],
-    ['吃饭', '早饭', '午饭', '晚饭', '早餐', '午餐', '晚餐', '夜宵', '外卖'],
+    ['爸', '父亲', '爹', 'dad', 'father', 'daddy', 'papa'], ['妈', '母亲', 'mom', 'mother', 'mum', 'mommy', 'mama'],
+    ['爷爷', '祖父', 'grandpa', 'grandfather'], ['奶奶', '祖母', 'grandma', 'grandmother'], ['外公', '姥爷'], ['外婆', '姥姥'],
+    ['哥哥', 'brother'], ['姐姐', '妹妹', 'sister'], ['朋友', 'friend'],
+    ['老婆', '妻子', '媳妇', '太太', 'wife'], ['老公', '丈夫', 'husband'], ['男朋友', '男友', 'boyfriend'], ['女朋友', '女友', 'girlfriend'],
+    ['孩子', '小孩', '儿子', '女儿', 'kid', 'child', 'children', 'son', 'daughter'], ['猫', '喵', 'cat', 'kitty', 'kitten'], ['狗', 'dog', 'puppy'],
+    ['工作', '上班', '加班', '打工', '职场', 'work', 'job', 'office', 'overtime'], ['公司', '单位', 'company'], ['同事', 'colleague', 'coworker'], ['老板', '领导', 'boss', 'manager'],
+    ['考试', '考研', '高考', '期末', 'exam', 'test'], ['学习', '读书', 'study', 'studying'],
+    ['生病', '看病', '医院', '就医', 'sick', 'ill', 'hospital', 'doctor'], ['睡觉', '睡眠', '入睡', '失眠', '熬夜', 'sleep', 'insomnia', 'asleep', 'bed'],
+    ['难过', '伤心', '难受', '委屈', '低落', 'sad', 'upset', 'hurt', 'down'], ['开心', '高兴', '快乐', '兴奋', 'happy', 'glad', 'excited'],
+    ['焦虑', '紧张', '压力', '烦躁', 'anxious', 'anxiety', 'nervous', 'stress', 'stressed'], ['生气', '愤怒', '火大', 'angry', 'mad'],
+    ['减肥', '健身', '运动', '锻炼', '跑步', 'gym', 'exercise', 'workout', 'run', 'running'], ['旅行', '旅游', '出游', '出去玩', 'travel', 'trip', 'vacation'],
+    ['电影', '观影', 'movie', 'film'], ['音乐', '听歌', '歌曲', '唱歌', 'music', 'song', 'sing'], ['做饭', '下厨', '厨艺', '菜谱', 'cook', 'cooking', 'recipe'],
+    ['吃饭', '早饭', '午饭', '晚饭', '早餐', '午餐', '晚餐', '夜宵', '外卖', 'eat', 'food', 'breakfast', 'lunch', 'dinner', 'meal'],
+    ['咖啡', '拿铁', 'coffee', 'latte'], ['生日', 'birthday'], ['下雨', '雨天', 'rain', 'rainy'], ['海边', '大海', 'beach', 'sea', 'ocean'],
+    ['书', '小说', 'book', 'novel'], ['游戏', 'game', 'gaming'], ['搬家', 'move', 'moving'], ['钱', '工资', 'money', 'salary'],
   ];
-  const _synIdx = (() => { const m = new Map(); SYN_GROUPS.forEach((g, i) => g.forEach(w => m.set(w, i))); return m; })();
+  // 英文最简单的词形归并：dogs → dog、worked → work、running → run。查询和卡片走同一个函数，两边一致即可。
+  function memStem(w) {
+    const dbl = x => /([b-df-hj-np-tv-z])\1$/.test(x) && !/(ll|ss)$/.test(x) ? x.slice(0, -1) : x;
+    if (w.length > 5 && w.endsWith('ing')) w = dbl(w.slice(0, -3));
+    else if (w.length > 4 && /(ied|ies)$/.test(w)) w = w.slice(0, -3) + 'i';
+    else if (w.length > 4 && w.endsWith('ed')) w = dbl(w.slice(0, -2));
+    else if (w.length > 4 && /(ches|shes|sses|xes|zes)$/.test(w)) w = w.slice(0, -2);
+    else if (w.length > 3 && w.endsWith('s') && !/(ss|us|is)$/.test(w)) w = w.slice(0, -1);
+    if (w.length > 3 && w.endsWith('e')) w = w.slice(0, -1);        // move / moved / moving → mov
+    else if (w.length > 3 && w.endsWith('y')) w = w.slice(0, -1) + 'i';   // study / studies → studi
+    return w;
+  }
+  // 英文虚词不当词条：否则「the」「you」这类在只有一两张英文卡时权重满格，变成噪声
+  const MEM_STOP = new Set('the and you your yours are was were for with that this have has had not but what when where who how why all can will just like about from they them their there then than our ours his her hers she him its it\'s i\'m im me my mine we us be been being do does did done so if or of on in at to an as is am up out no yes oh ok okay too very really also into over some any more much one get got go going went let lets say said would could should might shall may must'.split(' '));
+  const _synIdx = new Map(), _synEn = new Map();   // 中文词 → 组号（按子串）；英文词干 → 组号（按整词）
+  SYN_GROUPS.forEach((g, i) => g.forEach(w => { if (/^[a-z]+$/.test(w)) _synEn.set(memStem(w), i); else _synIdx.set(w, i); }));
   const _bgCache = new Map();   // 卡片分词缓存 id -> {t, set}
   function memTokens(s) {
     s = String(s || '').toLowerCase().slice(0, 1500);
     const set = new Set();
-    (s.match(/[a-z0-9]{2,}/g) || []).forEach(w => set.add(w));
+    (s.match(/[a-z0-9]{2,}/g) || []).forEach(w => {
+      if (MEM_STOP.has(w)) return;
+      const st = /^[a-z]+$/.test(w) ? memStem(w) : w;
+      set.add(st);
+      if (_synEn.has(st)) set.add('§' + _synEn.get(st));   // 整词匹配：cat 不会命中 category
+    });
     const han = s.replace(/[^\u3400-\u9fff]/g, '');
     for (let i = 0; i + 1 < han.length; i++) set.add(han.slice(i, i + 2));
     if (han.length === 1) set.add(han);
@@ -6090,6 +6137,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     return df;
   }
   function tokenWeight(df) { return df <= 2 ? 1 : df <= 6 ? .55 : df <= 15 ? .28 : .1; }
+  // 热度：同一张卡一个自然日最多算一次「想起」——同一个话题连聊十轮、重新生成、续写都只加 1。
+  // n 的含义因此是「在 n 天里被想起过」；旧数据里偏大的 n 反正已在加成里封顶，不迁移。
+  function memTouch(k) {
+    const now = Date.now();
+    if (!k.u || dayKey(new Date(k.u)) !== dayKey(new Date(now))) k.n = (k.n || 0) + 1;
+    k.u = now;
+  }
   function memRecall(comp, win, exclude) {   // 用最近几条用户消息当查询，召回话题相关的沉睡卡
     const arr = memCardsOf(comp);
     if (arr.length < 4) return [];
@@ -6124,7 +6178,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       const line = '- ' + thread.map(x => x.t + '（' + memoryDateInfo(x) + '）').join(MEM_THREAD_JOIN);
       if (out.length && used + line.length > MEM_RECALL_BUDGET) continue;
       out.push(line); used += line.length + 1;
-      thread.forEach(x => { done.add(x.id); x.u = Date.now(); x.n = (x.n || 0) + 1; });   // 真被送进上下文才算「想起一次」
+      thread.forEach(x => { done.add(x.id); memTouch(x); });   // 真被送进上下文才算「想起」（一天最多一次）
     }
     if (out.length) companionsDirty = true;                       // 只写 u/n，不动 memUpdated——词频缓存不受扰；落盘合并到 buildApiMessages 末尾
     return out;
@@ -6253,6 +6307,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const wrap = $('card-cat-tabs'); if (!wrap) return;
     const tabs = [['', '无分类'], ['事实', '事实'], ['偏好', '偏好'], ['事件', '事件'], ['约定', '约定']];
     wrap.innerHTML = tabs.map(tb => '<button type="button" class="mini-tab ' + (cardEditCat === tb[0] ? 'sel' : '') + '" onclick="setCardCat(\'' + tb[0] + '\')">' + tb[1] + '</button>').join('');
+    const dr = $('card-done-row'); if (dr) dr.style.display = cardEditCat === '约定' ? '' : 'none';
   }
   function openCardEdit(id) {
     cardEditId = id || null;
@@ -6263,6 +6318,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     $('card-text').value = k ? k.t : '';
     $('card-date').value = k ? normMemoryDate(k.date) : dayKey();
     cardEditCat = (k && k.c) || '';
+    $('card-done').checked = !!(k && k.done);
     cardEditPrev = (k && k.prev) || '';
     $('card-prev-q').value = '';
     renderCardCatTabs(); renderCardPrev();
@@ -6276,8 +6332,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const rawDate = $('card-date').value, date = normMemoryDate(rawDate);
     if (!$('card-date').checkValidity() || (rawDate && !date)) { toast('请填写有效日期'); $('card-date').focus(); return; }
     const prev = cardEditPrev && !cardPrevBlocked(c).has(cardEditPrev) && memCardsOf(c).some(x => x.id === cardEditPrev) ? cardEditPrev : '';
-    if (cardEditId) { const k = memCardsOf(c).find(x => x.id === cardEditId); if (k) { k.t = text; k.c = cardEditCat; if (date) k.date = date; else delete k.date; if (prev) k.prev = prev; else delete k.prev; c.memUpdated = Date.now(); } }
+    if (cardEditId) { const k = memCardsOf(c).find(x => x.id === cardEditId); if (k) { k.t = text; k.c = cardEditCat; if (cardEditCat === '约定' && $('card-done').checked) k.done = 1; else delete k.done; if (date) k.date = date; else delete k.date; if (prev) k.prev = prev; else delete k.prev; c.memUpdated = Date.now(); } }
     else if (!addMemCard(c, text, undefined, cardEditCat, date, prev)) { toast('已经有一条很相近的记忆啦'); return; }
+    else if (cardEditCat === '约定' && $('card-done').checked) memCardsOf(c)[0].done = 1;
     saveCompanions(); renderMemCards(); closeCardEdit();
   }
   async function deleteCardFromEdit() {
@@ -6326,6 +6383,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const n = memCardsOf(c).length, na = memArchOf(c).length, lines = [];
     if (na) lines.push('有 ' + na + ' 张旧卡在归档里' + (c.archNote ? '（最近一次 ' + fmtWhen(c.archNote.at) + ' 挪进 ' + c.archNote.n + ' 张）' : '') + '：不会带进对话，TA 用「翻记忆」时还能查到。点上面「归档」查看、恢复。');
     if (n >= MEM_TIDY_HINT) lines.push('卡片有 ' + n + ' 张了，可以点一次下面的「整理记忆」，合并重复的。');
+    const st = memCoreParts(c).stats, nPV = memCardsOf(c).filter(k => k.p || memVow(k)).length;
+    if (nPV) lines.unshift('常驻：置顶和约定用了 ' + Math.min(st.pvUsed, st.pvLimit) + ' / ' + st.pvLimit + ' 字'
+      + (st.vowMissed ? '，有 ' + st.vowMissed + ' 条约定放不下（聊到时还会浮现；做到了的可以点开标「已兑现」）' : '')
+      + (st.pinMissed ? '，有 ' + st.pinMissed + ' 条置顶放不下' : ''));
     el.innerHTML = lines.map(esc).join('<br>');
     el.style.display = lines.length ? '' : 'none';
   }
@@ -6353,7 +6414,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <button class="mcard-pin" type="button" onclick="togglePinCard('${k.id}')" aria-label="置顶"><svg viewBox="0 0 24 24" width="15" height="15" fill="${k.p ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.2 4.1 1 5.8L12 16.4 6.7 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg></button>
         <div class="mcard-body" onclick="openCardEdit('${k.id}')">
           <div class="mcard-text">${esc(k.t)}</div>
-          <div class="mcard-date">${k.p ? '📌 ' : ''}${k.c ? '<span class="mem-chip">' + k.c + '</span> ' : ''}${normMemoryDate(k.date) || fmtWhen(k.d)}${k.n ? ' · 想起 ' + k.n + ' 次' : ''}${(() => { const pk = k.prev && memCardsOf(c).find(x => x.id === k.prev); return pk ? ' · 接：' + esc(pk.t.length > 16 ? pk.t.slice(0, 16) + '…' : pk.t) : ''; })()}</div>
+          <div class="mcard-date">${k.p ? '📌 ' : ''}${k.c ? '<span class="mem-chip">' + k.c + (k.c === '约定' && k.done ? ' · 已兑现' : '') + '</span> ' : ''}${normMemoryDate(k.date) || fmtWhen(k.d)}${k.n ? ' · 有 ' + k.n + ' 天想起过' : ''}${(() => { const pk = k.prev && memCardsOf(c).find(x => x.id === k.prev); return pk ? ' · 接：' + esc(pk.t.length > 16 ? pk.t.slice(0, 16) + '…' : pk.t) : ''; })()}</div>
         </div>
         <button class="mcard-del" type="button" onclick="deleteCardRow('${k.id}')" aria-label="删除">×</button>
       </div>`).join('') + archHits.map(archRowHtml).join('') : '<div class="mcard-empty">' + (q || memFilter ? '没有匹配的记忆' : '还没有记忆卡片<br>聊过之后点下面「提炼」，或手动记一条') + '</div>';
@@ -6443,25 +6504,44 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
   /* ---------- 记忆整理：模型只提案，人来拍板（合并重复 / 移除过时 / 补分类）；置顶永不参与 ---------- */
   let tidyPlan = null;   // { compId, items:[{kind:'M'|'D'|'T', ids, olds, text?, cat?, why?, on}] }
+  const TIDY_BATCH = 90;   // 一批给模型看多少张：几百张一次塞进去，输入太长、一次只能动十几张
+  // 分批：卡少就一批（新→旧）；卡多就按分类聚在一起再按时间切，同类的重复更容易被认出来。提案汇总到同一个面板，她一次拍板。
+  function tidyBatches(pool) {
+    const byNew = (a, b) => b.d - a.d;
+    if (pool.length <= TIDY_BATCH + 10) return [pool.slice().sort(byNew)];
+    const order = ['', ...MEM_CATS], out = [];
+    for (const cat of order) {
+      const arr = pool.filter(k => (MEM_CATS.includes(k.c) ? k.c : '') === cat).sort(byNew);
+      const n = Math.ceil(arr.length / TIDY_BATCH);
+      for (let i = 0; i < n; i++) out.push(arr.slice(Math.floor(i * arr.length / n), Math.floor((i + 1) * arr.length / n)));   // 均匀切，不留一小截尾巴
+    }
+    return out.filter(b => b.length >= 2);
+  }
   async function tidyNow() {
     const comp = editingCompanion();
     const pool = memCardsOf(comp).filter(k => !k.p);
     if (pool.length < 5) { $('distill-status').textContent = '卡片还少，暂时不用整理'; return; }
     if (!providerReady()) { $('distill-status').textContent = '请先在设置里配置接口来源'; return; }
+    const batches = tidyBatches(pool);
+    if (batches.length > 3 && !(await uiConfirm('卡片有 ' + pool.length + ' 张，要分 ' + batches.length + ' 批整理？', { sub: '每批发一次请求，提案最后汇总给你拍板。', ok: '开始整理' }))) return;
     const btn = $('tidy-btn'); btn.disabled = true;
-    $('distill-status').textContent = '正在盘点记忆…';
-    const list = pool.map((k, i) => (i + 1) + '. ' + (k.c ? '[' + k.c + '] ' : '') + k.t + '（' + memoryDateInfo(k) + '）').join('\n');
     const sys = "You are the curator of an AI companion's memory cards. Cards are numbered, NEWEST FIRST (lower number = newer). Propose ONLY clear, safe maintenance actions, one per line:\n- M: merge cards that say the same thing in different words. Format: 'M: 3,7 => merged one-line text [分类]'\n- D: drop a card that is clearly outdated (contradicted by a NEWER card) or clearly worthless. Format: 'D: 12 = short reason'. Prefer M over D; never drop unique facts.\n- T: add a category to an untagged card. Format: 'T: 5 = 分类'. Category is exactly one of 事实 / 偏好 / 事件 / 约定 (约定 = promises or plans made between the two of them).\nAt most 15 lines. If nothing needs doing, output exactly NONE. No commentary, no numbering, no code fences. Merged text stays in the cards' language, terse like an index card.";
-    const user = 'MEMORY CARDS (newest first):\n' + list + '\n\nOutput actions now.';
-    try {
-      const outTxt = await chatOnce(sys, user, memoryModel(comp), 2048);
-      const items = parseTidy(outTxt, pool);
-      btn.disabled = false;
-      if (!items.length) { $('distill-status').textContent = '盘点完毕：暂时没有需要整理的 ✓'; return; }
-      tidyPlan = { compId: comp.id, items };
-      renderTidy(); show('tidy-overlay');
-      $('distill-status').textContent = '';
-    } catch (e) { btn.disabled = false; $('distill-status').textContent = '整理失败，请重试'; }
+    const items = []; let failed = 0;
+    for (let b = 0; b < batches.length; b++) {
+      const batch = batches[b];
+      $('distill-status').textContent = batches.length > 1 ? '正在盘点记忆（' + (b + 1) + ' / ' + batches.length + ' 批）…' : '正在盘点记忆…';
+      const list = batch.map((k, i) => (i + 1) + '. ' + (k.c ? '[' + k.c + (k.c === '约定' && k.done ? '·已兑现' : '') + '] ' : '') + k.t + '（' + memoryDateInfo(k) + '）').join('\n');
+      const user = 'MEMORY CARDS (newest first):\n' + list + '\n\nOutput actions now.';
+      try { items.push(...parseTidy(await chatOnce(sys, user, memoryModel(comp), 2048), batch)); }
+      catch (e) { failed++; }
+    }
+    btn.disabled = false;
+    if (failed === batches.length) { $('distill-status').textContent = '整理失败，请重试'; return; }
+    const note = failed ? '（有 ' + failed + ' 批没盘点成功，可以稍后再点一次）' : '';
+    if (!items.length) { $('distill-status').textContent = '盘点完毕：暂时没有需要整理的 ✓' + note; return; }
+    tidyPlan = { compId: comp.id, items };
+    renderTidy(); show('tidy-overlay');
+    $('distill-status').textContent = note;
   }
   function parseTidy(txt, pool) {
     const items = []; const used = new Set();   // 一张卡最多进一个提案，防冲突
@@ -6511,16 +6591,31 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     for (const it of tidyPlan.items) {
       if (!it.on) continue;
       if (it.kind === 'T') { const i = byId(it.ids[0]); if (i >= 0) { arr[i].c = it.cat; n++; } }
-      else if (it.kind === 'D') { const i = byId(it.ids[0]); if (i >= 0) { arr.splice(i, 1); n++; } }
+      else if (it.kind === 'D') { const i = byId(it.ids[0]); if (i >= 0) { memUnlinkCard(comp, it.ids[0]); arr.splice(i, 1); n++; } }   // 接在它后面的卡改接到它前一张
       else if (it.kind === 'M') {
         const ks = it.ids.map(byId).filter(i => i >= 0).sort((a, b) => a - b);
         if (!ks.length) continue;
-        const dates = [...new Set(ks.map(i => normMemoryDate(arr[i].date)).filter(Boolean))];
+        const olds = ks.map(i => arr[i]);
+        const dates = [...new Set(olds.map(k => normMemoryDate(k.date)).filter(Boolean))];
         if (dates.length > 1) continue;   // 预案生成后日期被修改时也保护原卡
-        const dMin = Math.min.apply(null, ks.map(i => arr[i].d));   // 保留最早"学到"的时间
+        const gone = new Set(olds.map(k => k.id));
+        const dMin = Math.min.apply(null, olds.map(k => k.d));   // 保留最早"学到"的时间
+        // 事件线：合并出的新卡接上原来最早那张的 prev；接在被合并卡后面的，改接到新卡
+        const prev = olds.slice().sort((a, b) => a.d - b.d).map(k => k.prev).find(p => p && !gone.has(p) && arr.some(x => x.id === p));
+        const cat = it.cat || '';
+        const fresh = { id: genId(), t: it.text, d: dMin, p: 0, c: cat, ...(dates.length ? { date: dates[0] } : {}) };
+        const nMax = Math.max(0, ...olds.map(k => k.n || 0)), uMax = Math.max(0, ...olds.map(k => k.u || 0));
+        if (nMax) fresh.n = nMax; if (uMax) fresh.u = uMax;
+        if (cat === '约定' && olds.every(k => k.c === '约定' && k.done)) fresh.done = 1;
         const pos = ks[0];                                           // 落在最新那张的位置
         for (let j = ks.length - 1; j >= 0; j--) arr.splice(ks[j], 1);
-        arr.splice(pos, 0, { id: genId(), t: it.text, d: dMin, p: 0, c: it.cat || '', ...(dates.length ? { date: dates[0] } : {}) });
+        arr.splice(pos, 0, fresh);
+        arr.forEach(x => { if (x.prev && gone.has(x.prev)) x.prev = fresh.id; });
+        if (prev) {   // 防成环：prev 往上走不能走回新卡
+          const byIdMap = new Map(arr.map(x => [x.id, x])); let cur = byIdMap.get(prev), steps = 0, loop = false;
+          while (cur && steps++ < 5000) { if (cur.id === fresh.id) { loop = true; break; } cur = cur.prev ? byIdMap.get(cur.prev) : null; }
+          if (!loop) fresh.prev = prev;
+        }
         n++;
       }
     }
@@ -6647,8 +6742,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       allCards.filter(k => !inShown.has(k.id))
         .map(k => { let s = 0; for (const t of cardTokens(k)) if (qt.has(t)) s += tokenWeight(df.get(t) || 1); return { k, s }; })
         .filter(x => x.s >= 1.1).sort((a, b) => b.s - a.s).slice(0, 20).forEach(x => shown.push(x.k));
-      const existing = shown.map((k, i) => '[' + (i + 1) + '] ' + k.t).join('\n');
-      const sys = "You maintain the long-term memory of an AI companion in a companion app: memory cards, a session summary, and a relationship-state line for one specific relationship. You will see the existing cards, the current relationship state, then a recent conversation between the user and the AI companion.\n\nOUTPUT FORMAT — exactly these parts, in this order, nothing else (no bullets, no numbering, no commentary, no code fences):\n1. One line starting with 'SUMMARY: ' — a short narrative recap of THIS conversation from the companion's own perspective (what was discussed, the emotional arc, any relationship beats, how it ended). If a summary of the earlier part of this conversation is provided, fold it in and output the updated recap of the WHOLE conversation, not just the new part. 2-4 short sentences, under 120 Chinese characters. Not a chat log — an arc.\n2. 0 to 5 lines, one NEW memory card per line: only durable information not already covered by existing cards — facts about the user's life, preferences, meaningful events, emotional notes that will still matter later. When a fact carries the user's emotional stance, fold the stance into the card: not just the fact ('哥哥去世') but the posture ('提起哥哥仍会流泪'). Facts with posture beat bare facts. Shared experiences between the user and the companion are the MOST important memories — dates, outings, trips, first times, confessions, anniversaries, gifts, fights and making up — including ones that took place inside the chat or were imagined/played out together, and adventures or stories you made up together: they are real to this relationship, never dismiss them as roleplay. Give EACH distinct occasion its own [事件] card (when, where, what happened, what made it special), even if an existing card mentions a similar kind of thing in general — a general card does not cover a specific occasion. Each card is ONE terse line, like an index card, ending with exactly one category tag: [事实] life facts about them · [偏好] tastes/likes/dislikes · [事件] things that happened · [约定] promises or plans made between the two of you (use 约定 strictly for real commitments). Example: '答应下个月一起重读《小王子》 [约定]'. If nothing new: output exactly NONE on its own line. Never put a tag on the SUMMARY or RELATION lines.\n   FOLLOW-UPS: existing cards are numbered like [12]. If a new card is a later development, outcome or change of something an existing card records (the interview → got the offer; a fight → making up; a plan → how it actually went), start that line with 'FOLLOWUP 12: ' using that card's number, and still write the card so it stands on its own — repeat the key names, places or keywords from that card, because it will be searched by them. Example: 'FOLLOWUP 12: 去X公司面试后拿到了offer，松了一口气 [事件]'. Use FOLLOWUP only for a real continuation of that specific card; other new cards have no prefix.\n3. Optionally, one line starting with 'RELATION: ' — ONLY if where-you-two-are-now has meaningfully shifted from the current relationship state shown. Describe the relationship's present position (not who anyone is), under 60 Chinese characters. Omit this line entirely if nothing shifted.\n\nNEVER record in cards: meta/technical talk (which AI model, the app itself, prompts, settings, API, testing), small talk that won't matter in a week, blow-by-blow accounts (keep outcome + feeling), or anything an existing card already covers in different words.\n\nWrite everything in the language the conversation is mostly in.";
+      const existing = shown.map((k, i) => '[' + (i + 1) + '] ' + k.t + (memVow(k) ? ' [约定]' : '')).join('\n');
+      const sys = "You maintain the long-term memory of an AI companion in a companion app: memory cards, a session summary, and a relationship-state line for one specific relationship. You will see the existing cards, the current relationship state, then a recent conversation between the user and the AI companion.\n\nOUTPUT FORMAT — exactly these parts, in this order, nothing else (no bullets, no numbering, no commentary, no code fences):\n1. One line starting with 'SUMMARY: ' — a short narrative recap of THIS conversation from the companion's own perspective (what was discussed, the emotional arc, any relationship beats, how it ended). If a summary of the earlier part of this conversation is provided, fold it in and output the updated recap of the WHOLE conversation, not just the new part. 2-4 short sentences, under 120 Chinese characters. Not a chat log — an arc.\n2. 0 to 5 lines, one NEW memory card per line: only durable information not already covered by existing cards — facts about the user's life, preferences, meaningful events, emotional notes that will still matter later. When a fact carries the user's emotional stance, fold the stance into the card: not just the fact ('哥哥去世') but the posture ('提起哥哥仍会流泪'). Facts with posture beat bare facts. Shared experiences between the user and the companion are the MOST important memories — dates, outings, trips, first times, confessions, anniversaries, gifts, fights and making up — including ones that took place inside the chat or were imagined/played out together, and adventures or stories you made up together: they are real to this relationship, never dismiss them as roleplay. Give EACH distinct occasion its own [事件] card (when, where, what happened, what made it special), even if an existing card mentions a similar kind of thing in general — a general card does not cover a specific occasion. Each card is ONE terse line, like an index card, ending with exactly one category tag: [事实] life facts about them · [偏好] tastes/likes/dislikes · [事件] things that happened · [约定] promises or plans made between the two of you (use 约定 strictly for real commitments). Example: '答应下个月一起重读《小王子》 [约定]'. If nothing new: output exactly NONE on its own line. Never put a tag on the SUMMARY or RELATION lines.\n   FOLLOW-UPS: existing cards are numbered like [12]. If a new card is a later development, outcome or change of something an existing card records (the interview → got the offer; a fight → making up; a plan → how it actually went), start that line with 'FOLLOWUP 12: ' using that card's number, and still write the card so it stands on its own — repeat the key names, places or keywords from that card, because it will be searched by them. Example: 'FOLLOWUP 12: 去X公司面试后拿到了offer，松了一口气 [事件]'. Use FOLLOWUP only for a real continuation of that specific card; other new cards have no prefix. If the existing card is a [约定] and this conversation shows, beyond doubt, that the promise was actually carried out (not merely mentioned, planned again or half done), write 'FOLLOWUP 12 DONE: ' instead; when unsure, use plain FOLLOWUP.\n3. Optionally, one line starting with 'RELATION: ' — ONLY if where-you-two-are-now has meaningfully shifted from the current relationship state shown. Describe the relationship's present position (not who anyone is), under 60 Chinese characters. Omit this line entirely if nothing shifted.\n\nNEVER record in cards: meta/technical talk (which AI model, the app itself, prompts, settings, API, testing), small talk that won't matter in a week, blow-by-blow accounts (keep outcome + feeling), or anything an existing card already covers in different words.\n\nLANGUAGE: write the SUMMARY, every memory card and the RELATION line in Chinese, even when the conversation (for example a voice call) is in English — the memory store keeps one language so cards can be found again. Keep proper names (people, pets, places, titles of works) in their original form.";
       const user = "EXISTING MEMORY CARDS:\n" + (existing || '(empty)') + "\n\nCURRENT RELATIONSHIP STATE:\n" + ((comp.rel || '').trim() || '(not set yet)') + (prevSummary ? "\n\nSUMMARY OF THE EARLIER PART OF THIS CONVERSATION (already distilled — the transcript below is only what came after):\n" + prevSummary : '') + "\n\n----\n\nRECENT CONVERSATION" + (prevSummary ? ' (newest part only)' : '') + ":\n" + transcript + "\n\n----\n\nOutput now: the SUMMARY line, then memory lines (or NONE), then optionally the RELATION line.";
       const out = await chatOnce(sys, user, memoryModel(comp), 4096, { keepalive: true });   // 失败抛错 → 外层 catch 返回 null
       let added = 0, summary = '', relation = '';
@@ -6658,9 +6753,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         if (ms) { summary = ms[1].slice(0, 300); return; }
         if (mr) { relation = mr[1].slice(0, 120); return; }
         if (/^none$/i.test(l)) return;
-        const mf = l.match(/^follow[\s-]?up\s*\[?(\d{1,3})\]?\s*[:：]\s*(.+)$/i);   // 后续卡：接在第 n 张后面
+        const mf = l.match(/^follow[\s-]?up\s*\[?(\d{1,3})\]?\s*(done)?\s*[:：]\s*(.+)$/i);   // 后续卡：接在第 n 张后面；DONE = 那条约定兑现了
         const parent = mf ? shown[+mf[1] - 1] : null;
-        if (added < 5 && addMemCard(comp, mf ? mf[2] : l, undefined, undefined, undefined, parent && parent.id)) added++;
+        if (added < 5 && addMemCard(comp, mf ? mf[3] : l, undefined, undefined, undefined, parent && parent.id)) {
+          added++;
+          if (mf && mf[2] && parent && memVow(parent) && memCardsOf(comp).some(k => k.id === parent.id)) parent.done = 1;
+        }
       });
       return { added, summary, relation };
     } catch (e) { return null; }
@@ -6967,7 +7065,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     await idbDel('imports', c.hist.fileId).catch(() => {});
     c.hist.cleared = true; saveCompanions(); renderHistBlock();
   }
-  const HIST_SYS = "You maintain the long-term memory of an AI companion in a companion app: memory cards and an episode log for one specific relationship. You will see the existing cards, the current relationship state, the summary of the PREVIOUS segment (for context only), then ONE segment of a long chat history between the user and the companion.\n\nOUTPUT FORMAT — exactly these parts, in this order, nothing else (no bullets, no numbering, no commentary, no code fences):\n1. One line starting with 'SUMMARY: ' — a short narrative recap of THIS segment only, from the companion's own perspective (what was discussed, the emotional arc, any relationship beats — name any date or shared occasion that happened). Do not repeat the previous segment. 2-4 short sentences, under 120 Chinese characters. Not a chat log — an arc.\n2. 0 to 8 lines, one NEW memory card per line: only durable information not already covered by existing cards — facts about the user's life, preferences, meaningful events, emotional notes that will still matter later. When a fact carries the user's emotional stance, fold the stance into the card: not just the fact but the posture. Shared experiences between the user and the companion are the MOST important memories — dates, outings, trips, first times, confessions, anniversaries, gifts, fights and making up — including ones that took place inside the chat or were imagined/played out together, and adventures or stories you made up together: they are real to this relationship, never dismiss them as roleplay. Give EACH distinct occasion its own [事件] card (when, where, what happened, what made it special), even if an existing card mentions a similar kind of thing in general — a general card does not cover a specific occasion. Each card is ONE terse line, like an index card, ending with exactly one category tag: [事实] life facts · [偏好] tastes/likes/dislikes · [事件] things that happened · [约定] promises or plans made between the two of you (strictly real commitments). If nothing new: output exactly NONE on its own line. Never put a tag on the SUMMARY or RELATION lines.\n3. Optionally, one line starting with 'RELATION: ' — ONLY if where-you-two-are-now has meaningfully shifted from the current relationship state shown. Under 60 Chinese characters. Omit if nothing shifted.\n\nNEVER record in cards: meta/technical talk (which AI model, the app, prompts, settings, API, quotas), small talk that won't matter in a week, blow-by-blow accounts (keep outcome + feeling), or anything an existing card already covers in different words.\n\nWrite everything in the language the conversation is mostly in.";
+  const HIST_SYS = "You maintain the long-term memory of an AI companion in a companion app: memory cards and an episode log for one specific relationship. You will see the existing cards, the current relationship state, the summary of the PREVIOUS segment (for context only), then ONE segment of a long chat history between the user and the companion.\n\nOUTPUT FORMAT — exactly these parts, in this order, nothing else (no bullets, no numbering, no commentary, no code fences):\n1. One line starting with 'SUMMARY: ' — a short narrative recap of THIS segment only, from the companion's own perspective (what was discussed, the emotional arc, any relationship beats — name any date or shared occasion that happened). Do not repeat the previous segment. 2-4 short sentences, under 120 Chinese characters. Not a chat log — an arc.\n2. 0 to 8 lines, one NEW memory card per line: only durable information not already covered by existing cards — facts about the user's life, preferences, meaningful events, emotional notes that will still matter later. When a fact carries the user's emotional stance, fold the stance into the card: not just the fact but the posture. Shared experiences between the user and the companion are the MOST important memories — dates, outings, trips, first times, confessions, anniversaries, gifts, fights and making up — including ones that took place inside the chat or were imagined/played out together, and adventures or stories you made up together: they are real to this relationship, never dismiss them as roleplay. Give EACH distinct occasion its own [事件] card (when, where, what happened, what made it special), even if an existing card mentions a similar kind of thing in general — a general card does not cover a specific occasion. Each card is ONE terse line, like an index card, ending with exactly one category tag: [事实] life facts · [偏好] tastes/likes/dislikes · [事件] things that happened · [约定] promises or plans made between the two of you (strictly real commitments). If nothing new: output exactly NONE on its own line. Never put a tag on the SUMMARY or RELATION lines.\n3. Optionally, one line starting with 'RELATION: ' — ONLY if where-you-two-are-now has meaningfully shifted from the current relationship state shown. Under 60 Chinese characters. Omit if nothing shifted.\n\nNEVER record in cards: meta/technical talk (which AI model, the app, prompts, settings, API, quotas), small talk that won't matter in a week, blow-by-blow accounts (keep outcome + feeling), or anything an existing card already covers in different words.\n\nLANGUAGE: write the SUMMARY, every memory card and the RELATION line in Chinese, even when the conversation (for example a voice call) is in English — the memory store keeps one language so cards can be found again. Keep proper names (people, pets, places, titles of works) in their original form.";
   function parseHistOut(out) {
     let summary = '', relation = ''; const cardLines = [];
     String(out || '').split('\n').map(l => l.replace(LIST_MARK, '').trim()).filter(Boolean).forEach(l => {
