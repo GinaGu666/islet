@@ -19,6 +19,8 @@ const body=fs.readFileSync(__filename,'utf8').split('/*BODY*/')[2].split('/*END*
   assert.deepEqual(errors,[]);console.log('PASS: '+out);
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>w.close());
 
+// 包进一个从不调用的 async 函数里，Node 才能解析这个文件；真正执行的是上面读出来的那段。
+async function _body() {
 /*BODY*/
 const ok = (v, m) => { if (!v) throw new Error('FAIL: ' + m); };
 const eq = (a, b, m) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error('FAIL: ' + m + ' — got ' + JSON.stringify(a) + ', want ' + JSON.stringify(b)); };
@@ -158,3 +160,4 @@ tidyPlan = { compId: 'mc', items: [{ kind: 'D', ids: [M.id], olds: [], on: true 
 eq(mc.cards.find(k => k.id === 'C').prev, 'A', 'drop re-links thread');
 return 'archive instead of delete, thread kept, not in L0/L2, recall tool + panel search, snapshot, backup + old backup, restore, pinned exempt; EN↔ZH recall, promise done + reserve + panel, heat once a day, tidy batches + thread-safe merge/drop';
 /*END*/
+}
