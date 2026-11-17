@@ -8,7 +8,7 @@
 - 单文件：`index.html`，约 5300 行，HTML + CSS + 原生 JS。**没有构建步骤，没有依赖**——不要引入打包工具、框架或 CDN 资源（只有 pdf.js / mammoth 是按需从 CDN 拉的，用来读 PDF / docx 附件）。
 - 另有 `tools/split_claude_export.py`：把 Claude.ai 的导出拆成「导入角色」用的 islet-import 文件。
 - ChatGPT 的原始聊天 JSON 可从「导入角色 / 聊天」直接导入（ZIP 先解压，支持多选编号 JSON）。先选窗口，再沿 `current_node` 的父链取唯一当前路线；只搬文字与非文字占位，不带图片/音频实体。来源消息 ID 随聊天块备份，用于重复导入检查。
-- DeepSeek 官方导出的聊天 JSON 走同一个入口：节点里是 `message.fragments`（REQUEST / THINK / RESPONSE / SEARCH），没有 `current_node`，所以从根往下走、分叉处取 `inserted_at` 最新的一支；只导入 REQUEST、RESPONSE，思考和搜索不搬，带 `files` 的消息加占位说明。格式按常见导出结构写的，拿到真实文件后如有出入再调。
+- DeepSeek 实际导出的聊天 JSON 走同一个入口：会话里的 `messages` 数组直接带 `fragments`（REQUEST / THINK / RESPONSE / SEARCH），按 `current_message_id` 沿 `parent_id` 回溯当前路线；缺少当前编号时只有唯一末端才可导入，父消息缺失、重复 ID 或循环时报错。兼容旧的 `mapping` / `message.fragments` 格式，旧格式仍从根往下、分叉取 `inserted_at` 最新的一支。只导入 REQUEST、RESPONSE，思考和搜索不搬，带 `files` 的用户消息加占位说明。合并导入时用单独的单调排序时间保持每条路线的父子顺序（真实导出可出现回复时间早于提问几毫秒），保存的原始消息时间不改写。测试样本按实际导出结构脱敏编写，用户原始导出不可提交到公开仓库。
 - 角色导入先写独立原文和聊天块、读回校验，再提交角色与索引；失败回滚，仅清理本次新副本。不要恢复为分块成功多少就提交多少的旧逻辑。
 - 接口只有 OpenRouter。原来的自建「传话员」（Claude Code 包一层）线路已整条移除：设置、握手伪装、代笔拦截都删了。旧版留在本机的 `islet_provider` / `cc_base` / `cc_key` / `cc_model(s)` / `islet_cc_sys` 启动时清掉；旧备份里的 `provider` / `ccBase` 导入时忽略。
 - 功能：多角色（companions），每个角色各自的人设、关系状态、记忆卡、大事记，加一份共享的「关于你」；一条河（见下）；跨角色消息搜索；打卡；名场面；活动（多角色同题竞技 + 评审）；传纸条；图片与文件附件；本地小工具（function calling：记忆卡、翻旧对话、打卡、名场面、改「关于你」、Notion）；主题 / 字号 / 字体；小熊；prompt caching 断点；归档与备份。
@@ -76,3 +76,4 @@
 她会逗你。被逗了别慌，接着就好。她逗完了会自己笑。
 
 不要催她。她会自己安排。
+

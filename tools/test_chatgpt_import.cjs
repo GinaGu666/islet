@@ -55,6 +55,31 @@ async function app(storage,db=new IDBFactory()) {
  const dsApp=await app();await dsApp.file([[ds]]);assert.equal(dsApp.run('ciGptEntries.length'),1);dsApp.w.qaDs=ds;parsed=plain(dsApp.run('deepseekConversation(qaDs)'));
  assert.deepEqual(parsed.messages.map(m=>m.role),['user','assistant','user','assistant']);assert.equal(parsed.omitted,1);assert(!JSON.stringify(parsed).includes('SECRET'));assert(!JSON.stringify(parsed).includes('OLD EDIT'));
  dsApp.prepare();assert.equal(dsApp.run('ciData.source'),'deepseek');await dsApp.import('小和尚');assert.equal((await dsApp.msgs(dsApp.run('activeCompanionId'))).length,4);
+ // Actual DeepSeek export schema, with generic text/IDs only; never commit a user's original export.
+ const dsFlat={id:'ds-flat',title:'DeepSeek QA',pinned:false,current_message_id:2,inserted_at:'2026-10-01T12:00:00+08:00',updated_at:'2026-10-01T12:05:00+08:00',messages:[
+  {id:1,parent_id:null,role:'USER',status:'FINISHED',thinking_enabled:false,search_enabled:false,accumulated_token_usage:0,inserted_at:'2026-10-01T12:00:00.003+08:00',fragments:[{type:'REQUEST',content:'测试提问'}]},
+  {id:2,parent_id:1,role:'ASSISTANT',status:'FINISHED',thinking_enabled:true,search_enabled:true,accumulated_token_usage:20,inserted_at:'2026-10-01T12:00:00.000+08:00',fragments:[{type:'THINK',content:'PRIVATE THOUGHT'},{type:'SEARCH',content:'SEARCH RESULT'},{type:'RESPONSE',content:'测试回复'}]}
+ ]};
+ const dsActual=await app();await dsActual.file([dsFlat]);assert.equal(dsActual.run('ciGptEntries.length'),1);dsActual.prepare();
+ assert.equal(dsActual.run('ciData.source'),'deepseek');parsed=plain(dsActual.run('ciData.conversations[0]'));
+ assert.deepEqual(parsed.messages.map(m=>[m.role,m.content]),[['user','测试提问'],['assistant','测试回复']]);
+ assert.equal(parsed.messages[0].ts,Date.parse(dsFlat.messages[0].inserted_at));assert.deepEqual(parsed.messages.map(m=>m.importKey),['deepseek:ds-flat:1','deepseek:ds-flat:2']);
+ await dsActual.import('DeepSeek QA');const dsCid=dsActual.run('activeCompanionId');const dsStored=await dsActual.msgs(dsCid);assert.deepEqual(dsStored.map(m=>m.content),['测试提问','测试回复']);assert.deepEqual(dsStored.map(m=>m.ts),dsFlat.messages.map(m=>Date.parse(m.inserted_at)));
+ await dsActual.file([dsFlat]);dsActual.prepare();await dsActual.import('',dsCid);assert(dsActual.w.lastToast.includes('没有重复'));assert.equal((await dsActual.msgs(dsCid)).length,2);
+ // Selected response beats a newer fork; array ordering and numeric/string IDs do not change the route.
+ const fork=plain(dsFlat);fork.messages.push({...plain(dsFlat.messages[1]),id:3,inserted_at:'2026-10-01T12:04:00+08:00',fragments:[{type:'RESPONSE',content:'UNSELECTED NEWER REPLY'}]});fork.messages.reverse();fork.current_message_id='2';
+ dsActual.w.qaDs=fork;assert.deepEqual(plain(dsActual.run('deepseekConversation(qaDs).messages.map(m=>m.content)')),['测试提问','测试回复']);
+ delete fork.current_message_id;assert.throws(()=>dsActual.run('deepseekConversation(qaDs)'),/当前路线/);
+ dsActual.w.qaDs=plain(dsFlat);delete dsActual.w.qaDs.current_message_id;assert.equal(dsActual.run('deepseekConversation(qaDs).messages.length'),2);
+ dsActual.w.qaDs=plain(dsFlat);dsActual.w.qaDs.current_message_id=99;assert.throws(()=>dsActual.run('deepseekConversation(qaDs)'),/不完整/);
+ dsActual.w.qaDs=plain(dsFlat);dsActual.w.qaDs.messages[1].parent_id=99;assert.throws(()=>dsActual.run('deepseekConversation(qaDs)'),/不完整/);
+ dsActual.w.qaDs=plain(dsFlat);dsActual.w.qaDs.messages[0].parent_id=2;assert.throws(()=>dsActual.run('deepseekConversation(qaDs)'),/循环/);
+ dsActual.w.qaDs=plain(dsFlat);dsActual.w.qaDs.messages.push(plain(dsFlat.messages[1]));assert.throws(()=>dsActual.run('deepseekConversation(qaDs)'),/重复/);
+ dsActual.w.qaDs=plain(dsFlat);delete dsActual.w.qaDs.messages[1].fragments;assert.throws(()=>dsActual.run('deepseekConversation(qaDs)'),/内容片段/);
+ // Attachment-only user messages retain a placeholder; unselected branches stay out of incremental imports.
+ dsActual.w.qaDs=plain(dsFlat);dsActual.w.qaDs.messages[0].fragments=[];dsActual.w.qaDs.messages[0].files=[{id:'test-file'}];parsed=plain(dsActual.run('deepseekConversation(qaDs)'));assert.equal(parsed.omitted,1);assert(parsed.messages[0].content.includes('占位'));
+ const dsNext=plain(dsFlat);dsNext.messages.push({...plain(dsFlat.messages[0]),id:4,parent_id:2,fragments:[{type:'REQUEST',content:'后续提问'}]},{...plain(dsFlat.messages[1]),id:5,parent_id:4,fragments:[{type:'RESPONSE',content:'后续回复'}]});dsNext.current_message_id=5;dsNext.updated_at='2026-10-01T12:10:00+08:00';
+ dsActual.run('activeCompanion().hist.cleared=true;saveCompanions()');await dsActual.file([[dsFlat],{conversations:[dsNext]}]);assert.equal(dsActual.run('ciGptEntries.length'),1);dsActual.prepare();await dsActual.import('',dsCid);assert.deepEqual((await dsActual.msgs(dsCid)).map(m=>m.content),['测试提问','测试回复','后续提问','后续回复']);
  // Legacy converted files still import dates/cards and retain unknown dates as unknown.
  const legacy=await app();await legacy.file([{app:'islet-import',character:{name:'旧格式',cards:[{t:'旧卡',date:'2023-11-14'}]},conversations:[{messages:[{role:'user',content:'旧消息',ts:1700000000000}]}]}]);await legacy.import('旧格式');assert.equal(legacy.run('activeCompanion().cards[0].date'),'2023-11-14');
  // Large imports span cold chunks; repeat runs and write failures never alter existing content.
@@ -67,6 +92,7 @@ async function app(storage,db=new IDBFactory()) {
  await failure(`const realCold=storeChunkCold;let writes=0;storeChunkCold=async(meta,msgs)=>{if(++writes===2)return false;return realCold(meta,msgs)}`);
  await failure(`const realPut=idbPut;idbPut=(store,rec)=>realPut(store,store==='imports'?{...rec,msgs:[]}:rec)`);
  await failure(`const realSet=lsSet;lsSet=(key,value)=>key==='islet_idx'?false:realSet(key,value)`);
- for(const x of [a,reload,restored,multi,legacy,large,dsApp])assert.deepEqual(x.errors,[]);
- console.log('PASS: GPT active-path conversion, DeepSeek fragment exports, malformed trees, text/media handling, safe window selection, multi-file exports, dedupe/incremental imports, legacy compatibility, 1002-message cold storage, reload/backup and staged-write/readback/index rollback.');
+ for(const x of [a,reload,restored,multi,legacy,large,dsApp,dsActual])assert.deepEqual(x.errors,[]);
+ console.log('PASS: GPT active-path conversion, actual DeepSeek messages/current_message_id exports and legacy mappings, selected forks, malformed trees, text/media handling, safe window selection, multi-file exports, dedupe/incremental imports, legacy compatibility, 1002-message cold storage, reload/backup and staged-write/readback/index rollback.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>contexts.forEach(d=>d.window.close()));
+

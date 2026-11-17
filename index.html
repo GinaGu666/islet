@@ -1023,7 +1023,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-17 · 导入 DeepSeek 聊天记录</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-17 · 修复 DeepSeek 实际导出格式</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -6815,35 +6815,67 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   // 窗口的创建 / 更新时间：GPT 用 create_time / update_time，DeepSeek 用 inserted_at / updated_at
   function convCreated(c) { return importTimestamp(c && (c.create_time != null ? c.create_time : c.inserted_at)); }
   function convUpdated(c) { return importTimestamp(c && (c.update_time != null ? c.update_time : c.updated_at)); }
-  // DeepSeek 官方导出：mapping 里的节点 message 带 fragments（REQUEST / THINK / RESPONSE …），没有 author.role
+  // DeepSeek 实际导出是 messages 数组；兼容此前支持的 mapping / message.fragments 格式。
   function isDeepseekConv(c) {
+    if (c && Array.isArray(c.messages)) return true;
     const map = c && c.mapping;
     return !!(map && typeof map === 'object' && Object.values(map).some(n => n && n.message && Array.isArray(n.message.fragments)));
   }
-  /* DeepSeek 没有 current_node：从根往下走，遇到改写 / 重新生成留下的分叉，取最新的那一支（时间相同取最后一个）。
+  // 按 current_message_id / parent_id 回溯实际选中的路线；ID 的数字 / 字符串写法视为同一个。
+  function deepseekMessageChain(c) {
+    const map = new Map();
+    for (const m of c.messages) {
+      if (!m || typeof m !== 'object' || Array.isArray(m) || !['string', 'number'].includes(typeof m.id) || m.id === '' || (typeof m.id === 'number' && !Number.isSafeInteger(m.id))) throw new Error('消息 ID 无效');
+      const key = String(m.id);
+      if (map.has(key)) throw new Error('消息 ID 重复');
+      map.set(key, m);
+    }
+    let id = c.current_message_id;
+    if (id == null || id === '') {
+      const parents = new Set(c.messages.filter(m => m.parent_id != null && m.parent_id !== '').map(m => String(m.parent_id)));
+      const leaves = [...map.keys()].filter(k => !parents.has(k));
+      if (leaves.length !== 1) throw new Error('缺少当前路线标识，不能确定哪个版本被选中');
+      id = leaves[0];
+    }
+    const chain = [], seen = new Set();
+    while (id != null && id !== '') {
+      const key = String(id);
+      if (seen.has(key)) throw new Error('消息树存在循环');
+      const m = map.get(key);
+      if (!m) throw new Error('消息树不完整，缺少当前或父消息');
+      if (!Array.isArray(m.fragments)) throw new Error('消息缺少内容片段');
+      seen.add(key); chain.push([key, { message: m }]); id = m.parent_id;
+    }
+    return chain.reverse();
+  }
+  /* 实际导出沿当前消息的父链取路线；旧 mapping 格式从根往下走，分叉取最新一支。
    * REQUEST → 用户，RESPONSE → 回复；THINK、SEARCH 等过程片段不导入。 */
   function deepseekConversation(c) {
-    const map = c.mapping;
-    if (!map || typeof map !== 'object' || Array.isArray(map)) throw new Error('缺少消息树');
-    const has = k => Object.prototype.hasOwnProperty.call(map, k) && map[k];
-    const keys = Object.keys(map);
-    let id = has('root') ? 'root' : null;
-    if (id == null) {
-      const roots = keys.filter(k => map[k] && (map[k].parent == null || map[k].parent === '' || !has(map[k].parent)));
-      if (roots.length !== 1) throw new Error('找不到消息树的起点');
-      id = roots[0];
-    }
-    const kids = k => {
-      const own = Array.isArray(map[k].children) ? map[k].children.filter(has) : null;
-      return own || keys.filter(x => map[x] && map[x].parent === k);
-    };
-    const latest = k => { let t = 0; const m = map[k].message; if (m) t = importTimestamp(m.inserted_at) || 0; return t; };
-    const chain = [], seen = new Set();
-    while (id != null) {
-      if (seen.has(id)) throw new Error('消息树存在循环');
-      seen.add(id); chain.push([id, map[id]]);
-      const next = kids(id); if (!next.length) break;
-      id = next.reduce((best, k) => latest(k) >= latest(best) ? k : best, next[0]);
+    let chain;
+    if (Array.isArray(c.messages)) chain = deepseekMessageChain(c);
+    else {
+      const map = c.mapping;
+      if (!map || typeof map !== 'object' || Array.isArray(map)) throw new Error('缺少消息树');
+      const has = k => Object.prototype.hasOwnProperty.call(map, k) && map[k];
+      const keys = Object.keys(map);
+      let id = has('root') ? 'root' : null;
+      if (id == null) {
+        const roots = keys.filter(k => map[k] && (map[k].parent == null || map[k].parent === '' || !has(map[k].parent)));
+        if (roots.length !== 1) throw new Error('找不到消息树的起点');
+        id = roots[0];
+      }
+      const kids = k => {
+        const own = Array.isArray(map[k].children) ? map[k].children.filter(has) : null;
+        return own || keys.filter(x => map[x] && map[x].parent === k);
+      };
+      const latest = k => { let t = 0; const m = map[k].message; if (m) t = importTimestamp(m.inserted_at) || 0; return t; };
+      chain = []; const seen = new Set();
+      while (id != null) {
+        if (seen.has(id)) throw new Error('消息树存在循环');
+        seen.add(id); chain.push([id, map[id]]);
+        const next = kids(id); if (!next.length) break;
+        id = next.reduce((best, k) => latest(k) >= latest(best) ? k : best, next[0]);
+      }
     }
     const messages = []; let omitted = 0, previous = convCreated(c);
     for (const [key, node] of chain) {
@@ -6854,7 +6886,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         const type = String(f && f.type || '').toUpperCase(), text = f && typeof f.content === 'string' ? f.content : '';
         if (type === 'REQUEST') user.push(text); else if (type === 'RESPONSE') reply.push(text);
       }
-      if (user.length && Array.isArray(m.files) && m.files.length) { omitted++; user.push('【原消息包含图片、文件或其他非文字内容，此处仅保留文字及占位说明】'); }
+      if ((user.length || String(m.role || '').toUpperCase() === 'USER') && Array.isArray(m.files) && m.files.length) { omitted++; user.push('【原消息包含图片、文件或其他非文字内容，此处仅保留文字及占位说明】'); }
       const base = 'deepseek:' + String(c.id || '') + ':' + String(m.id || key);
       const u = user.join('\n'), r = reply.join('\n');
       if (u.trim()) messages.push({ role: 'user', content: u, ts, importKey: base + (r.trim() ? ':user' : '') });
@@ -6914,8 +6946,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (docs.length === 1 && docs[0] && docs[0].app === 'islet-import' && Array.isArray(docs[0].conversations)) { ciData = docs[0]; showCharacterImport(); return; }
       const unique = new Map();
       for (const d of docs) {
-        const list = Array.isArray(d) ? d : d && Array.isArray(d.conversations) ? d.conversations : d && d.mapping ? [d] : null;
-        if (!list || !list.length || list.some(c => !c || !c.mapping || typeof c.mapping !== 'object' || Array.isArray(c.mapping))) throw new Error('请选择 GPT 或 DeepSeek 导出的聊天 JSON，或单个 islet-import 文件。');
+        const list = Array.isArray(d) ? d : d && Array.isArray(d.conversations) ? d.conversations : d && (d.mapping || Array.isArray(d.messages)) ? [d] : null;
+        if (!list || !list.length || list.some(c => !c || !(c.mapping && typeof c.mapping === 'object' && !Array.isArray(c.mapping)) && !Array.isArray(c.messages))) throw new Error('请选择 GPT 或 DeepSeek 导出的聊天 JSON，或单个 islet-import 文件。');
         for (const c of list) {
           const key = c.id || c.conversation_id || c;
           const old = unique.get(key);
@@ -6969,9 +7001,18 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   }
   function ciAllMsgs() {
     const out = [];
-    (ciData.conversations || []).forEach(c => (c.messages || []).forEach(m => { if (m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim()) out.push({ role: m.role, content: m.content, ts: Number.isFinite(+m.ts) && +m.ts > 0 && +m.ts <= 8640000000000000 ? +m.ts : 0, ...(typeof m.importKey === 'string' ? { importKey: m.importKey } : {}) }); }));
-    out.sort((a, b) => a.ts - b.ts);
-    return out;
+    (ciData.conversations || []).forEach(c => {
+      let orderTs = 0;
+      (c.messages || []).forEach(m => {
+        if (!m || !['user', 'assistant'].includes(m.role) || typeof m.content !== 'string' || !m.content.trim()) return;
+        const msg = { role: m.role, content: m.content, ts: Number.isFinite(+m.ts) && +m.ts > 0 && +m.ts <= 8640000000000000 ? +m.ts : 0, ...(typeof m.importKey === 'string' ? { importKey: m.importKey } : {}) };
+        // 导出时间偶尔倒退几毫秒：同一条路线保持父子顺序，原始时间不改写。
+        orderTs = Math.max(orderTs, msg.ts);
+        out.push({ msg, orderTs });
+      });
+    });
+    out.sort((a, b) => a.orderTs - b.orderTs);
+    return out.map(x => x.msg);
   }
   function ciMsg(m) { const d = m.ts ? new Date(m.ts) : null; const o = { role: m.role, content: m.content }; if (d) { o.ts = m.ts; o.time = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); } if (m.importKey) o.importKey = m.importKey; return o; }
   // 按字数切段，只在消息边界切；返回每段的结束下标（不含）
@@ -7750,3 +7791,4 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 </script>
 </body>
 </html>
+
