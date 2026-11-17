@@ -50,6 +50,11 @@ async function app(storage,db=new IDBFactory()) {
  await multi.file([[conversation('same')],{conversations:[newer,conversation('separate','另一段')]}]);assert.equal(multi.run('ciGptEntries.length'),2);assert.equal(multi.run('ciGptEntries[0].title'),'新标题');
  await multi.file(['not JSON']);assert(multi.w.lastToast.includes('有效 JSON'));assert.equal(multi.run('ciData'),null);
  await multi.file([{unexpected:true}]);assert(multi.w.lastToast.includes('请选择'));assert.equal(multi.run('ciGptEntries.length'),0);
+ // DeepSeek exports: fragments instead of author.role, no current_node; take the newest fork, skip THINK/SEARCH.
+ const ds={id:'ds1',title:'破庙',inserted_at:'2026-10-01T12:00:00+08:00',updated_at:'2026-10-01T12:05:00+08:00',mapping:{root:{id:'root',parent:null,children:['1'],message:null},'1':{id:'1',parent:'root',children:['2'],message:{files:[],inserted_at:'2026-10-01T12:00:00+08:00',fragments:[{type:'REQUEST',content:'在吗'}]}},'2':{id:'2',parent:'1',children:['3','5'],message:{files:[],inserted_at:'2026-10-01T12:00:05+08:00',fragments:[{type:'THINK',content:'SECRET'},{type:'RESPONSE',content:'在'}]}},'3':{id:'3',parent:'2',children:[],message:{files:[],inserted_at:'2026-10-01T12:01:00+08:00',fragments:[{type:'REQUEST',content:'OLD EDIT'}]}},'5':{id:'5',parent:'2',children:['6'],message:{files:[{id:'f'}],inserted_at:'2026-10-01T12:02:00+08:00',fragments:[{type:'REQUEST',content:'看图'}]}},'6':{id:'6',parent:'5',children:[],message:{files:[],inserted_at:'2026-10-01T12:02:05+08:00',fragments:[{type:'SEARCH',results:[]},{type:'RESPONSE',content:'看到了'}]}}}};
+ const dsApp=await app();await dsApp.file([[ds]]);assert.equal(dsApp.run('ciGptEntries.length'),1);dsApp.w.qaDs=ds;parsed=plain(dsApp.run('deepseekConversation(qaDs)'));
+ assert.deepEqual(parsed.messages.map(m=>m.role),['user','assistant','user','assistant']);assert.equal(parsed.omitted,1);assert(!JSON.stringify(parsed).includes('SECRET'));assert(!JSON.stringify(parsed).includes('OLD EDIT'));
+ dsApp.prepare();assert.equal(dsApp.run('ciData.source'),'deepseek');await dsApp.import('小和尚');assert.equal((await dsApp.msgs(dsApp.run('activeCompanionId'))).length,4);
  // Legacy converted files still import dates/cards and retain unknown dates as unknown.
  const legacy=await app();await legacy.file([{app:'islet-import',character:{name:'旧格式',cards:[{t:'旧卡',date:'2023-11-14'}]},conversations:[{messages:[{role:'user',content:'旧消息',ts:1700000000000}]}]}]);await legacy.import('旧格式');assert.equal(legacy.run('activeCompanion().cards[0].date'),'2023-11-14');
  // Large imports span cold chunks; repeat runs and write failures never alter existing content.
@@ -62,6 +67,6 @@ async function app(storage,db=new IDBFactory()) {
  await failure(`const realCold=storeChunkCold;let writes=0;storeChunkCold=async(meta,msgs)=>{if(++writes===2)return false;return realCold(meta,msgs)}`);
  await failure(`const realPut=idbPut;idbPut=(store,rec)=>realPut(store,store==='imports'?{...rec,msgs:[]}:rec)`);
  await failure(`const realSet=lsSet;lsSet=(key,value)=>key==='islet_idx'?false:realSet(key,value)`);
- for(const x of [a,reload,restored,multi,legacy,large])assert.deepEqual(x.errors,[]);
- console.log('PASS: GPT active-path conversion, malformed trees, text/media handling, safe window selection, multi-file exports, dedupe/incremental imports, legacy compatibility, 1002-message cold storage, reload/backup and staged-write/readback/index rollback.');
+ for(const x of [a,reload,restored,multi,legacy,large,dsApp])assert.deepEqual(x.errors,[]);
+ console.log('PASS: GPT active-path conversion, DeepSeek fragment exports, malformed trees, text/media handling, safe window selection, multi-file exports, dedupe/incremental imports, legacy compatibility, 1002-message cold storage, reload/backup and staged-write/readback/index rollback.');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>contexts.forEach(d=>d.window.close()));

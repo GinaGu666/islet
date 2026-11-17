@@ -1017,13 +1017,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       </div>
       <input type="file" id="archive-file" accept=".json,application/json" style="display:none" onchange="importArchive(this)">
       <div class="comp-tabs" style="padding:6px 0 0">
-        <button type="button" class="comp-tab" onclick="document.getElementById('charimport-file').click()">导入角色 / 聊天（Claude、ChatGPT）</button>
+        <button type="button" class="comp-tab" onclick="document.getElementById('charimport-file').click()">导入角色 / 聊天（Claude、ChatGPT、DeepSeek）</button>
       </div>
       <input type="file" id="charimport-file" accept=".json,application/json" multiple style="display:none" onchange="importCharacterFile(this)">
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-12 · 记忆卡归档 · 中英召回 · 约定兑现 · 分批整理</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-17 · 导入 DeepSeek 聊天记录</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -1236,11 +1236,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     </div>
   </div>
 </div>
-<!-- GPT 原始导出：先选择窗口，再进入统一角色导入 -->
+<!-- GPT / DeepSeek 原始导出：先选择窗口，再进入统一角色导入 -->
 <div class="overlay" id="gpt-import-overlay">
   <div class="sheet">
     <div class="grabber"></div>
-    <div class="sheet-head"><div class="sheet-title">选择 GPT 聊天窗口</div><button class="sheet-x" onclick="closeCharacterImport()">×</button></div>
+    <div class="sheet-head"><div class="sheet-title">选择要搬的聊天窗口</div><button class="sheet-x" onclick="closeCharacterImport()">×</button></div>
     <div class="form">
       <div class="mem-hint">选择解压后的 conversations.json，也支持同时选择多个编号 JSON 文件。只取当前选中的对话路线，合成一条河。图片、语音、附件不搬实体；这里只读取本机文件。</div>
       <input class="search-box" id="gpt-import-search" placeholder="搜索聊天标题…" oninput="renderGptImports()">
@@ -1261,7 +1261,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     </div>
     <div class="form" style="padding-top:0">
       <div class="mem-hint" id="ci-info" style="margin:0 0 4px"></div>
-      <button type="button" class="comp-tab" id="ci-reselect" style="display:none" onclick="showGptImports()">重新选择 GPT 窗口</button>
+      <button type="button" class="comp-tab" id="ci-reselect" style="display:none" onclick="showGptImports()">重新选择聊天窗口</button>
       <div class="field-label">导入到</div>
       <select class="field" id="ci-target" onchange="ciToggleTarget()"><option value="">新建角色</option></select>
       <div id="ci-new-fields">
@@ -6801,7 +6801,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     }
   }
 
-  /* ---------- 导入角色：GPT 原始 JSON / Claude 转换后的 islet-import ----------
+  /* ---------- 导入角色：GPT / DeepSeek 原始 JSON / Claude 转换后的 islet-import ----------
    * GPT 从 current_node 沿 parent 回溯，只保留选中的路线。导入仅本机处理；历史提炼由用户另行启动。
    * 原文、聊天块先写入读回验证，再提交角色与索引；失败只清理本次新副本。 */
   const HIST_CHUNK = 20000;   // 每段字数
@@ -6811,6 +6811,57 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (value == null || value === '') return 0;
     const n = Number(value), ts = Number.isFinite(n) ? (n < 1e11 ? n * 1000 : n) : Date.parse(value);
     return Number.isFinite(ts) && ts > 0 && ts <= 8640000000000000 ? Math.round(ts) : 0;
+  }
+  // 窗口的创建 / 更新时间：GPT 用 create_time / update_time，DeepSeek 用 inserted_at / updated_at
+  function convCreated(c) { return importTimestamp(c && (c.create_time != null ? c.create_time : c.inserted_at)); }
+  function convUpdated(c) { return importTimestamp(c && (c.update_time != null ? c.update_time : c.updated_at)); }
+  // DeepSeek 官方导出：mapping 里的节点 message 带 fragments（REQUEST / THINK / RESPONSE …），没有 author.role
+  function isDeepseekConv(c) {
+    const map = c && c.mapping;
+    return !!(map && typeof map === 'object' && Object.values(map).some(n => n && n.message && Array.isArray(n.message.fragments)));
+  }
+  /* DeepSeek 没有 current_node：从根往下走，遇到改写 / 重新生成留下的分叉，取最新的那一支（时间相同取最后一个）。
+   * REQUEST → 用户，RESPONSE → 回复；THINK、SEARCH 等过程片段不导入。 */
+  function deepseekConversation(c) {
+    const map = c.mapping;
+    if (!map || typeof map !== 'object' || Array.isArray(map)) throw new Error('缺少消息树');
+    const has = k => Object.prototype.hasOwnProperty.call(map, k) && map[k];
+    const keys = Object.keys(map);
+    let id = has('root') ? 'root' : null;
+    if (id == null) {
+      const roots = keys.filter(k => map[k] && (map[k].parent == null || map[k].parent === '' || !has(map[k].parent)));
+      if (roots.length !== 1) throw new Error('找不到消息树的起点');
+      id = roots[0];
+    }
+    const kids = k => {
+      const own = Array.isArray(map[k].children) ? map[k].children.filter(has) : null;
+      return own || keys.filter(x => map[x] && map[x].parent === k);
+    };
+    const latest = k => { let t = 0; const m = map[k].message; if (m) t = importTimestamp(m.inserted_at) || 0; return t; };
+    const chain = [], seen = new Set();
+    while (id != null) {
+      if (seen.has(id)) throw new Error('消息树存在循环');
+      seen.add(id); chain.push([id, map[id]]);
+      const next = kids(id); if (!next.length) break;
+      id = next.reduce((best, k) => latest(k) >= latest(best) ? k : best, next[0]);
+    }
+    const messages = []; let omitted = 0, previous = convCreated(c);
+    for (const [key, node] of chain) {
+      const m = node.message; if (!m || !Array.isArray(m.fragments)) continue;
+      const ts = importTimestamp(m.inserted_at) || previous; previous = ts;
+      const user = [], reply = [];
+      for (const f of m.fragments) {
+        const type = String(f && f.type || '').toUpperCase(), text = f && typeof f.content === 'string' ? f.content : '';
+        if (type === 'REQUEST') user.push(text); else if (type === 'RESPONSE') reply.push(text);
+      }
+      if (user.length && Array.isArray(m.files) && m.files.length) { omitted++; user.push('【原消息包含图片、文件或其他非文字内容，此处仅保留文字及占位说明】'); }
+      const base = 'deepseek:' + String(c.id || '') + ':' + String(m.id || key);
+      const u = user.join('\n'), r = reply.join('\n');
+      if (u.trim()) messages.push({ role: 'user', content: u, ts, importKey: base + (r.trim() ? ':user' : '') });
+      if (r.trim()) messages.push({ role: 'assistant', content: r, ts, importKey: base + (u.trim() ? ':assistant' : '') });
+    }
+    if (!messages.length) throw new Error('当前路线没有可导入的文字或占位消息');
+    return { title: String(c.title || '未命名对话'), messages, omitted };
   }
   function gptConversation(c) {
     const map = c.mapping;
@@ -6864,11 +6915,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       const unique = new Map();
       for (const d of docs) {
         const list = Array.isArray(d) ? d : d && Array.isArray(d.conversations) ? d.conversations : d && d.mapping ? [d] : null;
-        if (!list || !list.length || list.some(c => !c || !c.mapping || typeof c.mapping !== 'object' || Array.isArray(c.mapping))) throw new Error('请选择 GPT 导出的聊天 JSON，或单个 islet-import 文件。');
+        if (!list || !list.length || list.some(c => !c || !c.mapping || typeof c.mapping !== 'object' || Array.isArray(c.mapping))) throw new Error('请选择 GPT 或 DeepSeek 导出的聊天 JSON，或单个 islet-import 文件。');
         for (const c of list) {
           const key = c.id || c.conversation_id || c;
           const old = unique.get(key);
-          if (!old || importTimestamp(c.update_time) >= importTimestamp(old.update_time)) unique.set(key, c);
+          if (!old || convUpdated(c) >= convUpdated(old)) unique.set(key, c);
         }
       }
       ciGptEntries = [...unique.values()].map(c => ({ raw: c, title: String(c.title || '未命名对话'), selected: false }));
@@ -6881,15 +6932,15 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const q = $('gpt-import-search').value.trim().toLowerCase();
     const shown = ciGptEntries.map((e, i) => ({ e, i })).filter(({ e }) => e.title.toLowerCase().includes(q));
     $('gpt-import-count').textContent = `共 ${ciGptEntries.length} 个窗口 · 已选 ${ciGptEntries.filter(e => e.selected).length} 个` + (shown.length > 200 ? ' · 仅显示前 200 个，请搜索标题筛选' : '');
-    $('gpt-import-list').innerHTML = shown.slice(0, 200).map(({ e, i }) => `<label class="toggle-row" style="margin-top:6px;gap:12px"><span style="min-width:0;overflow-wrap:anywhere">${esc(e.title)}<span class="route-note" style="display:block">${importTimestamp(e.raw.create_time) ? esc(fmtEpiDay(importTimestamp(e.raw.create_time))) : '日期未知'}</span></span><input type="checkbox" aria-label="${esc(e.title)}" ${e.selected ? 'checked' : ''} onchange="ciGptEntries[${i}].selected=this.checked;renderGptImports()"></label>`).join('') || '<div class="mem-hint">没有匹配的窗口</div>';
+    $('gpt-import-list').innerHTML = shown.slice(0, 200).map(({ e, i }) => `<label class="toggle-row" style="margin-top:6px;gap:12px"><span style="min-width:0;overflow-wrap:anywhere">${esc(e.title)}<span class="route-note" style="display:block">${convCreated(e.raw) ? esc(fmtEpiDay(convCreated(e.raw))) : '日期未知'}</span></span><input type="checkbox" aria-label="${esc(e.title)}" ${e.selected ? 'checked' : ''} onchange="ciGptEntries[${i}].selected=this.checked;renderGptImports()"></label>`).join('') || '<div class="mem-hint">没有匹配的窗口</div>';
   }
   function selectGptImports(value) { ciGptEntries.forEach(e => e.selected = value); renderGptImports(); }
   function prepareGptImport() {
     const selected = ciGptEntries.filter(e => e.selected);
     if (!selected.length) { toast('请先选择要搬的聊天窗口'); return; }
     try {
-      const conversations = selected.map(e => { try { return gptConversation(e.raw); } catch (err) { throw new Error('「' + e.title + '」：' + err.message + '。请取消该窗口后重试。'); } });
-      ciData = { app: 'islet-import', source: 'chatgpt', character: {}, conversations };
+      const conversations = selected.map(e => { try { return isDeepseekConv(e.raw) ? deepseekConversation(e.raw) : gptConversation(e.raw); } catch (err) { throw new Error('「' + e.title + '」：' + err.message + '。请取消该窗口后重试。'); } });
+      ciData = { app: 'islet-import', source: selected.every(e => isDeepseekConv(e.raw)) ? 'deepseek' : 'chatgpt', character: {}, conversations };
       showCharacterImport();
     } catch (e) { toast(e.message || String(e), 8000); }
   }
@@ -6905,7 +6956,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       $('ci-info').textContent = `${d.conversations.length} 段对话 · ${all.length} 条消息 · 约 ${(chars / 1e4).toFixed(1)} 万字 · ${all[0].ts ? fmtEpiDay(all[0].ts) : '日期未知'} → ${all[all.length - 1].ts ? fmtEpiDay(all[all.length - 1].ts) : '日期未知'}` + ((ch.cards || []).length ? ` · 自带记忆卡 ${ch.cards.length} 条` : '') + ((ch.epis || []).length + (ch.summaries || []).length ? ` · 自带大事记 ${(ch.epis || []).length + (ch.summaries || []).length} 条` : '');
       const omitted = d.conversations.reduce((n, c) => n + (c.omitted || 0), 0);
       if (omitted) $('ci-info').textContent += ` · ${omitted} 条含非文字内容，只导入文字及占位说明`;
-      $('ci-reselect').style.display = d.source === 'chatgpt' && ciGptEntries.length ? '' : 'none';
+      $('ci-reselect').style.display = (d.source === 'chatgpt' || d.source === 'deepseek') && ciGptEntries.length ? '' : 'none';
       const sel = $('ci-target');
       sel.innerHTML = '<option value="">新建角色</option>' + companions.map(x => `<option value="${x.id}">并入「${esc(x.name)}」</option>`).join('');
       sel.value = ''; ciToggleTarget();
