@@ -45,9 +45,16 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
-  background: var(--soil);
-  /* 地垄：宽而软的一条条土埂，不是细线，免得像作业本 */
-  background-image: repeating-linear-gradient(0deg, transparent 0 58px, var(--furrow) 68px, var(--furrow) 76px, transparent 86px);
+  /* 五道手绘田垄纵向平铺，SVG 内的两种笔色与 --furrow 对应。 */
+  background: var(--soil) url("data:image/svg+xml,\
+    %3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 440 446' preserveAspectRatio='none'%3E\
+    %3Cstyle%3Epath{fill:none;stroke:%237a5c36;stroke-opacity:.035;stroke-width:1.5;stroke-linecap:round;vector-effect:non-scaling-stroke}@media(prefers-color-scheme:dark){path{stroke:%23c8dcaa;stroke-opacity:.022}}%3C/style%3E\
+    %3Cpath d='M-3 34 C15 33 28 44 43 43 S66 32 83 31 C94 30 98 30 103 35 S110 43 122 43 C150 44 168 35 198 34 S253 36 281 28 C306 21 316 23 339 22 S400 26 443 24'/%3E\
+    %3Cpath d='M-3 113 C20 114 37 112 55 108 S84 101 106 103 C131 104 141 104 152 109 S169 116 193 117 C225 119 259 116 276 118 S302 128 320 126 C348 124 366 114 389 115 S424 116 443 112'/%3E\
+    %3Cpath d='M-3 213 C24 208 47 197 67 197 C88 196 90 201 107 202 S148 199 168 205 C185 210 194 225 207 226 S227 226 242 219 C269 206 294 201 325 201 S372 205 389 210 S424 215 443 214'/%3E\
+    %3Cpath d='M-3 280 C13 281 26 288 39 297 S59 310 73 309 C95 308 112 286 140 280 S185 276 214 273 C240 270 267 268 281 272 S297 284 316 286 C344 289 365 282 390 283 S427 288 443 286'/%3E\
+    %3Cpath d='M-3 379 C19 379 44 371 63 373 S89 381 109 381 C132 382 146 376 168 375 S216 375 234 371 C253 367 264 358 286 358 S309 358 319 362 C335 368 337 377 355 379 S405 378 443 387'/%3E\
+    %3C/svg%3E") center top / 100% 446px repeat-y;
   color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased;
   display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
 }
@@ -216,7 +223,7 @@ textarea.txt { resize: vertical; min-height: 90px; line-height: 1.6; }
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const VERSION = '田 · 2026-11-18 · 相关召回 · 宽地垄';
+const VERSION = '田 · 2026-11-18 · 相关召回 · 手绘田垄';
 const DEFAULT_MODEL = 'anthropic/claude-opus-5.5';
 const MEM_MODEL = 'anthropic/claude-haiku-4.5';
 const WINDOW = 80, STEP = 40;      // 上下文：最近约 80–120 条，每 40 条挪一次窗口，前缀稳定好命中缓存
