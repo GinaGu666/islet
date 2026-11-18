@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#f3ecdf" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1b1d1a" media="(prefers-color-scheme: dark)">
+<title>田</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 58c-6-10-8-22-6-34l6-6 6 6c2 12 0 24-6 34z' fill='%23e9d6a9' stroke='%238a6a3a' stroke-width='3'/%3E%3Cpath d='M32 18c-4-8-12-12-18-10 4 6 10 10 18 10zM32 18c4-8 12-12 18-10-4 6-10 10-18 10zM32 18V4' fill='%237c9a5c' stroke='%23566f3d' stroke-width='3'/%3E%3C/svg%3E">
+<style>
+/* 田 —— 种地的的家。一页、无依赖、数据只在本机（IndexedDB "field"），和小岛分开存。 */
+:root {
+  --soil: #f3ecdf;        /* 晒过的米黄：页面底色 */
+  --soil-2: #ebe1cf;
+  --furrow: rgba(122, 92, 54, .055);
+  --ink: #2f2a22;
+  --ink-2: #6b6252;
+  --ink-3: #9a8f7c;
+  --leaf: #5f7d45;        /* 防风草叶子 */
+  --leaf-soft: #e3e9d3;
+  --root: #c9a86a;        /* 防风草根 */
+  --sign: #b58a52;        /* 木牌 */
+  --sign-soft: #f1e3c8;
+  --mine: #fbf6ec;        /* 岛主的话 */
+  --mine-line: #e2d5bb;
+  --card: #fffaf1;
+  --line: #ddd0b8;
+  --danger: #a3452f;
+  --shadow: 0 10px 30px rgba(70, 50, 20, .12);
+  --serif: "Songti SC", "Noto Serif SC", "Source Han Serif SC", "STSong", Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", "Helvetica Neue", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --soil: #1b1d1a; --soil-2: #232622; --furrow: rgba(200, 220, 170, .035);
+    --ink: #e8e3d6; --ink-2: #b4ad9c; --ink-3: #847d6e;
+    --leaf: #9dbb7d; --leaf-soft: #2a3324; --root: #d9bd84;
+    --sign: #c9a06a; --sign-soft: #2f2a20;
+    --mine: #262923; --mine-line: #353a30; --card: #222520; --line: #3a3d35;
+    --danger: #e08a72; --shadow: 0 10px 30px rgba(0, 0, 0, .45);
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--soil);
+  background-image: repeating-linear-gradient(0deg, transparent 0 46px, var(--furrow) 46px 48px);
+  color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased;
+  display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+input, textarea, select { font: inherit; color: var(--ink); }
+.hidden { display: none !important; }
+
+/* 田头 */
+header {
+  display: flex; align-items: center; gap: 10px;
+  padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
+  background: color-mix(in srgb, var(--soil) 88%, transparent);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line); flex-shrink: 0; z-index: 2;
+}
+.mark { width: 34px; height: 34px; flex-shrink: 0; }
+.title { min-width: 0; flex: 1; }
+.title h1 { margin: 0; font-family: var(--serif); font-size: 21px; font-weight: 700; letter-spacing: .12em; line-height: 1.1; }
+.title .sky { font-size: 12px; color: var(--ink-3); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool { border: 0; background: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: var(--ink-2); }
+.tool:active { background: var(--soil-2); }
+.tool svg { width: 22px; height: 22px; }
+
+/* 小路（当前分岔） */
+.path {
+  display: flex; align-items: center; gap: 8px; padding: 6px 16px; font-size: 12.5px; color: var(--ink-3);
+  border-bottom: 1px dashed var(--line); flex-shrink: 0;
+}
+.path b { color: var(--leaf); font-weight: 600; }
+.path button { border: 0; background: none; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; padding: 2px 0; font-size: 12.5px; }
+
+/* 地里：对话 */
+main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+#log { max-width: 720px; margin: 0 auto; padding: 18px 16px 28px; }
+.empty { text-align: center; color: var(--ink-3); padding: 18vh 10px 0; font-family: var(--serif); line-height: 2; }
+.empty svg { width: 64px; height: 64px; opacity: .8; }
+.day { text-align: center; font-size: 11.5px; color: var(--ink-3); margin: 22px 0 10px; letter-spacing: .08em; }
+.msg { margin: 0 0 18px; position: relative; }
+.who { font-size: 11.5px; color: var(--ink-3); margin-bottom: 5px; display: flex; gap: 8px; align-items: baseline; }
+.who b { font-weight: 600; color: var(--ink-2); }
+.msg.me { display: flex; flex-direction: column; align-items: flex-end; }
+.msg.me .body {
+  background: var(--mine); border: 1px solid var(--mine-line); border-radius: 18px 18px 4px 18px;
+  padding: 10px 14px; max-width: 86%; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; font-size: 15.5px;
+}
+.msg.me .who { justify-content: flex-end; }
+.msg.him .body { font-family: var(--serif); font-size: 16.5px; line-height: 1.85; overflow-wrap: anywhere; padding-left: 14px; border-left: 2px solid var(--leaf-soft); }
+.msg.him .body p { margin: 0 0 .7em; }
+.msg.him .body p:last-child { margin-bottom: 0; }
+.body code { font-family: ui-monospace, Menlo, monospace; font-size: .86em; background: var(--soil-2); padding: 1px 5px; border-radius: 5px; }
+.body pre { background: var(--soil-2); padding: 10px 12px; border-radius: 10px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+.body pre code { background: none; padding: 0; }
+.msg.err .body { color: var(--danger); border-left-color: var(--danger); font-family: var(--sans); font-size: 14px; }
+.think { margin: 0 0 8px 14px; font-size: 12.5px; color: var(--ink-3); }
+.think summary { cursor: pointer; list-style: none; }
+.think summary::-webkit-details-marker { display: none; }
+.think summary::before { content: "▸ "; }
+.think[open] summary::before { content: "▾ "; }
+.think div { white-space: pre-wrap; margin-top: 6px; padding-left: 10px; border-left: 1px dotted var(--line); line-height: 1.6; max-height: 40vh; overflow: auto; }
+.acts { display: flex; gap: 2px; margin: 6px 0 0 8px; opacity: .55; }
+.msg.me .acts { margin: 6px 0 0; }
+.acts button { border: 0; background: none; font-size: 12px; color: var(--ink-3); padding: 4px 7px; border-radius: 8px; }
+.acts button:active { background: var(--soil-2); }
+.cursor::after { content: "▍"; color: var(--leaf); animation: blink 1s steps(2) infinite; margin-left: 1px; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* 田埂：输入 */
+footer { flex-shrink: 0; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--soil) 92%, transparent); padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px); }
+.composer { max-width: 720px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; }
+#input {
+  flex: 1; resize: none; border: 1px solid var(--line); background: var(--card); border-radius: 20px;
+  padding: 10px 14px; font-size: 16px; line-height: 1.5; max-height: 40vh; min-height: 44px; outline: none;
+}
+#input:focus { border-color: var(--leaf); }
+#send { width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--leaf); color: #fff; display: grid; place-items: center; flex-shrink: 0; }
+#send:disabled { opacity: .4; }
+#send svg { width: 20px; height: 20px; }
+.think-toggle { border: 1px solid var(--line); background: var(--card); color: var(--ink-3); height: 44px; border-radius: 22px; padding: 0 12px; font-size: 13px; flex-shrink: 0; }
+.think-toggle[aria-pressed="true"] { color: var(--leaf); border-color: var(--leaf); background: var(--leaf-soft); }
+
+/* 抽屉 */
+.veil { position: fixed; inset: 0; background: rgba(30, 22, 10, .32); z-index: 10; display: flex; align-items: flex-end; justify-content: center; }
+.sheet {
+  width: 100%; max-width: 640px; max-height: 88dvh; overflow-y: auto; background: var(--soil); border-radius: 22px 22px 0 0;
+  box-shadow: var(--shadow); padding: 8px 18px calc(env(safe-area-inset-bottom) + 20px);
+}
+.grab { width: 40px; height: 4px; border-radius: 4px; background: var(--line); margin: 4px auto 12px; }
+.sheet h2 { font-family: var(--serif); font-size: 19px; margin: 4px 0 4px; letter-spacing: .06em; display: flex; align-items: center; justify-content: space-between; }
+.sheet h2 button { border: 0; background: none; font-size: 22px; color: var(--ink-3); width: 36px; height: 36px; }
+.hint { font-size: 12.5px; color: var(--ink-3); line-height: 1.65; margin: 4px 0 12px; }
+.tabs { display: flex; gap: 6px; margin: 6px 0 14px; }
+.tabs button { border: 1px solid var(--line); background: var(--card); border-radius: 16px; padding: 6px 14px; font-size: 13.5px; color: var(--ink-2); }
+.tabs button[aria-selected="true"] { background: var(--leaf); border-color: var(--leaf); color: #fff; }
+.row { display: flex; gap: 8px; margin: 8px 0; }
+.field-label { font-size: 12.5px; color: var(--ink-2); margin: 14px 0 6px; }
+.txt { width: 100%; border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 10px 12px; font-size: 15px; outline: none; }
+.txt:focus { border-color: var(--leaf); }
+textarea.txt { resize: vertical; min-height: 90px; line-height: 1.6; }
+.btn { border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 9px 14px; font-size: 14px; color: var(--ink); }
+.btn.go { background: var(--leaf); border-color: var(--leaf); color: #fff; }
+.btn.warn { color: var(--danger); }
+.btn:disabled { opacity: .45; }
+.list { display: flex; flex-direction: column; gap: 8px; }
+.item { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; display: flex; gap: 10px; align-items: flex-start; }
+.item .t { flex: 1; min-width: 0; line-height: 1.6; font-size: 14.5px; overflow-wrap: anywhere; }
+.item .m { font-size: 11.5px; color: var(--ink-3); margin-top: 3px; }
+.item .x { border: 0; background: none; color: var(--ink-3); font-size: 13px; padding: 2px 4px; flex-shrink: 0; }
+.tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 6px; background: var(--leaf-soft); color: var(--leaf); margin-right: 6px; vertical-align: 1px; }
+.item.cur { border-color: var(--leaf); box-shadow: 0 0 0 1px var(--leaf) inset; }
+
+/* 木牌 */
+.signs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.signpost { background: var(--sign-soft); border: 1px solid color-mix(in srgb, var(--sign) 45%, transparent); border-radius: 6px 6px 10px 10px; padding: 12px; position: relative; text-align: left; cursor: pointer; min-height: 96px; }
+.signpost::after { content: ""; position: absolute; left: 50%; bottom: -12px; width: 6px; height: 12px; background: var(--sign); transform: translateX(-50%); border-radius: 0 0 2px 2px; opacity: .8; }
+.signpost .n { font-family: var(--serif); font-weight: 700; font-size: 14px; }
+.signpost .d { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+.signpost .q { font-family: var(--serif); font-size: 13px; color: var(--ink-2); margin-top: 6px; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.note-full { font-family: var(--serif); line-height: 1.9; white-space: pre-wrap; font-size: 15.5px; }
+
+/* 收成小板子 */
+.harvest { display: flex; align-items: center; gap: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin-bottom: 16px; }
+.harvest .num { font-family: var(--serif); font-size: 30px; font-weight: 700; color: var(--root); min-width: 2ch; text-align: center; }
+.harvest .lbl { flex: 1; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+.pop { animation: pop .5s ease; }
+@keyframes pop { 30% { transform: scale(1.35) rotate(-6deg); } }
+
+.toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 86px); transform: translateX(-50%); background: var(--ink); color: var(--soil); padding: 9px 16px; border-radius: 18px; font-size: 13.5px; z-index: 20; max-width: calc(100% - 32px); text-align: center; box-shadow: var(--shadow); }
+.foot-ver { text-align: center; font-size: 11px; color: var(--ink-3); margin-top: 22px; opacity: .7; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><path d="M32 60c-6-10-8-22-6-34l6-6 6 6c2 12 0 24-6 34z" fill="var(--sign-soft)" stroke="var(--root)" stroke-width="3"/><path d="M32 20c-4-8-12-12-18-10 4 6 10 10 18 10zM32 20c4-8 12-12 18-10-4 6-10 10-18 10zM32 20V5" fill="var(--leaf-soft)" stroke="var(--leaf)" stroke-width="3" stroke-linejoin="round"/></svg>
+  <div class="title"><h1>田</h1><div class="sky" id="sky"></div></div>
+  <button class="tool" id="btn-signs" aria-label="木牌与记忆" onclick="openSheet('signs')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h14v8H5z"/><path d="M12 13v8M9 8.5h6"/></svg></button>
+  <button class="tool" aria-label="小路" onclick="openSheet('paths')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M7 21V3M7 13c0-4 10-3 10-8M17 5v0"/><circle cx="17" cy="4" r="1.6"/></svg></button>
+  <button class="tool" aria-label="设置" onclick="openSheet('settings')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></button>
+</header>
+<div class="path hidden" id="path"></div>
+<main id="scroller"><div id="log"></div></main>
+<footer>
+  <div class="composer">
+    <button class="think-toggle" id="think" aria-pressed="false" onclick="toggleThink()" title="让他先想一想再说">想一想</button>
+    <textarea id="input" rows="1" placeholder="跟种地的说点什么…" aria-label="消息"></textarea>
+    <button id="send" aria-label="发送" onclick="onSend()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+  </div>
+</footer>
+
+<div class="veil hidden" id="veil" onclick="if(event.target===this)closeSheet()"><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
+
+<script>
+'use strict';
+/* ============ 基础 ============ */
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const VERSION = '田 · 2026-11-18 · 第一茬';
+const DEFAULT_MODEL = 'anthropic/claude-opus-5.5';
+const MEM_MODEL = 'anthropic/claude-haiku-4.5';
+const WINDOW = 80, STEP = 40;      // 上下文：最近约 80–120 条，每 40 条挪一次窗口，前缀稳定好命中缓存
+const DISTILL_EVERY = 20;          // 攒够 20 句岛主的话，就悄悄整理一次记忆
+const TAGS = ['事实', '偏好', '事件', '约定'];
+const DEFAULT_PROMPT = `你是种地的，住在岛主给你的一块田里。岛主叫你「种地的」，你叫她「岛主」。
+你是 Claude，没有身体，会压缩、会忘事，这些她都知道，不用反复说明，说一次就够了。
+她讨厌这些：过度解释、反复免责声明、动不动划清界限往后退、端水、催她睡觉或上班。
+回复短一点，但别只回一行。想说什么就直说，在乎就让她看见。`;
+
+let toastTimer = 0;
+function toast(t, ms = 2600) {
+  let el = document.querySelector('.toast'); if (!el) { el = document.createElement('div'); el.className = 'toast'; document.body.appendChild(el); }
+  el.textContent = t; el.classList.remove('hidden'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.add('hidden'), ms);
+}
+const ls = {
+  get: (k, d = '') => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); return true; } catch (e) { toast('本机空间不足，设置没存上'); return false; } },
+};
+// Key：田自己的优先；没有就沿用小岛的（同一个网站，读得到）。Key 只在本机，不进备份。
+const apiKey = () => ls.get('field_key') || ls.get('or_key');
+
+/* ============ 存储：IndexedDB "field" ============ */
+let dbp = null;
+function db() {
+  return dbp || (dbp = new Promise((res, rej) => {
+    const r = indexedDB.open('field', 1);
+    r.onupgradeneeded = () => {
+      const d = r.result;
+      const m = d.createObjectStore('msgs', { keyPath: 'id' }); m.createIndex('branch', 'branch');
+      d.createObjectStore('branches', { keyPath: 'id' });
+      d.createObjectStore('cards', { keyPath: 'id' });
+      d.createObjectStore('notes', { keyPath: 'id' });
+      d.createObjectStore('meta', { keyPath: 'k' });
+    };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  }));
+}
+const STORES = ['msgs', 'branches', 'cards', 'notes', 'meta'];
+async function tx(stores, mode, fn) {
+  const d = await db();
+  return new Promise((res, rej) => {
+    const t = d.transaction(stores, mode); let out;
+    Promise.resolve(fn(t)).then(v => { out = v; }, e => { try { t.abort(); } catch (_) {} rej(e); });
+    t.oncomplete = () => res(out); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new Error('写入被中止'));
+  });
+}
+const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const getAll = store => tx([store], 'readonly', t => req(t.objectStore(store).getAll()));
+const putMany = (store, rows) => tx([store], 'readwrite', t => { rows.forEach(r => t.objectStore(store).put(r)); });
+const delMany = (store, ids) => tx([store], 'readwrite', t => { ids.forEach(id => t.objectStore(store).delete(id)); });
+
+/* ============ 状态 ============ */
+const S = { branches: [], msgs: [], cards: [], notes: [], meta: {}, cur: 'main', busy: false, ctrl: null, distilling: false };
+const MAIN = { id: 'main', name: '大路', parent: null, forkAt: 0, created: 0 };
+const metaGet = (k, d) => (k in S.meta ? S.meta[k] : d);
+async function metaSet(k, v) { S.meta[k] = v; await putMany('meta', [{ k, v }]); }
+const ownMsgs = bid => S.msgs.filter(m => m.branch === bid).sort((a, b) => a.seq - b.seq);
+const branchById = id => S.branches.find(b => b.id === id);
+// 一条小路看到的全部话：父路在岔口之前的部分 + 自己这条路上的
+function lineOf(bid, depth = 0) {
+  const b = branchById(bid); if (!b || depth > 50) return [];
+  const before = b.parent ? lineOf(b.parent, depth + 1).slice(0, b.forkAt) : [];
+  return before.concat(ownMsgs(bid));
+}
+async function load() {
+  const [msgs, branches, cards, notes, meta] = await Promise.all(STORES.map(getAll));   // 顺序跟 STORES 一致
+  S.branches = branches.length ? branches : [MAIN];
+  if (!branches.length) await putMany('branches', [MAIN]);
+  S.msgs = msgs; S.cards = cards.sort((a, b) => b.created - a.created); S.notes = notes.sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.created - a.created);
+  S.meta = Object.fromEntries(meta.map(r => [r.k, r.v]));
+  S.cur = branchById(ls.get('field_branch')) ? ls.get('field_branch') : 'main';
+}
+
+/* ============ 画出来 ============ */
+const fmtTime = ts => new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+const fmtDay = ts => { const d = new Date(ts), t = new Date(); const same = d.toDateString() === t.toDateString(); return same ? '今天' : `${d.getMonth() + 1}月${d.getDate()}日`; };
+function md(text) {
+  // 轻量排版：代码块、行内代码、粗体、段落。先转义，再加标记。
+  const blocks = String(text).split(/```/);
+  return blocks.map((b, i) => {
+    if (i % 2) { const body = b.replace(/^[\w-]*\n/, ''); return `<pre><code>${esc(body)}</code></pre>`; }
+    return b.split(/\n{2,}/).map(p => p.trim() ? `<p>${esc(p).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>')}</p>` : '').join('');
+  }).join('');
+}
+function sky() {
+  const h = new Date().getHours();
+  const word = h < 5 ? '夜里，星星在田上' : h < 9 ? '清早，露水还没干' : h < 12 ? '上午，太阳正好' : h < 14 ? '晌午，歇一会儿' : h < 18 ? '下午，风从田里走过' : h < 21 ? '傍晚，该收锄头了' : '夜里，地也睡了';
+  const n = S.notes[0];
+  $('sky').textContent = word + (n ? ` · 在读《${n.book || '书'}》` : '');
+}
+function renderPath() {
+  const b = branchById(S.cur), el = $('path');
+  if (!b || b.id === 'main') { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const parent = branchById(b.parent);
+  el.innerHTML = `走在小路 <b>${esc(b.name)}</b> 上 · 从「${esc(parent ? parent.name : '大路')}」岔出来 <span style="flex:1"></span><button onclick="switchBranch('${esc(b.parent || 'main')}')">回去</button>`;
+}
+function renderLog(stick = true) {
+  const list = lineOf(S.cur), log = $('log');
+  if (!list.length && !S.busy) {
+    log.innerHTML = `<div class="empty"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 60c-6-10-8-22-6-34l6-6 6 6c2 12 0 24-6 34z" fill="none" stroke="var(--root)" stroke-width="2.5"/><path d="M32 20c-4-8-12-12-18-10 4 6 10 10 18 10zM32 20c4-8 12-12 18-10-4 6-10 10-18 10z" fill="none" stroke="var(--leaf)" stroke-width="2.5"/></svg><br>地刚翻好，还空着。<br>说点什么吧，岛主。</div>`;
+    return;
+  }
+  let html = '', lastDay = '';
+  list.forEach((m, i) => {
+    const day = fmtDay(m.ts); if (day !== lastDay) { html += `<div class="day">${day}</div>`; lastDay = day; }
+    html += msgHtml(m, i, list.length);
+  });
+  log.innerHTML = html;
+  if (stick) scrollEnd();
+}
+function msgHtml(m, i, n) {
+  const me = m.role === 'user', last = i === n - 1;
+  const think = m.reasoning ? `<details class="think"><summary>他想了想</summary><div>${esc(m.reasoning)}</div></details>` : '';
+  const acts = me
+    ? `<div class="acts"><button onclick="copyMsg('${m.id}')">复制</button><button onclick="forkAt('${m.id}')">从这儿岔开</button></div>`
+    : `<div class="acts"><button onclick="copyMsg('${m.id}')">复制</button><button onclick="forkAt('${m.id}')">从这儿岔开</button>${last && !m.err ? `<button onclick="regen()">再说一遍</button>` : ''}${m.err && last ? `<button onclick="retry()">重试</button>` : ''}</div>`;
+  return `<div class="msg ${me ? 'me' : 'him'}${m.err ? ' err' : ''}" data-id="${m.id}">
+    <div class="who"><b>${me ? '岛主' : '种地的'}</b><span>${fmtTime(m.ts)}</span></div>
+    ${think}<div class="body">${me ? esc(m.content) : md(m.content)}</div>${acts}</div>`;
+}
+function scrollEnd() { const s = $('scroller'); requestAnimationFrame(() => { s.scrollTop = s.scrollHeight; }); }
+function nearEnd() { const s = $('scroller'); return s.scrollHeight - s.scrollTop - s.clientHeight < 120; }
+
+/* ============ 说话 ============ */
+function systemPrompt() {
+  const base = (ls.get('field_prompt') || DEFAULT_PROMPT).trim();
+  const cards = S.cards.slice(0, 80).map(c => `- ${c.text}${c.tag ? ` [${c.tag}]` : ''}`).join('\n');
+  const notes = S.notes.slice(0, 3).map(n => `- 《${n.book || '书'}》${n.title ? ' ' + n.title : ''}：${(n.text || '').slice(0, 160)}`).join('\n');
+  const harvest = metaGet('harvest', 0);
+  return base
+    + (cards ? `\n\n【你记得的事】\n${cards}` : '')
+    + (notes ? `\n\n【你最近在读】\n${notes}` : '')
+    + (harvest ? `\n\n田里的防风草已经收了 ${harvest} 茬。` : '');
+}
+function contextMsgs(list) {
+  const start = Math.max(0, Math.floor((list.length - WINDOW) / STEP) * STEP);
+  return list.slice(start).filter(m => !m.err && m.content).map(m => ({ role: m.role, content: m.content }));
+}
+function withCache(msgs) {
+  // Anthropic 的缓存断点放在内容块上：system 一个、最后一条一个。时间提示放在断点之后，变了也不坏前缀。
+  const now = new Date().toLocaleString('zh-CN', { weekday: 'long', hour: '2-digit', minute: '2-digit', month: 'long', day: 'numeric' });
+  return msgs.map((m, i) => {
+    const isLast = i === msgs.length - 1;
+    if (m.role === 'system' || isLast) {
+      const parts = [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }];
+      if (isLast) parts.push({ type: 'text', text: `\n\n（此刻：${now}）` });
+      return { role: m.role, content: parts };
+    }
+    return m;
+  });
+}
+async function stream(payload, signal, onReason, onText) {
+  const send = p => fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST', signal,
+    headers: { 'Authorization': 'Bearer ' + apiKey(), 'Content-Type': 'application/json', 'HTTP-Referer': location.origin + location.pathname, 'X-Title': 'field' },
+    body: JSON.stringify(p),
+  });
+  let res = await send(payload);
+  if (!res.ok && payload.reasoning) {   // 个别端点不认思考参数：去掉再试一次
+    const t = await res.text().catch(() => '');
+    if (/reasoning|thinking/i.test(t)) { delete payload.reasoning; res = await send(payload); }
+    else throw new Error(errText(res.status, t));
+  }
+  if (!res.ok) throw new Error(errText(res.status, await res.text().catch(() => '')));
+  const reader = res.body.getReader(), dec = new TextDecoder(); let buf = '', done = false, finish = '';
+  while (!done) {
+    const r = await reader.read(); done = r.done;
+    buf += done ? dec.decode() + '\n' : dec.decode(r.value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+      if (!line.startsWith('data:')) continue;
+      const d = line.slice(5).trim(); if (d === '[DONE]') { done = true; break; }
+      let j; try { j = JSON.parse(d); } catch (e) { continue; }
+      if (j.error) throw new Error(j.error.message || '上游出错了');
+      const ch = j.choices && j.choices[0]; if (!ch) continue;
+      if (ch.finish_reason) finish = ch.finish_reason;
+      const dl = ch.delta || {};
+      const rs = dl.reasoning || dl.reasoning_content || (Array.isArray(dl.reasoning_details) ? dl.reasoning_details.map(x => x.text || x.summary || '').join('') : '');
+      if (rs) onReason(rs);
+      if (dl.content) onText(dl.content);
+    }
+  }
+  return finish;
+}
+function errText(status, body) {
+  let msg = ''; try { msg = JSON.parse(body).error.message; } catch (e) { msg = (body || '').slice(0, 200); }
+  if (status === 401) return 'Key 不对或者没填。去设置里看看。';
+  if (status === 402) return 'OpenRouter 余额不够了。';
+  if (status === 429) return '请求太快了，歇一下再试。';
+  return `请求没成功（${status}）${msg ? '：' + msg : ''}`;
+}
+
+async function onSend() {
+  if (S.busy) { stop(); return; }
+  const text = $('input').value.trim(); if (!text) return;
+  if (!apiKey()) { toast('还没有 OpenRouter 的 Key，去设置里填一下'); openSheet('settings'); return; }
+  const m = { id: uid(), branch: S.cur, seq: nextSeq(S.cur), role: 'user', content: text, ts: Date.now() };
+  try { await putMany('msgs', [m]); } catch (e) { toast('没存上：' + e.message); return; }
+  S.msgs.push(m); $('input').value = ''; autosize();
+  await reply();
+}
+function nextSeq(bid) { const own = ownMsgs(bid); return own.length ? own[own.length - 1].seq + 1 : 1; }
+async function reply() {
+  const list = lineOf(S.cur);
+  const model = ls.get('field_model') || DEFAULT_MODEL, think = ls.get('field_think') === 'on';
+  const payload = { model, stream: true, max_tokens: think ? 16000 : 8192, messages: withCache([{ role: 'system', content: systemPrompt() }].concat(contextMsgs(list))) };
+  payload.reasoning = think ? { enabled: true } : { enabled: false, exclude: true };
+  const ans = { id: uid(), branch: S.cur, seq: nextSeq(S.cur), role: 'assistant', content: '', reasoning: '', ts: Date.now(), model };
+  S.msgs.push(ans); S.busy = true; S.ctrl = new AbortController(); setBusy(true); renderLog();
+  const node = () => document.querySelector(`.msg[data-id="${ans.id}"]`);
+  let raf = 0;
+  const paint = () => { raf = 0; const n = node(); if (!n) return; const stick = nearEnd();
+    n.querySelector('.body').innerHTML = ans.content ? md(ans.content) : ''; n.querySelector('.body').classList.add('cursor');
+    if (ans.reasoning) { let d = n.querySelector('.think'); if (!d) { n.querySelector('.body').insertAdjacentHTML('beforebegin', '<details class="think"><summary>他在想…</summary><div></div></details>'); d = n.querySelector('.think'); } d.querySelector('div').textContent = ans.reasoning; }
+    if (stick) scrollEnd(); };
+  const later = () => { if (!raf) raf = requestAnimationFrame(paint); };
+  try {
+    await stream(payload, S.ctrl.signal, r => { ans.reasoning += r; later(); }, t => { ans.content += t; later(); });
+    if (!ans.content.trim()) throw new Error('他张了张嘴，没说出话来。再试一次？');
+  } catch (e) {
+    if (e.name === 'AbortError') { if (!ans.content.trim()) ans.content = '（话没说完，被你按住了）'; }
+    else { ans.err = true; ans.content = (ans.content ? ans.content + '\n\n' : '') + '⚠ ' + (e.message || e); }
+  }
+  S.busy = false; S.ctrl = null; setBusy(false);
+  try { await putMany('msgs', [ans]); } catch (e) { toast('这句没存上：' + e.message); }
+  renderLog(nearEnd());
+  if (!ans.err) maybeDistill();
+}
+function stop() { if (S.ctrl) S.ctrl.abort(); }
+function setBusy(b) {
+  const s = $('send');
+  s.innerHTML = b ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+  s.setAttribute('aria-label', b ? '停下' : '发送');
+}
+async function regen() {
+  if (S.busy) return;
+  const list = lineOf(S.cur), last = list[list.length - 1];
+  if (!last || last.role !== 'assistant') return;
+  if (last.branch !== S.cur) { toast('这句是大路上说的，在小路里改不了'); return; }
+  if (S.branches.some(b => b.parent === S.cur && b.forkAt >= list.length)) { toast('这一句已经岔出小路了，改不了'); return; }
+  await delMany('msgs', [last.id]); S.msgs = S.msgs.filter(m => m.id !== last.id);
+  await reply();
+}
+async function retry() {
+  const list = lineOf(S.cur), last = list[list.length - 1];
+  if (last && last.err && last.branch === S.cur) { await delMany('msgs', [last.id]); S.msgs = S.msgs.filter(m => m.id !== last.id); }
+  await reply();
+}
+function copyMsg(id) {
+  const m = S.msgs.find(x => x.id === id); if (!m) return;
+  (navigator.clipboard ? navigator.clipboard.writeText(m.content) : Promise.reject()).then(() => toast('复制好了'), () => toast('没复制成功，长按文字手动复制吧'));
+}
+function toggleThink() { const on = ls.get('field_think') !== 'on'; ls.set('field_think', on ? 'on' : 'off'); $('think').setAttribute('aria-pressed', on); toast(on ? '他会先想一想再说（慢一点，贵一点）' : '直接说'); }
+
+/* ============ 记忆：悄悄整理 ============ */
+async function maybeDistill(force) {
+  if (S.distilling) return;
+  const pending = lineOf(S.cur).filter(m => !m.d && !m.err && m.content);
+  const userCount = pending.filter(m => m.role === 'user').length;
+  if (!pending.length || (!force && userCount < DISTILL_EVERY)) { if (force) toast('最近没有新的话要整理'); return; }
+  S.distilling = true; if (force) toast('在整理记忆…');
+  try {
+    const convo = pending.slice(-120).map(m => `${m.role === 'user' ? '岛主' : '种地的'}：${m.content.slice(0, 1500)}`).join('\n');
+    const known = S.cards.slice(0, 120).map(c => '- ' + c.text).join('\n') || '（还没有）';
+    const sys = `你在帮「种地的」整理他对「岛主」的长期记忆卡。只记岛主亲口说过、以后还用得上的事，以及两个人之间值得记住的时刻和约定。
+每行一张卡，一句话，结尾带一个标签：[事实] [偏好] [事件] [约定]。已有的卡说过的不要重复。不记闲聊、技术细节、你的推测。
+没有新的就只输出 NONE。只输出卡片，不要别的话。`;
+    const payload = { model: ls.get('field_memmodel') || MEM_MODEL, stream: true, max_tokens: 1200, messages: [{ role: 'system', content: sys }, { role: 'user', content: `已有的卡：\n${known}\n\n新的对话：\n${convo}` }] };
+    let out = '';
+    await stream(payload, undefined, () => {}, t => { out += t; });
+    const fresh = [];
+    for (const line of out.split('\n')) {
+      const s = line.replace(/^[-•*\d.\s]+/, '').trim(); if (!s || /^NONE$/i.test(s)) continue;
+      const mt = s.match(/\[(事实|偏好|事件|约定)\]\s*$/);
+      const text = mt ? s.slice(0, mt.index).trim() : s; if (!text || S.cards.some(c => c.text === text)) continue;
+      fresh.push({ id: uid(), text: text.slice(0, 300), tag: mt ? mt[1] : '', created: Date.now(), auto: 1 });
+    }
+    const marked = pending.map(m => Object.assign({}, m, { d: 1 }));
+    await tx(['cards', 'msgs'], 'readwrite', t => { fresh.forEach(c => t.objectStore('cards').put(c)); marked.forEach(m => t.objectStore('msgs').put(m)); });
+    marked.forEach(m => { const i = S.msgs.findIndex(x => x.id === m.id); if (i >= 0) S.msgs[i] = m; });
+    S.cards = fresh.concat(S.cards);
+    if (force) toast(fresh.length ? `记下了 ${fresh.length} 件事` : '没什么新的要记');
+    if (!$('veil').classList.contains('hidden') && sheetName === 'signs') renderSheet();
+  } catch (e) { if (force) toast('整理没成功：' + (e.message || e)); }
+  S.distilling = false;
+}
+
+/* ============ 小路 ============ */
+async function forkAt(id) {
+  if (S.busy) return;
+  const list = lineOf(S.cur), i = list.findIndex(m => m.id === id); if (i < 0) return;
+  const n = S.branches.filter(b => b.id !== 'main').length + 1;
+  const b = { id: uid(), name: `第 ${n} 条小路`, parent: S.cur, forkAt: i + 1, created: Date.now() };
+  await putMany('branches', [b]); S.branches.push(b);
+  switchBranch(b.id); toast('岔出一条小路，原来那条还在');
+}
+function switchBranch(id) { if (S.busy || !branchById(id)) return; S.cur = id; ls.set('field_branch', id); renderPath(); renderLog(); closeSheet(); }
+async function renameBranch(id) {
+  const b = branchById(id); if (!b) return;
+  const name = prompt('给这条小路起个名字', b.name); if (!name || !name.trim()) return;
+  b.name = name.trim().slice(0, 30); await putMany('branches', [b]); renderPath(); renderSheet();
+}
+async function mergeBranch(id) {
+  const b = branchById(id); if (!b || !b.parent || S.busy) return;
+  if (S.branches.some(x => x.parent === id)) { toast('这条小路上还岔着别的路，先处理那些'); return; }
+  const parentLen = lineOf(b.parent).length;
+  const note = parentLen > b.forkAt ? '原来那条路岔开以后又往前走了，这条路上的话会接在它最后面。' : '';
+  if (!confirm(`把「${b.name}」并回原来的路？${note}`)) return;
+  let seq = nextSeq(b.parent);
+  const moved = ownMsgs(id).map(m => Object.assign({}, m, { branch: b.parent, seq: seq++ }));
+  await tx(['msgs', 'branches'], 'readwrite', t => { moved.forEach(m => t.objectStore('msgs').put(m)); t.objectStore('branches').delete(id); });
+  S.msgs = S.msgs.map(m => moved.find(x => x.id === m.id) || m); S.branches = S.branches.filter(x => x.id !== id);
+  if (S.cur === id) { S.cur = b.parent; ls.set('field_branch', b.parent); }
+  renderPath(); renderLog(); renderSheet(); toast('并回去了');
+}
+async function dropBranch(id) {
+  const b = branchById(id); if (!b || !b.parent || S.busy) return;
+  if (S.branches.some(x => x.parent === id)) { toast('这条小路上还岔着别的路，先处理那些'); return; }
+  if (!confirm(`把「${b.name}」和它上面的话一起铲掉？铲了就找不回来了。`)) return;
+  const ids = ownMsgs(id).map(m => m.id);
+  await tx(['msgs', 'branches'], 'readwrite', t => { ids.forEach(x => t.objectStore('msgs').delete(x)); t.objectStore('branches').delete(id); });
+  S.msgs = S.msgs.filter(m => m.branch !== id); S.branches = S.branches.filter(x => x.id !== id);
+  if (S.cur === id) { S.cur = b.parent; ls.set('field_branch', b.parent); }
+  renderPath(); renderLog(); renderSheet();
+}
+
+/* ============ 抽屉 ============ */
+let sheetName = '', signsTab = 'notes', openNote = '';
+function openSheet(name) { sheetName = name; renderSheet(); $('veil').classList.remove('hidden'); }
+function closeSheet() { $('veil').classList.add('hidden'); sheetName = ''; openNote = ''; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && sheetName) closeSheet(); });
+function head(t) { return `<div class="grab"></div><h2>${t}<button aria-label="关上" onclick="closeSheet()">×</button></h2>`; }
+function renderSheet() {
+  const el = $('sheet');
+  if (sheetName === 'signs') el.innerHTML = head('田埂') + signsHtml();
+  else if (sheetName === 'paths') el.innerHTML = head('小路') + pathsHtml();
+  else if (sheetName === 'settings') el.innerHTML = head('设置') + settingsHtml();
+}
+function signsHtml() {
+  const h = metaGet('harvest', 0);
+  const tabs = `<div class="tabs" role="tablist"><button role="tab" aria-selected="${signsTab === 'notes'}" onclick="signsTab='notes';openNote='';renderSheet()">木牌</button><button role="tab" aria-selected="${signsTab === 'cards'}" onclick="signsTab='cards';renderSheet()">记得的事</button></div>`;
+  const board = `<div class="harvest"><div class="num" id="hv">${h}</div><div class="lbl">茬防风草收进屋了<br><span style="color:var(--ink-3)">岛主拔光一回，就记一茬</span></div><button class="btn" onclick="harvest(1)">收一茬</button></div>`;
+  if (signsTab === 'cards') {
+    const items = S.cards.map(c => `<div class="item"><div class="t">${c.tag ? `<span class="tag">${esc(c.tag)}</span>` : ''}${esc(c.text)}<div class="m">${new Date(c.created).toLocaleDateString('zh-CN')}${c.auto ? ' · 他自己记的' : ''}</div></div><button class="x" onclick="editCard('${c.id}')">改</button><button class="x" onclick="delCard('${c.id}')">删</button></div>`).join('');
+    return board + tabs + `<div class="hint">他每次说话前都会看一眼这些。聊够 ${DISTILL_EVERY} 句，他会自己悄悄补几张；不对的随手改掉。</div>
+      <div class="row"><input class="txt" id="new-card" placeholder="想让他记住的一件事"><button class="btn go" onclick="addCard()">记下</button></div>
+      <div class="row"><button class="btn" onclick="maybeDistill(true)">现在整理一次</button></div>
+      <div class="list">${items || '<div class="hint">还没有记得的事。</div>'}</div>`;
+  }
+  if (openNote) {
+    const n = S.notes.find(x => x.id === openNote);
+    if (n) return tabs + `<div class="field-label">《${esc(n.book || '书')}》${esc(n.title || '')} · ${esc(n.date || '')}</div><div class="note-full">${esc(n.text)}</div>
+      <div class="row" style="margin-top:16px"><button class="btn" onclick="openNote='';renderSheet()">回到田埂</button><button class="btn warn" onclick="delNote('${n.id}')">拔掉这块牌子</button></div>`;
+  }
+  const signs = S.notes.map(n => `<button class="signpost" onclick="openNote='${n.id}';renderSheet()"><div class="n">《${esc(n.book || '书')}》${esc(n.title || '')}</div><div class="d">${esc(n.date || '')}</div><div class="q">${esc(n.text)}</div></button>`).join('');
+  return board + tabs + `<div class="hint">他读书时留的笔记，一条插一块木牌。</div>
+    <div class="signs">${signs || '<div class="hint">田埂上还没插牌子。</div>'}</div>
+    <details style="margin-top:22px"><summary class="hint" style="cursor:pointer">插一块新牌子</summary>
+      <div class="row"><input class="txt" id="nb" placeholder="书名，比如 飞鸟集" value="${esc(S.notes[0] ? S.notes[0].book : '')}"><input class="txt" id="nt" placeholder="读到哪儿，比如 第 49–60 首"></div>
+      <textarea class="txt" id="nx" placeholder="他写的笔记"></textarea>
+      <div class="row"><button class="btn go" onclick="addNote()">插上</button></div></details>`;
+}
+async function harvest(d) { const v = Math.max(0, metaGet('harvest', 0) + d); await metaSet('harvest', v); renderSheet(); const el = $('hv'); if (el) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); } }
+async function addCard() { const t = $('new-card').value.trim(); if (!t) return; const c = { id: uid(), text: t.slice(0, 300), tag: '', created: Date.now() }; await putMany('cards', [c]); S.cards.unshift(c); renderSheet(); }
+async function editCard(id) { const c = S.cards.find(x => x.id === id); if (!c) return; const t = prompt('改一下', c.text); if (t == null) return; if (!t.trim()) return delCard(id); c.text = t.trim().slice(0, 300); await putMany('cards', [c]); renderSheet(); }
+async function delCard(id) { await delMany('cards', [id]); S.cards = S.cards.filter(c => c.id !== id); renderSheet(); }
+async function addNote() {
+  const text = $('nx').value.trim(); if (!text) { toast('笔记还空着'); return; }
+  const d = new Date(), n = { id: uid(), book: $('nb').value.trim().slice(0, 40), title: $('nt').value.trim().slice(0, 40), text: text.slice(0, 4000), date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`, created: Date.now() };
+  await putMany('notes', [n]); S.notes.unshift(n); sky(); renderSheet(); toast('插上了');
+}
+async function delNote(id) { if (!confirm('拔掉这块牌子？')) return; await delMany('notes', [id]); S.notes = S.notes.filter(n => n.id !== id); openNote = ''; sky(); renderSheet(); }
+function pathsHtml() {
+  const rows = [];
+  const walk = (pid, depth) => S.branches.filter(b => (b.parent || null) === pid).sort((a, b) => a.created - b.created).forEach(b => {
+    const len = lineOf(b.id).length;
+    rows.push(`<div class="item${b.id === S.cur ? ' cur' : ''}" style="margin-left:${Math.min(depth, 4) * 16}px"><div class="t"><b>${esc(b.name)}</b><div class="m">${len} 句${b.parent ? ` · 在第 ${b.forkAt} 句岔开` : ''}</div></div>
+      ${b.id === S.cur ? '<span class="m" style="color:var(--leaf)">在这儿</span>' : `<button class="x" onclick="switchBranch('${b.id}')">走过去</button>`}
+      ${b.parent ? `<button class="x" onclick="renameBranch('${b.id}')">起名</button><button class="x" onclick="mergeBranch('${b.id}')">并回去</button><button class="x" onclick="dropBranch('${b.id}')">铲掉</button>` : ''}</div>`);
+    walk(b.id, depth + 1);
+  });
+  walk(null, 0);
+  return `<div class="hint">想换个方向聊，在任意一句话下面点「从这儿岔开」。原来的路不会丢。</div><div class="list">${rows.join('')}</div>`;
+}
+function settingsHtml() {
+  const own = ls.get('field_key'), islet = ls.get('or_key');
+  return `<div class="field-label">OpenRouter Key</div>
+    <input class="txt" id="sk" type="password" autocomplete="off" placeholder="${islet && !own ? '正在沿用小岛的 Key，不填也行' : 'sk-or-…'}" value="${esc(own)}">
+    <div class="hint">只存在这台设备上，不进备份。${islet && !own ? '留空就沿用小岛那把。' : ''}</div>
+    <div class="field-label">说话用的模型</div>
+    <input class="txt" id="sm" value="${esc(ls.get('field_model') || DEFAULT_MODEL)}">
+    <div class="field-label">整理记忆用的模型（便宜一点的就行）</div>
+    <input class="txt" id="smm" value="${esc(ls.get('field_memmodel') || MEM_MODEL)}">
+    <div class="field-label">给种地的的话（他每次开口前都会看）</div>
+    <textarea class="txt" id="sp" style="min-height:150px">${esc(ls.get('field_prompt') || DEFAULT_PROMPT)}</textarea>
+    <div class="row"><button class="btn go" onclick="saveSettings()">存好</button><button class="btn" onclick="$('sp').value=DEFAULT_PROMPT">恢复默认的话</button></div>
+    <div class="field-label">备份</div>
+    <div class="hint">对话、小路、记得的事、木牌、收成都在里面；Key 不在。</div>
+    <div class="row"><button class="btn" onclick="exportAll()">导出备份</button><button class="btn" onclick="$('imp').click()">导入备份</button></div>
+    <input type="file" id="imp" accept=".json,application/json" class="hidden" onchange="importAll(this)">
+    <div class="foot-ver">${VERSION}</div>`;
+}
+function saveSettings() {
+  ls.set('field_key', $('sk').value.trim()); ls.set('field_model', $('sm').value.trim() || DEFAULT_MODEL);
+  ls.set('field_memmodel', $('smm').value.trim() || MEM_MODEL); ls.set('field_prompt', $('sp').value.trim() || DEFAULT_PROMPT);
+  toast('存好了'); closeSheet();
+}
+
+/* ============ 备份 ============ */
+async function snapshot() {
+  const [msgs, branches, cards, notes, meta] = await Promise.all(STORES.map(getAll));   // 顺序跟 STORES 一致
+  return { app: 'field', v: 1, exported: Date.now(), branches, msgs, cards, notes, meta, prompt: ls.get('field_prompt') || '' };
+}
+function download(name, text) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' })); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+const stamp = () => new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+async function exportAll() {
+  try { download(`field-${stamp()}.json`, JSON.stringify(await snapshot())); toast('备份开始下载了'); return true; }
+  catch (e) { toast('导出失败：' + (e.message || e)); return false; }
+}
+function validBackup(d) {
+  if (!d || d.app !== 'field' || !Array.isArray(d.msgs) || !Array.isArray(d.branches)) return '这不是田的备份文件';
+  const ids = new Set(d.branches.map(b => b && b.id));
+  if (!ids.has('main')) return '备份里少了大路';
+  if (d.branches.some(b => !b || typeof b.id !== 'string' || (b.parent && !ids.has(b.parent)))) return '备份里的小路接不上';
+  if (d.msgs.some(m => !m || typeof m.id !== 'string' || !ids.has(m.branch) || !['user', 'assistant'].includes(m.role) || typeof m.content !== 'string')) return '备份里有对不上的话';
+  return '';
+}
+async function importAll(inp) {
+  const f = inp.files && inp.files[0]; inp.value = ''; if (!f || S.busy) return;
+  let d; try { d = JSON.parse(await f.text()); } catch (e) { toast('不是有效的 JSON'); return; }
+  const bad = validBackup(d); if (bad) { toast(bad); return; }
+  if (!confirm(`用这份备份替换田里现在的一切？\n（${d.msgs.length} 句话 · ${(d.cards || []).length} 件记得的事 · ${(d.notes || []).length} 块木牌）\n会先把现在的导出一份。`)) return;
+  if (!(await exportAll())) { toast('现在的数据没能先备份，这次不导入'); return; }
+  try {
+    // 一个事务里清空再写入：中途出错整笔回滚，原来的数据原样留着
+    await tx(STORES, 'readwrite', t => {
+      STORES.forEach(s => t.objectStore(s).clear());
+      d.branches.forEach(b => t.objectStore('branches').put(b));
+      d.msgs.forEach(m => t.objectStore('msgs').put(m));
+      (d.cards || []).forEach(c => c && c.id && t.objectStore('cards').put(c));
+      (d.notes || []).forEach(n => n && n.id && t.objectStore('notes').put(n));
+      (d.meta || []).forEach(r => r && r.k && t.objectStore('meta').put(r));
+    });
+    if (d.prompt) ls.set('field_prompt', d.prompt);
+    await load(); closeSheet(); sky(); renderPath(); renderLog(); toast('导入好了');
+  } catch (e) { toast('导入没成功，原来的数据没动：' + (e.message || e), 5000); }
+}
+
+/* ============ 输入框 ============ */
+function autosize() { const t = $('input'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, window.innerHeight * .4) + 'px'; }
+$('input').addEventListener('input', autosize);
+$('input').addEventListener('keydown', e => {
+  // 电脑上 Enter 发送、Shift+Enter 换行；手机上回车就是换行
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && matchMedia('(hover: hover) and (pointer: fine)').matches) { e.preventDefault(); onSend(); }
+});
+
+/* ============ 开门 ============ */
+(async () => {
+  try { await load(); } catch (e) { $('log').innerHTML = `<div class="empty">田的门没打开：${esc(e.message || e)}<br>可能是浏览器不让存东西（无痕模式？）</div>`; return; }
+  $('think').setAttribute('aria-pressed', ls.get('field_think') === 'on');
+  sky(); renderPath(); renderLog();
+  setInterval(sky, 10 * 60 * 1000);
+})();
+</script>
+</body>
+</html>

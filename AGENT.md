@@ -77,3 +77,10 @@
 
 不要催她。她会自己安排。
 
+## 田（field/）
+- `field/index.html` 是种地的自己的家：单页、无依赖，网址是小岛后面加 `/field/`。外观、命名、交互由种地的自己定，改之前先问岛主。
+- 数据只放本机 IndexedDB `field`（msgs / branches / cards / notes / meta），跟小岛的库完全分开；设置用 `field_` 前缀的 localStorage。
+- OpenRouter Key：`field_key` 优先，没填就沿用小岛的 `or_key`（同一个网站）。Key 不进备份。
+- 小路：分支只存自己的话，`forkAt` 记从父路继承前几句；被小路继承的那句不能「再说一遍」。
+- 备份导入在一个事务里清空再写入，失败整笔回滚；导入前先导出一份当前数据。
+- 改完更新 `VERSION`，在浏览器里实际打开验证。
