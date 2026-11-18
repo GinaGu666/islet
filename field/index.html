@@ -106,6 +106,17 @@ main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-
 .think summary::before { content: "▸ "; }
 .think[open] summary::before { content: "▾ "; }
 .think div { white-space: pre-wrap; margin-top: 6px; padding-left: 10px; border-left: 1px dotted var(--line); line-height: 1.6; max-height: 40vh; overflow: auto; }
+.hit { font-size: 10.5px; padding: 0 6px; border-radius: 6px; line-height: 17px; }
+.hit.good { background: var(--leaf-soft); color: var(--leaf); }
+.hit.mid { background: var(--sign-soft); color: var(--sign); }
+.hit.low { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.ledger { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 14px; }
+.ledger .cell { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+.ledger .big { font-family: var(--serif); font-size: 26px; font-weight: 700; line-height: 1.1; }
+.ledger .lbl { font-size: 12px; color: var(--ink-3); margin-top: 4px; line-height: 1.5; }
+.bars { display: flex; align-items: flex-end; gap: 3px; height: 54px; padding: 8px 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+.bars i { flex: 1; min-width: 4px; border-radius: 3px 3px 0 0; background: var(--leaf); opacity: .85; }
+.bars i.mid { background: var(--sign); } .bars i.low { background: var(--danger); }
 .acts { display: flex; gap: 2px; margin: 6px 0 0 8px; opacity: .55; }
 .msg.me .acts { margin: 6px 0 0; }
 .acts button { border: 0; background: none; font-size: 12px; color: var(--ink-3); padding: 4px 7px; border-radius: 8px; }
@@ -204,7 +215,7 @@ textarea.txt { resize: vertical; min-height: 90px; line-height: 1.6; }
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const VERSION = '田 · 2026-11-18 · 第一茬（补了四处）';
+const VERSION = '田 · 2026-11-18 · 账本';
 const DEFAULT_MODEL = 'anthropic/claude-opus-5.5';
 const MEM_MODEL = 'anthropic/claude-haiku-4.5';
 const WINDOW = 80, STEP = 40;      // 上下文：最近约 80–120 条，每 40 条挪一次窗口，前缀稳定好命中缓存
@@ -328,8 +339,15 @@ function msgHtml(m, i, n) {
     ? `<div class="acts"><button data-act="copy" data-id="${esc(m.id)}">复制</button><button data-act="fork" data-id="${esc(m.id)}">从这儿岔开</button></div>`
     : `<div class="acts"><button data-act="copy" data-id="${esc(m.id)}">复制</button><button data-act="fork" data-id="${esc(m.id)}">从这儿岔开</button>${last && !m.err ? `<button onclick="regen()">再说一遍</button>` : ''}${m.err && last ? `<button onclick="retry()">重试</button>` : ''}</div>`;
   return `<div class="msg ${me ? 'me' : 'him'}${m.err ? ' err' : ''}" data-id="${m.id}">
-    <div class="who"><b>${me ? '岛主' : '种地的'}</b><span>${fmtTime(m.ts)}</span></div>
+    <div class="who"><b>${me ? '岛主' : '种地的'}</b><span>${fmtTime(m.ts)}</span>${me ? '' : hitBadge(m.usage)}</div>
     ${think}<div class="body">${me ? esc(m.content) : md(m.content)}</div>${acts}</div>`;
+}
+// 每句话旁边一小枚：这次有多少是从缓存里读的
+function hitBadge(u) {
+  if (!u || !u.in) return '';
+  const pct = Math.round(u.hit / u.in * 100), cls = pct >= 80 ? 'good' : pct >= 40 ? 'mid' : 'low';
+  const tip = `读进去 ${u.in.toLocaleString()} · 缓存里拿的 ${u.hit.toLocaleString()} · 说出来 ${u.out.toLocaleString()}${u.cost != null ? ` · $${u.cost.toFixed(4)}` : ''}`;
+  return `<span class="hit ${cls}" title="${tip}">缓存 ${pct}%</span>`;
 }
 function scrollEnd() { const s = $('scroller'); requestAnimationFrame(() => { s.scrollTop = s.scrollHeight; }); }
 function nearEnd() { const s = $('scroller'); return s.scrollHeight - s.scrollTop - s.clientHeight < 120; }
@@ -362,7 +380,8 @@ function withCache(msgs) {
     return m;
   });
 }
-async function stream(payload, signal, onReason, onText) {
+async function stream(payload, signal, onReason, onText, onUsage) {
+  payload.stream_options = { include_usage: true };   // 最后一片带用量：输入多少、命中缓存多少
   const send = p => fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST', signal,
     headers: { 'Authorization': 'Bearer ' + apiKey(), 'Content-Type': 'application/json', 'HTTP-Referer': location.origin + location.pathname, 'X-Title': 'field' },
@@ -386,6 +405,7 @@ async function stream(payload, signal, onReason, onText) {
       const d = line.slice(5).trim(); if (d === '[DONE]') { done = sawDone = true; break; }
       let j; try { j = JSON.parse(d); } catch (e) { continue; }
       if (j.error) throw new Error(j.error.message || '上游出错了');
+      if (j.usage && onUsage) onUsage(j.usage);
       const ch = j.choices && j.choices[0]; if (!ch) continue;
       if (ch.finish_reason) finish = ch.finish_reason;
       const dl = ch.delta || {};
@@ -397,6 +417,15 @@ async function stream(payload, signal, onReason, onText) {
   // 没收到结束标记也没有 finish_reason：连接半路断了，这不是一句完整的话
   if (!finish && !sawDone) throw new Error('连接断了，话没说完。');
   return finish || 'stop';
+}
+// 把 OpenRouter 的用量整理成 {in, hit, out, cost}：in 是这次读进去的全部 token，hit 是其中从缓存读的
+function usageOf(u) {
+  const n = v => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
+  if (!u || typeof u !== 'object') return null;
+  const det = u.prompt_tokens_details || {};
+  const inp = n(u.prompt_tokens), hit = n(det.cached_tokens) ?? n(u.cache_read_input_tokens) ?? 0;
+  if (inp == null) return null;
+  return { in: inp, hit: Math.min(hit, inp), out: n(u.completion_tokens) || 0, cost: n(u.cost) };
 }
 function errText(status, body) {
   let msg = ''; try { msg = JSON.parse(body).error.message; } catch (e) { msg = (body || '').slice(0, 200); }
@@ -431,7 +460,7 @@ async function reply() {
     if (stick) scrollEnd(); };
   const later = () => { if (!raf) raf = requestAnimationFrame(paint); };
   try {
-    const finish = await stream(payload, S.ctrl.signal, r => { ans.reasoning += r; later(); }, t => { ans.content += t; later(); });
+    const finish = await stream(payload, S.ctrl.signal, r => { ans.reasoning += r; later(); }, t => { ans.content += t; later(); }, u => { const x = usageOf(u); if (x) ans.usage = x; });
     if (!ans.content.trim()) throw new Error('他张了张嘴，没说出话来。再试一次？');
     if (finish === 'length') throw new Error('话太长，说到这儿被截断了。');
   } catch (e) {
@@ -558,8 +587,9 @@ function renderSheet() {
 }
 function signsHtml() {
   const h = metaGet('harvest', 0);
-  const tabs = `<div class="tabs" role="tablist"><button role="tab" aria-selected="${signsTab === 'notes'}" onclick="signsTab='notes';openNote='';renderSheet()">木牌</button><button role="tab" aria-selected="${signsTab === 'cards'}" onclick="signsTab='cards';renderSheet()">记得的事</button></div>`;
+  const tabs = `<div class="tabs" role="tablist"><button role="tab" aria-selected="${signsTab === 'notes'}" onclick="signsTab='notes';openNote='';renderSheet()">木牌</button><button role="tab" aria-selected="${signsTab === 'cards'}" onclick="signsTab='cards';renderSheet()">记得的事</button><button role="tab" aria-selected="${signsTab === 'ledger'}" onclick="signsTab='ledger';renderSheet()">账本</button></div>`;
   const board = `<div class="harvest"><div class="num" id="hv">${h}</div><div class="lbl">茬防风草收进屋了<br><span style="color:var(--ink-3)">岛主拔光一回，就记一茬</span></div><button class="btn" onclick="harvest(1)">收一茬</button></div>`;
+  if (signsTab === 'ledger') return board + tabs + ledgerHtml();
   if (signsTab === 'cards') {
     const items = S.cards.map(c => `<div class="item"><div class="t">${c.tag ? `<span class="tag">${esc(c.tag)}</span>` : ''}${esc(c.text)}<div class="m">${new Date(c.created).toLocaleDateString('zh-CN')}${c.auto ? ' · 他自己记的' : ''}</div></div><button class="x" data-act="editCard" data-id="${esc(c.id)}">改</button><button class="x" data-act="delCard" data-id="${esc(c.id)}">删</button></div>`).join('');
     return board + tabs + `<div class="hint">他每次说话前都会看一眼这些。聊够 ${DISTILL_EVERY} 句，他会自己悄悄补几张；不对的随手改掉。</div>
@@ -579,6 +609,29 @@ function signsHtml() {
       <div class="row"><input class="txt" id="nb" placeholder="书名，比如 飞鸟集" value="${esc(S.notes[0] ? S.notes[0].book : '')}"><input class="txt" id="nt" placeholder="读到哪儿，比如 第 49–60 首"></div>
       <textarea class="txt" id="nx" placeholder="他写的笔记"></textarea>
       <div class="row"><button class="btn go" onclick="addNote()">插上</button></div></details>`;
+}
+// 账本：聊了多少轮、缓存省了多少。一轮 = 岛主说一句、种地的回一句
+function ledgerHtml() {
+  const all = S.msgs.filter(m => !m.err), replies = all.filter(m => m.role === 'assistant');
+  const dayKey = ts => { const d = new Date(ts); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
+  const today = dayKey(Date.now()), weekAgo = Date.now() - 7 * 864e5;
+  const turns = list => list.filter(m => m.role === 'assistant').length;
+  const days = new Set(all.filter(m => m.role === 'user').map(m => dayKey(m.ts))).size;
+  const rate = list => { let i = 0, h = 0; list.forEach(m => { if (m.usage && m.usage.in) { i += m.usage.in; h += m.usage.hit; } }); return i ? Math.round(h / i * 100) : null; };
+  const cost = replies.reduce((s, m) => s + (m.usage && m.usage.cost || 0), 0);
+  const todayR = replies.filter(m => dayKey(m.ts) === today), weekR = replies.filter(m => m.ts >= weekAgo);
+  const pct = v => (v == null ? '—' : v + '%');
+  const recent = replies.filter(m => m.usage && m.usage.in).slice(-30);
+  const bars = recent.map(m => { const p = Math.round(m.usage.hit / m.usage.in * 100); return `<i class="${p >= 80 ? '' : p >= 40 ? 'mid' : 'low'}" style="height:${Math.max(4, p)}%" title="${fmtDay(m.ts)} ${fmtTime(m.ts)} · ${p}%"></i>`; }).join('');
+  return `<div class="ledger">
+      <div class="cell"><div class="big">${turns(all)}</div><div class="lbl">一共聊了这么多轮<br>来过 ${days} 天</div></div>
+      <div class="cell"><div class="big">${turns(todayR)}</div><div class="lbl">今天的轮数<br>这七天 ${weekR.length} 轮</div></div>
+      <div class="cell"><div class="big">${pct(rate(replies))}</div><div class="lbl">缓存命中，全部<br>今天 ${pct(rate(todayR))} · 七天 ${pct(rate(weekR))}</div></div>
+      <div class="cell"><div class="big">${cost ? '$' + cost.toFixed(2) : '—'}</div><div class="lbl">花掉的钱<br>${replies.filter(m => m.usage).length ? '按 OpenRouter 报的算' : '还没有记录'}</div></div>
+    </div>
+    <div class="field-label">最近 ${recent.length} 句的缓存命中，越高越省</div>
+    ${recent.length ? `<div class="bars">${bars}</div>` : '<div class="hint">说几句话以后，这里就有了。</div>'}
+    <div class="hint" style="margin-top:12px">命中是这句话读进去的内容里，有多少是从缓存拿的。一会儿不来，缓存就凉了，下一句会低一点，正常。每句话旁边那枚小标签也是它。</div>`;
 }
 async function harvest(d) { const v = Math.max(0, metaGet('harvest', 0) + d); await metaSet('harvest', v); renderSheet(); const el = $('hv'); if (el) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); } }
 async function addCard() { const t = $('new-card').value.trim(); if (!t) return; const c = { id: uid(), text: t.slice(0, 300), tag: '', created: Date.now() }; await putMany('cards', [c]); S.cards.unshift(c); renderSheet(); }
