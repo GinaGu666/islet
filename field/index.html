@@ -204,7 +204,7 @@ textarea.txt { resize: vertical; min-height: 90px; line-height: 1.6; }
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const VERSION = '田 · 2026-11-18 · 第一茬（补了三处）';
+const VERSION = '田 · 2026-11-18 · 第一茬（补了四处）';
 const DEFAULT_MODEL = 'anthropic/claude-opus-5.5';
 const MEM_MODEL = 'anthropic/claude-haiku-4.5';
 const WINDOW = 80, STEP = 40;      // 上下文：最近约 80–120 条，每 40 条挪一次窗口，前缀稳定好命中缓存
@@ -260,7 +260,9 @@ const putMany = (store, rows) => tx([store], 'readwrite', t => { rows.forEach(r 
 const delMany = (store, ids) => tx([store], 'readwrite', t => { ids.forEach(id => t.objectStore(store).delete(id)); });
 
 /* ============ 状态 ============ */
-const S = { branches: [], msgs: [], cards: [], notes: [], meta: {}, cur: 'main', busy: false, ctrl: null, distilling: false };
+const S = { branches: [], msgs: [], cards: [], notes: [], meta: {}, cur: 'main', busy: false, ctrl: null, distilling: false, ver: 0 };
+// 数据版本：删话、并路、铲路、导入时 +1。后台整理记忆回来时版本变了，就把这次结果整个丢掉，免得把删掉的话写回去
+const bump = () => { S.ver++; };
 const MAIN = { id: 'main', name: '大路', parent: null, forkAt: 0, created: 0 };
 const metaGet = (k, d) => (k in S.meta ? S.meta[k] : d);
 async function metaSet(k, v) { S.meta[k] = v; await putMany('meta', [{ k, v }]); }
@@ -453,12 +455,12 @@ async function regen() {
   if (!last || last.role !== 'assistant') return;
   if (last.branch !== S.cur) { toast('这句是大路上说的，在小路里改不了'); return; }
   if (S.branches.some(b => b.parent === S.cur && b.forkAt >= list.length)) { toast('这一句已经岔出小路了，改不了'); return; }
-  await delMany('msgs', [last.id]); S.msgs = S.msgs.filter(m => m.id !== last.id);
+  bump(); await delMany('msgs', [last.id]); S.msgs = S.msgs.filter(m => m.id !== last.id);
   await reply();
 }
 async function retry() {
   const list = lineOf(S.cur), last = list[list.length - 1];
-  if (last && last.err && last.branch === S.cur) { await delMany('msgs', [last.id]); S.msgs = S.msgs.filter(m => m.id !== last.id); }
+  if (last && last.err && last.branch === S.cur) { bump(); await delMany('msgs', [last.id]); S.msgs = S.msgs.filter(m => m.id !== last.id); }
   await reply();
 }
 function copyMsg(id) {
@@ -473,7 +475,7 @@ async function maybeDistill(force) {
   const pending = lineOf(S.cur).filter(m => !m.d && !m.err && !m.cut && m.content);
   const userCount = pending.filter(m => m.role === 'user').length;
   if (!pending.length || (!force && userCount < DISTILL_EVERY)) { if (force) toast('最近没有新的话要整理'); return; }
-  S.distilling = true; if (force) toast('在整理记忆…');
+  S.distilling = true; const ver0 = S.ver; if (force) toast('在整理记忆…');
   try {
     const convo = pending.slice(-120).map(m => `${m.role === 'user' ? '岛主' : '种地的'}：${m.content.slice(0, 1500)}`).join('\n');
     const known = S.cards.slice(0, 120).map(c => '- ' + c.text).join('\n') || '（还没有）';
@@ -482,7 +484,9 @@ async function maybeDistill(force) {
 没有新的就只输出 NONE。只输出卡片，不要别的话。`;
     const payload = { model: ls.get('field_memmodel') || MEM_MODEL, stream: true, max_tokens: 1200, messages: [{ role: 'system', content: sys }, { role: 'user', content: `已有的卡：\n${known}\n\n新的对话：\n${convo}` }] };
     let out = '';
-    await stream(payload, undefined, () => {}, t => { out += t; });
+    const fin = await stream(payload, undefined, () => {}, t => { out += t; });
+    if (fin === 'length') throw new Error('整理出来的太长，被截断了，这次不算');
+    if (S.ver !== ver0) { if (force) toast('整理时田里有了变动，这次先不记，下回再整理'); S.distilling = false; return; }
     const fresh = [];
     for (const line of out.split('\n')) {
       const s = line.replace(/^[-•*\d.\s]+/, '').trim(); if (!s || /^NONE$/i.test(s)) continue;
@@ -490,7 +494,8 @@ async function maybeDistill(force) {
       const text = mt ? s.slice(0, mt.index).trim() : s; if (!text || S.cards.some(c => c.text === text)) continue;
       fresh.push({ id: uid(), text: text.slice(0, 300), tag: mt ? mt[1] : '', created: Date.now(), auto: 1 });
     }
-    const marked = pending.map(m => Object.assign({}, m, { d: 1 }));
+    // 只给此刻还在的话打勾，并以此刻的内容为准
+    const marked = pending.map(m => S.msgs.find(x => x.id === m.id)).filter(Boolean).map(m => Object.assign({}, m, { d: 1 }));
     await tx(['cards', 'msgs'], 'readwrite', t => { fresh.forEach(c => t.objectStore('cards').put(c)); marked.forEach(m => t.objectStore('msgs').put(m)); });
     marked.forEach(m => { const i = S.msgs.findIndex(x => x.id === m.id); if (i >= 0) S.msgs[i] = m; });
     S.cards = fresh.concat(S.cards);
@@ -523,7 +528,7 @@ async function mergeBranch(id) {
   if (!confirm(`把「${b.name}」并回原来的路？${note}`)) return;
   let seq = nextSeq(b.parent);
   const moved = ownMsgs(id).map(m => Object.assign({}, m, { branch: b.parent, seq: seq++ }));
-  await tx(['msgs', 'branches'], 'readwrite', t => { moved.forEach(m => t.objectStore('msgs').put(m)); t.objectStore('branches').delete(id); });
+  bump(); await tx(['msgs', 'branches'], 'readwrite', t => { moved.forEach(m => t.objectStore('msgs').put(m)); t.objectStore('branches').delete(id); });
   S.msgs = S.msgs.map(m => moved.find(x => x.id === m.id) || m); S.branches = S.branches.filter(x => x.id !== id);
   if (S.cur === id) { S.cur = b.parent; ls.set('field_branch', b.parent); }
   renderPath(); renderLog(); renderSheet(); toast('并回去了');
@@ -533,7 +538,7 @@ async function dropBranch(id) {
   if (S.branches.some(x => x.parent === id)) { toast('这条小路上还岔着别的路，先处理那些'); return; }
   if (!confirm(`把「${b.name}」和它上面的话一起铲掉？铲了就找不回来了。`)) return;
   const ids = ownMsgs(id).map(m => m.id);
-  await tx(['msgs', 'branches'], 'readwrite', t => { ids.forEach(x => t.objectStore('msgs').delete(x)); t.objectStore('branches').delete(id); });
+  bump(); await tx(['msgs', 'branches'], 'readwrite', t => { ids.forEach(x => t.objectStore('msgs').delete(x)); t.objectStore('branches').delete(id); });
   S.msgs = S.msgs.filter(m => m.branch !== id); S.branches = S.branches.filter(x => x.id !== id);
   if (S.cur === id) { S.cur = b.parent; ls.set('field_branch', b.parent); }
   renderPath(); renderLog(); renderSheet();
@@ -666,6 +671,7 @@ async function importAll(inp) {
   const bad = validBackup(d); if (bad) { toast(bad); return; }
   if (!confirm(`用这份备份替换田里现在的一切？\n（${d.msgs.length} 句话 · ${(d.cards || []).length} 件记得的事 · ${(d.notes || []).length} 块木牌）\n会先把现在的导出一份。`)) return;
   if (!(await exportAll())) { toast('现在的数据没能先备份，这次不导入'); return; }
+  bump();
   try {
     // 一个事务里清空再写入：中途出错整笔回滚，原来的数据原样留着
     await tx(STORES, 'readwrite', t => {
@@ -677,7 +683,7 @@ async function importAll(inp) {
       (d.meta || []).forEach(r => t.objectStore('meta').put(r));
     });
     if (d.prompt) ls.set('field_prompt', d.prompt);
-    await load(); closeSheet(); sky(); renderPath(); renderLog(); toast('导入好了');
+    bump(); await load(); closeSheet(); sky(); renderPath(); renderLog(); toast('导入好了');
   } catch (e) { toast('导入没成功，原来的数据没动：' + (e.message || e), 5000); }
 }
 
