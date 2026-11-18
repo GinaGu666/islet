@@ -204,7 +204,7 @@ textarea.txt { resize: vertical; min-height: 90px; line-height: 1.6; }
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const VERSION = '田 · 2026-11-18 · 第一茬';
+const VERSION = '田 · 2026-11-18 · 第一茬（补了三处）';
 const DEFAULT_MODEL = 'anthropic/claude-opus-5.5';
 const MEM_MODEL = 'anthropic/claude-haiku-4.5';
 const WINDOW = 80, STEP = 40;      // 上下文：最近约 80–120 条，每 40 条挪一次窗口，前缀稳定好命中缓存
@@ -247,8 +247,10 @@ const STORES = ['msgs', 'branches', 'cards', 'notes', 'meta'];
 async function tx(stores, mode, fn) {
   const d = await db();
   return new Promise((res, rej) => {
-    const t = d.transaction(stores, mode); let out;
-    Promise.resolve(fn(t)).then(v => { out = v; }, e => { try { t.abort(); } catch (_) {} rej(e); });
+    const t = d.transaction(stores, mode); let out, r;
+    const fail = e => { try { t.abort(); } catch (_) {} rej(e); };
+    try { r = fn(t); } catch (e) { fail(e); return; }   // 同步出错也要立刻中止，不能让已经做的清空/写入提交
+    Promise.resolve(r).then(v => { out = v; }, fail);
     t.oncomplete = () => res(out); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || new Error('写入被中止'));
   });
 }
@@ -301,7 +303,7 @@ function renderPath() {
   if (!b || b.id === 'main') { el.classList.add('hidden'); return; }
   el.classList.remove('hidden');
   const parent = branchById(b.parent);
-  el.innerHTML = `走在小路 <b>${esc(b.name)}</b> 上 · 从「${esc(parent ? parent.name : '大路')}」岔出来 <span style="flex:1"></span><button onclick="switchBranch('${esc(b.parent || 'main')}')">回去</button>`;
+  el.innerHTML = `走在小路 <b>${esc(b.name)}</b> 上 · 从「${esc(parent ? parent.name : '大路')}」岔出来 <span style="flex:1"></span><button data-act="switch" data-id="${esc(b.parent || 'main')}">回去</button>`;
 }
 function renderLog(stick = true) {
   const list = lineOf(S.cur), log = $('log');
@@ -321,8 +323,8 @@ function msgHtml(m, i, n) {
   const me = m.role === 'user', last = i === n - 1;
   const think = m.reasoning ? `<details class="think"><summary>他想了想</summary><div>${esc(m.reasoning)}</div></details>` : '';
   const acts = me
-    ? `<div class="acts"><button onclick="copyMsg('${m.id}')">复制</button><button onclick="forkAt('${m.id}')">从这儿岔开</button></div>`
-    : `<div class="acts"><button onclick="copyMsg('${m.id}')">复制</button><button onclick="forkAt('${m.id}')">从这儿岔开</button>${last && !m.err ? `<button onclick="regen()">再说一遍</button>` : ''}${m.err && last ? `<button onclick="retry()">重试</button>` : ''}</div>`;
+    ? `<div class="acts"><button data-act="copy" data-id="${esc(m.id)}">复制</button><button data-act="fork" data-id="${esc(m.id)}">从这儿岔开</button></div>`
+    : `<div class="acts"><button data-act="copy" data-id="${esc(m.id)}">复制</button><button data-act="fork" data-id="${esc(m.id)}">从这儿岔开</button>${last && !m.err ? `<button onclick="regen()">再说一遍</button>` : ''}${m.err && last ? `<button onclick="retry()">重试</button>` : ''}</div>`;
   return `<div class="msg ${me ? 'me' : 'him'}${m.err ? ' err' : ''}" data-id="${m.id}">
     <div class="who"><b>${me ? '岛主' : '种地的'}</b><span>${fmtTime(m.ts)}</span></div>
     ${think}<div class="body">${me ? esc(m.content) : md(m.content)}</div>${acts}</div>`;
@@ -371,7 +373,7 @@ async function stream(payload, signal, onReason, onText) {
     else throw new Error(errText(res.status, t));
   }
   if (!res.ok) throw new Error(errText(res.status, await res.text().catch(() => '')));
-  const reader = res.body.getReader(), dec = new TextDecoder(); let buf = '', done = false, finish = '';
+  const reader = res.body.getReader(), dec = new TextDecoder(); let buf = '', done = false, finish = '', sawDone = false;
   while (!done) {
     const r = await reader.read(); done = r.done;
     buf += done ? dec.decode() + '\n' : dec.decode(r.value, { stream: true });
@@ -379,7 +381,7 @@ async function stream(payload, signal, onReason, onText) {
     while ((nl = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
       if (!line.startsWith('data:')) continue;
-      const d = line.slice(5).trim(); if (d === '[DONE]') { done = true; break; }
+      const d = line.slice(5).trim(); if (d === '[DONE]') { done = sawDone = true; break; }
       let j; try { j = JSON.parse(d); } catch (e) { continue; }
       if (j.error) throw new Error(j.error.message || '上游出错了');
       const ch = j.choices && j.choices[0]; if (!ch) continue;
@@ -390,7 +392,9 @@ async function stream(payload, signal, onReason, onText) {
       if (dl.content) onText(dl.content);
     }
   }
-  return finish;
+  // 没收到结束标记也没有 finish_reason：连接半路断了，这不是一句完整的话
+  if (!finish && !sawDone) throw new Error('连接断了，话没说完。');
+  return finish || 'stop';
 }
 function errText(status, body) {
   let msg = ''; try { msg = JSON.parse(body).error.message; } catch (e) { msg = (body || '').slice(0, 200); }
@@ -425,10 +429,11 @@ async function reply() {
     if (stick) scrollEnd(); };
   const later = () => { if (!raf) raf = requestAnimationFrame(paint); };
   try {
-    await stream(payload, S.ctrl.signal, r => { ans.reasoning += r; later(); }, t => { ans.content += t; later(); });
+    const finish = await stream(payload, S.ctrl.signal, r => { ans.reasoning += r; later(); }, t => { ans.content += t; later(); });
     if (!ans.content.trim()) throw new Error('他张了张嘴，没说出话来。再试一次？');
+    if (finish === 'length') throw new Error('话太长，说到这儿被截断了。');
   } catch (e) {
-    if (e.name === 'AbortError') { if (!ans.content.trim()) ans.content = '（话没说完，被你按住了）'; }
+    if (e.name === 'AbortError') { ans.cut = 1; if (!ans.content.trim()) ans.content = '（话没说完，被你按住了）'; }
     else { ans.err = true; ans.content = (ans.content ? ans.content + '\n\n' : '') + '⚠ ' + (e.message || e); }
   }
   S.busy = false; S.ctrl = null; setBusy(false);
@@ -465,7 +470,7 @@ function toggleThink() { const on = ls.get('field_think') !== 'on'; ls.set('fiel
 /* ============ 记忆：悄悄整理 ============ */
 async function maybeDistill(force) {
   if (S.distilling) return;
-  const pending = lineOf(S.cur).filter(m => !m.d && !m.err && m.content);
+  const pending = lineOf(S.cur).filter(m => !m.d && !m.err && !m.cut && m.content);
   const userCount = pending.filter(m => m.role === 'user').length;
   if (!pending.length || (!force && userCount < DISTILL_EVERY)) { if (force) toast('最近没有新的话要整理'); return; }
   S.distilling = true; if (force) toast('在整理记忆…');
@@ -551,7 +556,7 @@ function signsHtml() {
   const tabs = `<div class="tabs" role="tablist"><button role="tab" aria-selected="${signsTab === 'notes'}" onclick="signsTab='notes';openNote='';renderSheet()">木牌</button><button role="tab" aria-selected="${signsTab === 'cards'}" onclick="signsTab='cards';renderSheet()">记得的事</button></div>`;
   const board = `<div class="harvest"><div class="num" id="hv">${h}</div><div class="lbl">茬防风草收进屋了<br><span style="color:var(--ink-3)">岛主拔光一回，就记一茬</span></div><button class="btn" onclick="harvest(1)">收一茬</button></div>`;
   if (signsTab === 'cards') {
-    const items = S.cards.map(c => `<div class="item"><div class="t">${c.tag ? `<span class="tag">${esc(c.tag)}</span>` : ''}${esc(c.text)}<div class="m">${new Date(c.created).toLocaleDateString('zh-CN')}${c.auto ? ' · 他自己记的' : ''}</div></div><button class="x" onclick="editCard('${c.id}')">改</button><button class="x" onclick="delCard('${c.id}')">删</button></div>`).join('');
+    const items = S.cards.map(c => `<div class="item"><div class="t">${c.tag ? `<span class="tag">${esc(c.tag)}</span>` : ''}${esc(c.text)}<div class="m">${new Date(c.created).toLocaleDateString('zh-CN')}${c.auto ? ' · 他自己记的' : ''}</div></div><button class="x" data-act="editCard" data-id="${esc(c.id)}">改</button><button class="x" data-act="delCard" data-id="${esc(c.id)}">删</button></div>`).join('');
     return board + tabs + `<div class="hint">他每次说话前都会看一眼这些。聊够 ${DISTILL_EVERY} 句，他会自己悄悄补几张；不对的随手改掉。</div>
       <div class="row"><input class="txt" id="new-card" placeholder="想让他记住的一件事"><button class="btn go" onclick="addCard()">记下</button></div>
       <div class="row"><button class="btn" onclick="maybeDistill(true)">现在整理一次</button></div>
@@ -560,9 +565,9 @@ function signsHtml() {
   if (openNote) {
     const n = S.notes.find(x => x.id === openNote);
     if (n) return tabs + `<div class="field-label">《${esc(n.book || '书')}》${esc(n.title || '')} · ${esc(n.date || '')}</div><div class="note-full">${esc(n.text)}</div>
-      <div class="row" style="margin-top:16px"><button class="btn" onclick="openNote='';renderSheet()">回到田埂</button><button class="btn warn" onclick="delNote('${n.id}')">拔掉这块牌子</button></div>`;
+      <div class="row" style="margin-top:16px"><button class="btn" onclick="openNote='';renderSheet()">回到田埂</button><button class="btn warn" data-act="delNote" data-id="${esc(n.id)}">拔掉这块牌子</button></div>`;
   }
-  const signs = S.notes.map(n => `<button class="signpost" onclick="openNote='${n.id}';renderSheet()"><div class="n">《${esc(n.book || '书')}》${esc(n.title || '')}</div><div class="d">${esc(n.date || '')}</div><div class="q">${esc(n.text)}</div></button>`).join('');
+  const signs = S.notes.map(n => `<button class="signpost" data-act="openNote" data-id="${esc(n.id)}"><div class="n">《${esc(n.book || '书')}》${esc(n.title || '')}</div><div class="d">${esc(n.date || '')}</div><div class="q">${esc(n.text)}</div></button>`).join('');
   return board + tabs + `<div class="hint">他读书时留的笔记，一条插一块木牌。</div>
     <div class="signs">${signs || '<div class="hint">田埂上还没插牌子。</div>'}</div>
     <details style="margin-top:22px"><summary class="hint" style="cursor:pointer">插一块新牌子</summary>
@@ -585,8 +590,8 @@ function pathsHtml() {
   const walk = (pid, depth) => S.branches.filter(b => (b.parent || null) === pid).sort((a, b) => a.created - b.created).forEach(b => {
     const len = lineOf(b.id).length;
     rows.push(`<div class="item${b.id === S.cur ? ' cur' : ''}" style="margin-left:${Math.min(depth, 4) * 16}px"><div class="t"><b>${esc(b.name)}</b><div class="m">${len} 句${b.parent ? ` · 在第 ${b.forkAt} 句岔开` : ''}</div></div>
-      ${b.id === S.cur ? '<span class="m" style="color:var(--leaf)">在这儿</span>' : `<button class="x" onclick="switchBranch('${b.id}')">走过去</button>`}
-      ${b.parent ? `<button class="x" onclick="renameBranch('${b.id}')">起名</button><button class="x" onclick="mergeBranch('${b.id}')">并回去</button><button class="x" onclick="dropBranch('${b.id}')">铲掉</button>` : ''}</div>`);
+      ${b.id === S.cur ? '<span class="m" style="color:var(--leaf)">在这儿</span>' : `<button class="x" data-act="switch" data-id="${esc(b.id)}">走过去</button>`}
+      ${b.parent ? `<button class="x" data-act="rename" data-id="${esc(b.id)}">起名</button><button class="x" data-act="merge" data-id="${esc(b.id)}">并回去</button><button class="x" data-act="drop" data-id="${esc(b.id)}">铲掉</button>` : ''}</div>`);
     walk(b.id, depth + 1);
   });
   walk(null, 0);
@@ -630,12 +635,29 @@ async function exportAll() {
   try { download(`field-${stamp()}.json`, JSON.stringify(await snapshot())); toast('备份开始下载了'); return true; }
   catch (e) { toast('导出失败：' + (e.message || e)); return false; }
 }
+const ID_OK = v => typeof v === 'string' && /^[\w-]{1,64}$/.test(v);
+const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
+function uniqueIds(list, key = 'id') { const seen = new Set(); for (const x of list) { if (seen.has(x[key])) return false; seen.add(x[key]); } return true; }
+// 先把整份备份从头到尾验一遍，全部合格才动本机数据
 function validBackup(d) {
-  if (!d || d.app !== 'field' || !Array.isArray(d.msgs) || !Array.isArray(d.branches)) return '这不是田的备份文件';
-  const ids = new Set(d.branches.map(b => b && b.id));
-  if (!ids.has('main')) return '备份里少了大路';
-  if (d.branches.some(b => !b || typeof b.id !== 'string' || (b.parent && !ids.has(b.parent)))) return '备份里的小路接不上';
-  if (d.msgs.some(m => !m || typeof m.id !== 'string' || !ids.has(m.branch) || !['user', 'assistant'].includes(m.role) || typeof m.content !== 'string')) return '备份里有对不上的话';
+  if (!isObj(d) || d.app !== 'field') return '这不是田的备份文件';
+  for (const k of ['msgs', 'branches', 'cards', 'notes', 'meta']) if (d[k] != null && !Array.isArray(d[k])) return `备份里的 ${k} 格式不对`;
+  if (!Array.isArray(d.msgs) || !Array.isArray(d.branches)) return '这不是田的备份文件';
+  const cards = d.cards || [], notes = d.notes || [], meta = d.meta || [];
+  if (d.branches.some(b => !isObj(b) || !ID_OK(b.id) || (b.parent != null && !ID_OK(b.parent)) || (b.parent && !(Number.isInteger(b.forkAt) && b.forkAt >= 0)) || (b.name != null && typeof b.name !== 'string'))) return '备份里的小路格式不对';
+  if (!uniqueIds(d.branches)) return '备份里有重名的小路';
+  const byId = new Map(d.branches.map(b => [b.id, b]));
+  if (!byId.has('main') || byId.get('main').parent) return '备份里少了大路';
+  for (const b of d.branches) {   // 每条小路都要能顺着 parent 走回大路，不能绕圈
+    let cur = b, steps = 0;
+    while (cur.parent) { cur = byId.get(cur.parent); if (!cur || ++steps > d.branches.length) return '备份里的小路接不上'; }
+    if (cur.id !== 'main') return '备份里的小路接不上';
+  }
+  if (d.msgs.some(m => !isObj(m) || !ID_OK(m.id) || !byId.has(m.branch) || !['user', 'assistant'].includes(m.role) || typeof m.content !== 'string' || !Number.isFinite(m.seq) || !Number.isFinite(m.ts))) return '备份里有对不上的话';
+  if (!uniqueIds(d.msgs)) return '备份里有重复的话';
+  if (cards.some(c => !isObj(c) || !ID_OK(c.id) || typeof c.text !== 'string') || !uniqueIds(cards)) return '备份里记得的事格式不对';
+  if (notes.some(n => !isObj(n) || !ID_OK(n.id) || typeof n.text !== 'string') || !uniqueIds(notes)) return '备份里的木牌格式不对';
+  if (meta.some(r => !isObj(r) || typeof r.k !== 'string') || !uniqueIds(meta, 'k')) return '备份里的设置格式不对';
   return '';
 }
 async function importAll(inp) {
@@ -650,14 +672,25 @@ async function importAll(inp) {
       STORES.forEach(s => t.objectStore(s).clear());
       d.branches.forEach(b => t.objectStore('branches').put(b));
       d.msgs.forEach(m => t.objectStore('msgs').put(m));
-      (d.cards || []).forEach(c => c && c.id && t.objectStore('cards').put(c));
-      (d.notes || []).forEach(n => n && n.id && t.objectStore('notes').put(n));
-      (d.meta || []).forEach(r => r && r.k && t.objectStore('meta').put(r));
+      (d.cards || []).forEach(c => t.objectStore('cards').put(c));
+      (d.notes || []).forEach(n => t.objectStore('notes').put(n));
+      (d.meta || []).forEach(r => t.objectStore('meta').put(r));
     });
     if (d.prompt) ls.set('field_prompt', d.prompt);
     await load(); closeSheet(); sky(); renderPath(); renderLog(); toast('导入好了');
   } catch (e) { toast('导入没成功，原来的数据没动：' + (e.message || e), 5000); }
 }
+
+/* ============ 按钮：带 ID 的一律走 data-act，不把 ID 拼进内联脚本 ============ */
+const ACTS = {
+  switch: switchBranch, copy: copyMsg, fork: forkAt, editCard, delCard, delNote,
+  openNote: id => { openNote = id; renderSheet(); },
+  rename: renameBranch, merge: mergeBranch, drop: dropBranch,
+};
+document.addEventListener('click', e => {
+  const el = e.target.closest && e.target.closest('[data-act]'); if (!el) return;
+  const fn = ACTS[el.dataset.act]; if (fn) { e.preventDefault(); fn(el.dataset.id); }
+});
 
 /* ============ 输入框 ============ */
 function autosize() { const t = $('input'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, window.innerHeight * .4) + 'px'; }
