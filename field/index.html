@@ -12,7 +12,7 @@
 :root {
   --soil: #f3ecdf;        /* 晒过的米黄：页面底色 */
   --soil-2: #ebe1cf;
-  --furrow: rgba(122, 92, 54, .055);
+  --furrow: rgba(122, 92, 54, .035);
   --ink: #2f2a22;
   --ink-2: #6b6252;
   --ink-3: #9a8f7c;
@@ -33,7 +33,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --soil: #1b1d1a; --soil-2: #232622; --furrow: rgba(200, 220, 170, .035);
+    --soil: #1b1d1a; --soil-2: #232622; --furrow: rgba(200, 220, 170, .022);
     --ink: #e8e3d6; --ink-2: #b4ad9c; --ink-3: #847d6e;
     --leaf: #9dbb7d; --leaf-soft: #2a3324; --root: #d9bd84;
     --sign: #c9a06a; --sign-soft: #2f2a20;
@@ -46,7 +46,8 @@
 html, body { margin: 0; height: 100%; }
 body {
   background: var(--soil);
-  background-image: repeating-linear-gradient(0deg, transparent 0 46px, var(--furrow) 46px 48px);
+  /* 地垄：宽而软的一条条土埂，不是细线，免得像作业本 */
+  background-image: repeating-linear-gradient(0deg, transparent 0 58px, var(--furrow) 68px, var(--furrow) 76px, transparent 86px);
   color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased;
   display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
 }
@@ -215,7 +216,7 @@ textarea.txt { resize: vertical; min-height: 90px; line-height: 1.6; }
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const VERSION = '田 · 2026-11-18 · 账本';
+const VERSION = '田 · 2026-11-18 · 相关召回 · 宽地垄';
 const DEFAULT_MODEL = 'anthropic/claude-opus-5.5';
 const MEM_MODEL = 'anthropic/claude-haiku-4.5';
 const WINDOW = 80, STEP = 40;      // 上下文：最近约 80–120 条，每 40 条挪一次窗口，前缀稳定好命中缓存
@@ -353,9 +354,46 @@ function scrollEnd() { const s = $('scroller'); requestAnimationFrame(() => { s.
 function nearEnd() { const s = $('scroller'); return s.scrollHeight - s.scrollTop - s.clientHeight < 120; }
 
 /* ============ 说话 ============ */
+/* ---- 记得的事怎么带进去 ----
+ * 卡不多（≤ ALL_CARDS）就全带，放在 system 里。
+ * 多了以后，system 里只放「常驻」的：全部约定（最多 30）+ 最近的 40 张；只在卡有增减时才变，缓存照样命中。
+ * 其余的按这会儿在聊什么挑出最相关的几张，放在最后一条消息的缓存断点之后，每次换也不坏前缀。 */
+const ALL_CARDS = 80, CORE_RECENT = 40, CORE_PROMISES = 30, RECALL_TOP = 12;
+const cardLine = c => `- ${c.text}${c.tag ? ` [${c.tag}]` : ''}`;
+function coreCards() {
+  if (S.cards.length <= ALL_CARDS) return S.cards;
+  const promises = S.cards.filter(c => c.tag === '约定').slice(0, CORE_PROMISES);
+  const keep = new Set(promises.map(c => c.id)), out = promises.slice();
+  let recent = 0;
+  for (const c of S.cards) { if (recent >= CORE_RECENT) break; if (!keep.has(c.id)) { keep.add(c.id); out.push(c); recent++; } }
+  return S.cards.filter(c => keep.has(c.id));   // 保持新到旧的顺序
+}
+// 切词：中文按相邻两个字，英文数字按整词；去掉太常见、没区分度的
+const STOP = new Set('我们 你们 他们 什么 一下 这个 那个 就是 没有 怎么 可以 不是 还是 一个 自己 时候 现在 今天 岛主 种地 地的 知道 觉得 真的 因为 所以 然后 但是 如果 已经 还有 一点 有点 the and you that this'.split(' '));
+function grams(text) {
+  const out = new Set(), t = String(text || '').toLowerCase();
+  (t.match(/[a-z0-9]{2,}/g) || []).forEach(w => { if (!STOP.has(w)) out.add(w); });
+  t.replace(/[^\u4e00-\u9fff]+/g, ' ').split(' ').forEach(seg => { for (let i = 0; i + 1 < seg.length; i++) { const g = seg.slice(i, i + 2); if (!STOP.has(g)) out.add(g); } });
+  return out;
+}
+// 按跟 query 重合的词打分，越少见的词分越高
+function relevantCards(query, pool, top) {
+  const q = grams(query); if (!q.size || !pool.length) return [];
+  const cg = pool.map(c => grams(c.text)), df = new Map();
+  cg.forEach(g => g.forEach(w => { if (q.has(w)) df.set(w, (df.get(w) || 0) + 1); }));
+  const scored = pool.map((c, i) => { let sc = 0; cg[i].forEach(w => { if (df.has(w)) sc += Math.log(1 + pool.length / df.get(w)); }); return { c, sc }; });
+  return scored.filter(x => x.sc > 0).sort((a, b) => b.sc - a.sc).slice(0, top).map(x => x.c);
+}
+function recallTail(list) {
+  if (S.cards.length <= ALL_CARDS) return '';
+  const core = new Set(coreCards().map(c => c.id)), pool = S.cards.filter(c => !core.has(c.id));
+  const recent = list.slice(-3).map(m => m.content).join('\n').slice(-1500);
+  const hits = relevantCards(recent, pool, RECALL_TOP);
+  return hits.length ? `\n\n（这会儿你想起来的事：\n${hits.map(cardLine).join('\n')}）` : '';
+}
 function systemPrompt() {
   const base = (ls.get('field_prompt') || DEFAULT_PROMPT).trim();
-  const cards = S.cards.slice(0, 80).map(c => `- ${c.text}${c.tag ? ` [${c.tag}]` : ''}`).join('\n');
+  const cards = coreCards().map(cardLine).join('\n');
   const notes = S.notes.slice(0, 3).map(n => `- 《${n.book || '书'}》${n.title ? ' ' + n.title : ''}：${(n.text || '').slice(0, 160)}`).join('\n');
   const harvest = metaGet('harvest', 0);
   return base
@@ -367,14 +405,14 @@ function contextMsgs(list) {
   const start = Math.max(0, Math.floor((list.length - WINDOW) / STEP) * STEP);
   return list.slice(start).filter(m => !m.err && m.content).map(m => ({ role: m.role, content: m.content }));
 }
-function withCache(msgs) {
-  // Anthropic 的缓存断点放在内容块上：system 一个、最后一条一个。时间提示放在断点之后，变了也不坏前缀。
+function withCache(msgs, extra = '') {
+  // Anthropic 的缓存断点放在内容块上：system 一个、最后一条一个。时间提示和临时想起来的事放在断点之后，变了也不坏前缀。
   const now = new Date().toLocaleString('zh-CN', { weekday: 'long', hour: '2-digit', minute: '2-digit', month: 'long', day: 'numeric' });
   return msgs.map((m, i) => {
     const isLast = i === msgs.length - 1;
     if (m.role === 'system' || isLast) {
       const parts = [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }];
-      if (isLast) parts.push({ type: 'text', text: `\n\n（此刻：${now}）` });
+      if (isLast) parts.push({ type: 'text', text: `${extra}\n\n（此刻：${now}）` });
       return { role: m.role, content: parts };
     }
     return m;
@@ -448,7 +486,7 @@ function nextSeq(bid) { const own = ownMsgs(bid); return own.length ? own[own.le
 async function reply() {
   const list = lineOf(S.cur);
   const model = ls.get('field_model') || DEFAULT_MODEL, think = ls.get('field_think') === 'on';
-  const payload = { model, stream: true, max_tokens: think ? 16000 : 8192, messages: withCache([{ role: 'system', content: systemPrompt() }].concat(contextMsgs(list))) };
+  const payload = { model, stream: true, max_tokens: think ? 16000 : 8192, messages: withCache([{ role: 'system', content: systemPrompt() }].concat(contextMsgs(list)), recallTail(list)) };
   payload.reasoning = think ? { enabled: true } : { enabled: false, exclude: true };
   const ans = { id: uid(), branch: S.cur, seq: nextSeq(S.cur), role: 'assistant', content: '', reasoning: '', ts: Date.now(), model };
   S.msgs.push(ans); S.busy = true; S.ctrl = new AbortController(); setBusy(true); renderLog();
@@ -506,8 +544,13 @@ async function maybeDistill(force) {
   if (!pending.length || (!force && userCount < DISTILL_EVERY)) { if (force) toast('最近没有新的话要整理'); return; }
   S.distilling = true; const ver0 = S.ver; if (force) toast('在整理记忆…');
   try {
-    const convo = pending.slice(-120).map(m => `${m.role === 'user' ? '岛主' : '种地的'}：${m.content.slice(0, 1500)}`).join('\n');
-    const known = S.cards.slice(0, 120).map(c => '- ' + c.text).join('\n') || '（还没有）';
+    // 一次最多读 120 句，从最早没整理的开始；读了哪些就只勾哪些，剩下的下回接着读
+    const batch = pending.slice(0, 120);
+    const convo = batch.map(m => `${m.role === 'user' ? '岛主' : '种地的'}：${m.content.slice(0, 1500)}`).join('\n');
+    // 给它看的已有卡：最近的 + 跟这段对话最相关的，免得卡多了以后重复记
+    const seen = new Set(), knownCards = [];
+    for (const c of S.cards.slice(0, 60).concat(relevantCards(convo, S.cards, 60))) if (!seen.has(c.id)) { seen.add(c.id); knownCards.push(c); }
+    const known = knownCards.map(c => '- ' + c.text).join('\n') || '（还没有）';
     const sys = `你在帮「种地的」整理他对「岛主」的长期记忆卡。只记岛主亲口说过、以后还用得上的事，以及两个人之间值得记住的时刻和约定。
 每行一张卡，一句话，结尾带一个标签：[事实] [偏好] [事件] [约定]。已有的卡说过的不要重复。不记闲聊、技术细节、你的推测。
 没有新的就只输出 NONE。只输出卡片，不要别的话。`;
@@ -524,7 +567,7 @@ async function maybeDistill(force) {
       fresh.push({ id: uid(), text: text.slice(0, 300), tag: mt ? mt[1] : '', created: Date.now(), auto: 1 });
     }
     // 只给此刻还在的话打勾，并以此刻的内容为准
-    const marked = pending.map(m => S.msgs.find(x => x.id === m.id)).filter(Boolean).map(m => Object.assign({}, m, { d: 1 }));
+    const marked = batch.map(m => S.msgs.find(x => x.id === m.id)).filter(Boolean).map(m => Object.assign({}, m, { d: 1 }));
     await tx(['cards', 'msgs'], 'readwrite', t => { fresh.forEach(c => t.objectStore('cards').put(c)); marked.forEach(m => t.objectStore('msgs').put(m)); });
     marked.forEach(m => { const i = S.msgs.findIndex(x => x.id === m.id); if (i >= 0) S.msgs[i] = m; });
     S.cards = fresh.concat(S.cards);
@@ -592,7 +635,7 @@ function signsHtml() {
   if (signsTab === 'ledger') return board + tabs + ledgerHtml();
   if (signsTab === 'cards') {
     const items = S.cards.map(c => `<div class="item"><div class="t">${c.tag ? `<span class="tag">${esc(c.tag)}</span>` : ''}${esc(c.text)}<div class="m">${new Date(c.created).toLocaleDateString('zh-CN')}${c.auto ? ' · 他自己记的' : ''}</div></div><button class="x" data-act="editCard" data-id="${esc(c.id)}">改</button><button class="x" data-act="delCard" data-id="${esc(c.id)}">删</button></div>`).join('');
-    return board + tabs + `<div class="hint">他每次说话前都会看一眼这些。聊够 ${DISTILL_EVERY} 句，他会自己悄悄补几张；不对的随手改掉。</div>
+    return board + tabs + `<div class="hint">他每次说话前都会看一眼这些${S.cards.length > ALL_CARDS ? `：约定和最近的 ${CORE_RECENT} 张一直带着，其余的按你们正在聊什么，挑最相关的想起来` : ''}。聊够 ${DISTILL_EVERY} 句，他会自己悄悄补几张；不对的随手改掉。${S.cards.length ? ` 现在一共 ${S.cards.length} 张。` : ''}</div>
       <div class="row"><input class="txt" id="new-card" placeholder="想让他记住的一件事"><button class="btn go" onclick="addCard()">记下</button></div>
       <div class="row"><button class="btn" onclick="maybeDistill(true)">现在整理一次</button></div>
       <div class="list">${items || '<div class="hint">还没有记得的事。</div>'}</div>`;
