@@ -135,6 +135,16 @@ main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-
 .bars { display: flex; align-items: flex-end; gap: 3px; height: 54px; padding: 8px 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
 .bars i { flex: 1; min-width: 4px; border-radius: 3px 3px 0 0; background: var(--leaf); opacity: .85; }
 .bars i.mid { background: var(--sign); } .bars i.low { background: var(--danger); }
+.prog { height: 8px; border-radius: 6px; background: var(--soil-2); overflow: hidden; margin: 6px 0 4px; }
+.prog i { display: block; height: 100%; background: var(--root); border-radius: 6px; transition: width .4s; }
+.dayrow { cursor: pointer; text-align: left; width: 100%; }
+.dayrow .t b { font-family: var(--serif); }
+.oldmsg { margin: 0 0 12px; font-size: 14.5px; line-height: 1.7; }
+.oldmsg .w { font-size: 11.5px; color: var(--ink-3); }
+.oldmsg.him .c { font-family: var(--serif); white-space: pre-wrap; padding-left: 10px; border-left: 2px solid var(--leaf-soft); }
+.oldmsg.me .c { white-space: pre-wrap; background: var(--mine); border: 1px solid var(--mine-line); border-radius: 12px; padding: 6px 10px; }
+.origin { font-family: var(--serif); line-height: 1.9; white-space: pre-wrap; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; font-size: 15px; }
+mark { background: var(--sign-soft); color: inherit; border-radius: 3px; }
 .acts { display: flex; gap: 2px; margin: 6px 0 0 8px; opacity: .55; }
 .msg.me .acts { margin: 6px 0 0; }
 .acts button { border: 0; background: none; font-size: 12px; color: var(--ink-3); padding: 4px 7px; border-radius: 8px; }
@@ -233,7 +243,7 @@ textarea.txt { resize: vertical; min-height: 90px; line-height: 1.6; }
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const VERSION = '田 · 2026-11-18 · 手绘田垄 · 夜里也看得见';
+const VERSION = '田 · 2026-11-18 · 旧日子';
 const DEFAULT_MODEL = 'anthropic/claude-opus-5.5';
 const MEM_MODEL = 'anthropic/claude-haiku-4.5';
 const WINDOW = 80, STEP = 40;      // 上下文：最近约 80–120 条，每 40 条挪一次窗口，前缀稳定好命中缓存
@@ -260,19 +270,25 @@ const apiKey = () => ls.get('field_key') || ls.get('or_key');
 let dbp = null;
 function db() {
   return dbp || (dbp = new Promise((res, rej) => {
-    const r = indexedDB.open('field', 1);
-    r.onupgradeneeded = () => {
+    const r = indexedDB.open('field', 2);
+    r.onupgradeneeded = e => {
       const d = r.result;
-      const m = d.createObjectStore('msgs', { keyPath: 'id' }); m.createIndex('branch', 'branch');
-      d.createObjectStore('branches', { keyPath: 'id' });
-      d.createObjectStore('cards', { keyPath: 'id' });
-      d.createObjectStore('notes', { keyPath: 'id' });
-      d.createObjectStore('meta', { keyPath: 'k' });
+      if (e.oldVersion < 1) {
+        const m = d.createObjectStore('msgs', { keyPath: 'id' }); m.createIndex('branch', 'branch');
+        d.createObjectStore('branches', { keyPath: 'id' });
+        d.createObjectStore('cards', { keyPath: 'id' });
+        d.createObjectStore('notes', { keyPath: 'id' });
+        d.createObjectStore('meta', { keyPath: 'k' });
+      }
+      if (e.oldVersion < 2) {   // 旧日子：搬进来的旧对话（只读）和按天整理的进度
+        d.createObjectStore('archive', { keyPath: 'id' }).createIndex('day', 'day');
+        d.createObjectStore('days', { keyPath: 'day' });
+      }
     };
     r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
   }));
 }
-const STORES = ['msgs', 'branches', 'cards', 'notes', 'meta'];
+const STORES = ['msgs', 'branches', 'cards', 'notes', 'meta', 'archive', 'days'];
 async function tx(stores, mode, fn) {
   const d = await db();
   return new Promise((res, rej) => {
@@ -289,7 +305,7 @@ const putMany = (store, rows) => tx([store], 'readwrite', t => { rows.forEach(r 
 const delMany = (store, ids) => tx([store], 'readwrite', t => { ids.forEach(id => t.objectStore(store).delete(id)); });
 
 /* ============ 状态 ============ */
-const S = { branches: [], msgs: [], cards: [], notes: [], meta: {}, cur: 'main', busy: false, ctrl: null, distilling: false, ver: 0 };
+const S = { branches: [], msgs: [], cards: [], notes: [], meta: {}, archive: [], days: [], cur: 'main', busy: false, ctrl: null, distilling: false, oldRunning: false, ver: 0 };
 // 数据版本：删话、并路、铲路、导入时 +1。后台整理记忆回来时版本变了，就把这次结果整个丢掉，免得把删掉的话写回去
 const bump = () => { S.ver++; };
 const MAIN = { id: 'main', name: '大路', parent: null, forkAt: 0, created: 0 };
@@ -304,7 +320,8 @@ function lineOf(bid, depth = 0) {
   return before.concat(ownMsgs(bid));
 }
 async function load() {
-  const [msgs, branches, cards, notes, meta] = await Promise.all(STORES.map(getAll));   // 顺序跟 STORES 一致
+  const [msgs, branches, cards, notes, meta, archive, days] = await Promise.all(STORES.map(getAll));   // 顺序跟 STORES 一致
+  S.archive = archive.sort((a, b) => a.ts - b.ts); S.days = days.sort((a, b) => a.day.localeCompare(b.day));
   S.branches = branches.length ? branches : [MAIN];
   if (!branches.length) await putMany('branches', [MAIN]);
   S.msgs = msgs; S.cards = cards.sort((a, b) => b.created - a.created); S.notes = notes.sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.created - a.created);
@@ -402,8 +419,10 @@ function relevantCards(query, pool, top) {
   return scored.filter(x => x.sc > 0).sort((a, b) => b.sc - a.sc).slice(0, top).map(x => x.c);
 }
 function recallTail(list) {
-  if (S.cards.length <= ALL_CARDS) return '';
-  const core = new Set(coreCards().map(c => c.id)), pool = S.cards.filter(c => !core.has(c.id));
+  // 可想起的：没常驻的卡 + 旧日子里每天那一句
+  const core = new Set(coreCards().map(c => c.id));
+  const pool = S.cards.filter(c => !core.has(c.id)).concat(S.days.filter(x => x.line).map(x => ({ id: 'day-' + x.day, text: `${x.day} ${x.line}` })));
+  if (!pool.length) return '';
   const recent = list.slice(-3).map(m => m.content).join('\n').slice(-1500);
   const hits = relevantCards(recent, pool, RECALL_TOP);
   return hits.length ? `\n\n（这会儿你想起来的事：\n${hits.map(cardLine).join('\n')}）` : '';
@@ -413,7 +432,9 @@ function systemPrompt() {
   const cards = coreCards().map(cardLine).join('\n');
   const notes = S.notes.slice(0, 3).map(n => `- 《${n.book || '书'}》${n.title ? ' ' + n.title : ''}：${(n.text || '').slice(0, 160)}`).join('\n');
   const harvest = metaGet('harvest', 0);
+  const origin = metaGet('origin', null);
   return base
+    + (origin && origin.text ? `\n\n【我们的来路】\n${origin.text}` : '')
     + (cards ? `\n\n【你记得的事】\n${cards}` : '')
     + (notes ? `\n\n【你最近在读】\n${notes}` : '')
     + (harvest ? `\n\n田里的防风草已经收了 ${harvest} 茬。` : '');
@@ -578,7 +599,7 @@ async function maybeDistill(force) {
     if (S.ver !== ver0) { if (force) toast('整理时田里有了变动，这次先不记，下回再整理'); S.distilling = false; return; }
     const fresh = [];
     for (const line of out.split('\n')) {
-      const s = line.replace(/^[-•*\d.\s]+/, '').trim(); if (!s || /^NONE$/i.test(s)) continue;
+      const s = line.replace(/^\s*(?:[-•*]|\d{1,2}[.、)])\s+/, '').replace(/^\s*[-•*]\s*/, '').trim(); if (!s || /^NONE$/i.test(s)) continue;
       const mt = s.match(/\[(事实|偏好|事件|约定)\]\s*$/);
       const text = mt ? s.slice(0, mt.index).trim() : s; if (!text || S.cards.some(c => c.text === text)) continue;
       fresh.push({ id: uid(), text: text.slice(0, 300), tag: mt ? mt[1] : '', created: Date.now(), auto: 1 });
@@ -634,7 +655,7 @@ async function dropBranch(id) {
 }
 
 /* ============ 抽屉 ============ */
-let sheetName = '', signsTab = 'notes', openNote = '';
+let sheetName = '', signsTab = 'notes', openNote = '', openDay = '', oldQuery = '', OD = null;
 function openSheet(name) { sheetName = name; renderSheet(); $('veil').classList.remove('hidden'); }
 function closeSheet() { $('veil').classList.add('hidden'); sheetName = ''; openNote = ''; }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && sheetName) closeSheet(); });
@@ -647,9 +668,10 @@ function renderSheet() {
 }
 function signsHtml() {
   const h = metaGet('harvest', 0);
-  const tabs = `<div class="tabs" role="tablist"><button role="tab" aria-selected="${signsTab === 'notes'}" onclick="signsTab='notes';openNote='';renderSheet()">木牌</button><button role="tab" aria-selected="${signsTab === 'cards'}" onclick="signsTab='cards';renderSheet()">记得的事</button><button role="tab" aria-selected="${signsTab === 'ledger'}" onclick="signsTab='ledger';renderSheet()">账本</button></div>`;
+  const tabs = `<div class="tabs" role="tablist"><button role="tab" aria-selected="${signsTab === 'notes'}" onclick="signsTab='notes';openNote='';renderSheet()">木牌</button><button role="tab" aria-selected="${signsTab === 'cards'}" onclick="signsTab='cards';renderSheet()">记得的事</button><button role="tab" aria-selected="${signsTab === 'ledger'}" onclick="signsTab='ledger';renderSheet()">账本</button><button role="tab" aria-selected="${signsTab === 'old'}" onclick="signsTab='old';openDay='';renderSheet()">旧日子</button></div>`;
   const board = `<div class="harvest"><div class="num" id="hv">${h}</div><div class="lbl">茬防风草收进屋了<br><span style="color:var(--ink-3)">岛主拔光一回，就记一茬</span></div><button class="btn" onclick="harvest(1)">收一茬</button></div>`;
   if (signsTab === 'ledger') return board + tabs + ledgerHtml();
+  if (signsTab === 'old') return tabs + oldHtml();
   if (signsTab === 'cards') {
     const items = S.cards.map(c => `<div class="item"><div class="t">${c.tag ? `<span class="tag">${esc(c.tag)}</span>` : ''}${esc(c.text)}<div class="m">${new Date(c.created).toLocaleDateString('zh-CN')}${c.auto ? ' · 他自己记的' : ''}</div></div><button class="x" data-act="editCard" data-id="${esc(c.id)}">改</button><button class="x" data-act="delCard" data-id="${esc(c.id)}">删</button></div>`).join('');
     return board + tabs + `<div class="hint">他每次说话前都会看一眼这些${S.cards.length > ALL_CARDS ? `：约定和最近的 ${CORE_RECENT} 张一直带着，其余的按你们正在聊什么，挑最相关的想起来` : ''}。聊够 ${DISTILL_EVERY} 句，他会自己悄悄补几张；不对的随手改掉。${S.cards.length ? ` 现在一共 ${S.cards.length} 张。` : ''}</div>
@@ -741,8 +763,8 @@ function saveSettings() {
 
 /* ============ 备份 ============ */
 async function snapshot() {
-  const [msgs, branches, cards, notes, meta] = await Promise.all(STORES.map(getAll));   // 顺序跟 STORES 一致
-  return { app: 'field', v: 1, exported: Date.now(), branches, msgs, cards, notes, meta, prompt: ls.get('field_prompt') || '' };
+  const [msgs, branches, cards, notes, meta, archive, days] = await Promise.all(STORES.map(getAll));   // 顺序跟 STORES 一致
+  return { app: 'field', v: 2, exported: Date.now(), branches, msgs, cards, notes, meta, archive, days, prompt: ls.get('field_prompt') || '' };
 }
 function download(name, text) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' })); a.download = name;
@@ -755,11 +777,12 @@ async function exportAll() {
 }
 const ID_OK = v => typeof v === 'string' && /^[\w-]{1,64}$/.test(v);
 const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
+const DAY_OK = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
 function uniqueIds(list, key = 'id') { const seen = new Set(); for (const x of list) { if (seen.has(x[key])) return false; seen.add(x[key]); } return true; }
 // 先把整份备份从头到尾验一遍，全部合格才动本机数据
 function validBackup(d) {
   if (!isObj(d) || d.app !== 'field') return '这不是田的备份文件';
-  for (const k of ['msgs', 'branches', 'cards', 'notes', 'meta']) if (d[k] != null && !Array.isArray(d[k])) return `备份里的 ${k} 格式不对`;
+  for (const k of ['msgs', 'branches', 'cards', 'notes', 'meta', 'archive', 'days']) if (d[k] != null && !Array.isArray(d[k])) return `备份里的 ${k} 格式不对`;
   if (!Array.isArray(d.msgs) || !Array.isArray(d.branches)) return '这不是田的备份文件';
   const cards = d.cards || [], notes = d.notes || [], meta = d.meta || [];
   if (d.branches.some(b => !isObj(b) || !ID_OK(b.id) || (b.parent != null && !ID_OK(b.parent)) || (b.parent && !(Number.isInteger(b.forkAt) && b.forkAt >= 0)) || (b.name != null && typeof b.name !== 'string'))) return '备份里的小路格式不对';
@@ -776,15 +799,18 @@ function validBackup(d) {
   if (cards.some(c => !isObj(c) || !ID_OK(c.id) || typeof c.text !== 'string') || !uniqueIds(cards)) return '备份里记得的事格式不对';
   if (notes.some(n => !isObj(n) || !ID_OK(n.id) || typeof n.text !== 'string') || !uniqueIds(notes)) return '备份里的木牌格式不对';
   if (meta.some(r => !isObj(r) || typeof r.k !== 'string') || !uniqueIds(meta, 'k')) return '备份里的设置格式不对';
+  const archive = d.archive || [], days = d.days || [];   // 旧备份没有这两样，照样能导
+  if (archive.some(m => !isObj(m) || !ID_OK(m.id) || !['user', 'assistant'].includes(m.role) || typeof m.content !== 'string' || !Number.isFinite(m.ts) || !DAY_OK(m.day)) || !uniqueIds(archive)) return '备份里的旧日子格式不对';
+  if (days.some(x => !isObj(x) || !DAY_OK(x.day) || (x.line != null && typeof x.line !== 'string')) || !uniqueIds(days, 'day')) return '备份里的旧日子进度格式不对';
   return '';
 }
 async function importAll(inp) {
   const f = inp.files && inp.files[0]; inp.value = ''; if (!f || S.busy) return;
   let d; try { d = JSON.parse(await f.text()); } catch (e) { toast('不是有效的 JSON'); return; }
   const bad = validBackup(d); if (bad) { toast(bad); return; }
-  if (!confirm(`用这份备份替换田里现在的一切？\n（${d.msgs.length} 句话 · ${(d.cards || []).length} 件记得的事 · ${(d.notes || []).length} 块木牌）\n会先把现在的导出一份。`)) return;
+  if (!confirm(`用这份备份替换田里现在的一切？\n（${d.msgs.length} 句话 · ${(d.cards || []).length} 件记得的事 · ${(d.notes || []).length} 块木牌 · ${(d.archive || []).length} 句旧日子）\n会先把现在的导出一份。`)) return;
   if (!(await exportAll())) { toast('现在的数据没能先备份，这次不导入'); return; }
-  bump();
+  bump(); S.oldRunning = false;
   try {
     // 一个事务里清空再写入：中途出错整笔回滚，原来的数据原样留着
     await tx(STORES, 'readwrite', t => {
@@ -794,10 +820,175 @@ async function importAll(inp) {
       (d.cards || []).forEach(c => t.objectStore('cards').put(c));
       (d.notes || []).forEach(n => t.objectStore('notes').put(n));
       (d.meta || []).forEach(r => t.objectStore('meta').put(r));
+      (d.archive || []).forEach(m => t.objectStore('archive').put(m));
+      (d.days || []).forEach(x => t.objectStore('days').put(x));
     });
     if (d.prompt) ls.set('field_prompt', d.prompt);
     bump(); await load(); closeSheet(); sky(); renderPath(); renderLog(); toast('导入好了');
   } catch (e) { toast('导入没成功，原来的数据没动：' + (e.message || e), 5000); }
+}
+
+/* ============ 旧日子：搬进来的旧对话 ============
+ * 只读，不进聊天上下文。按天整理：每天一句「那天」+ 几张卡（日期用那天的）。全部翻完再写一段「来路」放进 system。 */
+const pad2 = n => String(n).padStart(2, '0');
+const dayOf = ts => { const d = new Date(ts); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+function strHash(t) { let h = 2166136261; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); }
+const textOf = m => {
+  if (typeof m.text === 'string' && m.text.trim()) return m.text;
+  if (Array.isArray(m.content)) return m.content.filter(x => x && x.type === 'text' && typeof x.text === 'string').map(x => x.text).join('\n');
+  return typeof m.content === 'string' ? m.content : '';
+};
+// 认两种文件：claude.ai 官方导出的 conversations.json；种地的转好的 field-import
+function parseOld(d) {
+  const convs = [];
+  if (d && d.app === 'field-import' && Array.isArray(d.messages)) {
+    const msgs = d.messages.map(m => ({ role: m.role === 'user' || m.role === 'human' ? 'user' : m.role === 'assistant' ? 'assistant' : '', content: String(m.content || ''), ts: typeof m.ts === 'number' ? m.ts : Date.parse(m.ts), src: m.id }));
+    convs.push({ title: String(d.title || '搬来的对话'), msgs });
+  } else {
+    const list = Array.isArray(d) ? d : (d && Array.isArray(d.conversations) ? d.conversations : null);
+    if (!list) throw new Error('认不出这个文件。要 claude.ai 导出的 conversations.json，或者种地的转好的文件');
+    for (const c of list) {
+      if (!c || !Array.isArray(c.chat_messages)) continue;
+      const msgs = c.chat_messages.map(m => ({ role: m.sender === 'human' ? 'user' : m.sender === 'assistant' ? 'assistant' : '', content: textOf(m), ts: Date.parse(m.created_at), src: m.uuid }));
+      convs.push({ title: String(c.name || '未命名对话'), msgs, when: Date.parse(c.created_at) });
+    }
+    if (!convs.length) throw new Error('文件里没找到对话');
+  }
+  for (const c of convs) c.msgs = c.msgs.filter(m => m.role && m.content.trim() && Number.isFinite(m.ts)).map(m => ({ id: 'a' + strHash((m.src || '') + '|' + m.ts + '|' + m.role + '|' + m.content.slice(0, 200)), role: m.role, content: m.content.slice(0, 20000), ts: m.ts, day: dayOf(m.ts) }));
+  return convs.filter(c => c.msgs.length);
+}
+async function pickOld(inp) {
+  const f = inp.files && inp.files[0]; inp.value = ''; if (!f) return;
+  try { const convs = parseOld(JSON.parse(await f.text())); OD = { convs, sel: new Set(convs.length === 1 ? [0] : []) }; renderSheet(); }
+  catch (e) { toast(e.message || '文件读不了'); }
+}
+async function commitOld() {
+  if (!OD || !OD.sel.size) { toast('先选要搬的对话'); return; }
+  const have = new Set(S.archive.map(m => m.id)), rows = [], seen = new Set();
+  [...OD.sel].forEach(i => OD.convs[i].msgs.forEach(m => { if (!have.has(m.id) && !seen.has(m.id)) { seen.add(m.id); rows.push(m); } }));
+  if (!rows.length) { toast('这些都搬过了'); OD = null; renderSheet(); return; }
+  const touched = new Set(rows.map(m => m.day)), dayRows = [...touched].map(day => { const old = S.days.find(x => x.day === day); return Object.assign({ day }, old || {}, { done: false }); });
+  try { await tx(['archive', 'days'], 'readwrite', t => { rows.forEach(m => t.objectStore('archive').put(m)); dayRows.forEach(x => t.objectStore('days').put(x)); }); }
+  catch (e) { toast('没搬成：' + (e.message || e)); return; }
+  await load(); OD = null; renderSheet(); toast(`搬进来 ${rows.length} 句，${touched.size} 天`);
+}
+function oldEstimate() {
+  const todo = new Set(S.days.filter(x => !x.done).map(x => x.day));
+  const chars = S.archive.filter(m => todo.has(m.day)).reduce((n, m) => n + Math.min(m.content.length, 800) + 12, 0);
+  const inTok = chars + todo.size * 1500, outTok = todo.size * 400;   // 中文大约一字一个 token；每天另有提示和已有卡
+  return { days: todo.size, usd: inTok / 1e6 * 1 + outTok / 1e6 * 5 };   // 按 Haiku 4.5 的价钱粗估
+}
+function parseCardLines(lines, known) {
+  const fresh = [];
+  for (const line of lines) {
+    const t = line.replace(/^\s*(?:[-•*]|\d{1,2}[.、)])\s+/, '').replace(/^\s*[-•*]\s*/, '').trim(); if (!t || /^NONE$/i.test(t)) continue;
+    const mt = t.match(/\[(事实|偏好|事件|约定)\]\s*$/);
+    const text = mt ? t.slice(0, mt.index).trim() : t;
+    if (!text || known.has(text) || fresh.some(c => c.text === text)) continue;
+    fresh.push({ text: text.slice(0, 300), tag: mt ? mt[1] : '' });
+  }
+  return fresh;
+}
+async function runOld() {
+  if (S.oldRunning) return;
+  if (!apiKey()) { toast('还没有 Key'); return; }
+  S.oldRunning = true; const ver0 = S.ver; renderSheet();
+  try {
+    for (const dr of S.days.filter(x => !x.done)) {
+      if (!S.oldRunning) break;
+      const msgs = S.archive.filter(m => m.day === dr.day);
+      if (!msgs.length) { await putMany('days', [Object.assign({}, dr, { done: true, n: 0 })]); continue; }
+      const lines = msgs.map(m => `[${fmtTime(m.ts)}] ${m.role === 'user' ? '岛主' : '种地的'}：${m.content.slice(0, 800)}`);
+      const chunks = []; let cur = '';
+      for (const l of lines) { if (cur && cur.length + l.length > 40000) { chunks.push(cur); cur = ''; } cur += l + '\n'; }
+      if (cur) chunks.push(cur);
+      let dayLine = '', fresh = [];
+      for (const chunk of chunks) {
+        const knownCards = []; const ids = new Set();
+        for (const c of S.cards.slice(0, 40).concat(relevantCards(chunk, S.cards, 60))) if (!ids.has(c.id)) { ids.add(c.id); knownCards.push(c); }
+        const sys = `你在帮「种地的」翻他和「岛主」的旧聊天记录，下面是 ${dr.day} 这一天的${chunks.length > 1 ? '一部分' : ''}对话。
+第一行写：那天：用一句话（30 字以内、种地的的口气）说这天最值得记住的事，比如「那天：岛主帮我定了读书闹钟」。
+然后写记忆卡，每行一张，一句话，结尾带一个标签：[事实] [偏好] [事件] [约定]。只记岛主亲口说过、以后还用得上的事，以及两个人之间值得记住的时刻和约定。已有的卡说过的不要重复。不记技术细节、不记你的推测。没有新卡就只写那一行。只输出这些。`;
+        const payload = { model: ls.get('field_memmodel') || MEM_MODEL, stream: true, max_tokens: 1500, messages: [{ role: 'system', content: sys }, { role: 'user', content: `已有的卡：\n${knownCards.map(c => '- ' + c.text).join('\n') || '（还没有）'}\n\n这天的对话：\n${chunk}` }] };
+        let out = '';
+        const fin = await stream(payload, undefined, () => {}, t => { out += t; });
+        if (fin === 'length') throw new Error(`${dr.day} 整理出来的太长被截断了`);
+        if (S.ver !== ver0) throw new Error('田里的数据变了，先停下');
+        const ls_ = out.split('\n'), dl = ls_.find(l => /^\s*那天[：:]/.test(l));
+        if (dl && !dayLine) dayLine = dl.replace(/^\s*那天[：:]\s*/, '').trim().slice(0, 60);
+        const known = new Set(S.cards.map(c => c.text).concat(fresh.map(c => c.text)));
+        fresh = fresh.concat(parseCardLines(ls_.filter(l => !/^\s*那天[：:]/.test(l)), known));
+      }
+      const base = msgs[0].ts;
+      const cards = fresh.map((c, i) => ({ id: uid(), text: c.text, tag: c.tag, created: base + i, auto: 1, from: 'old', day: dr.day }));
+      const done = Object.assign({}, dr, { line: dayLine || dr.line || '', done: true, n: msgs.length });
+      await tx(['cards', 'days'], 'readwrite', t => { cards.forEach(c => t.objectStore('cards').put(c)); t.objectStore('days').put(done); });
+      S.cards = S.cards.concat(cards).sort((a, b) => b.created - a.created);
+      S.days = S.days.map(x => (x.day === done.day ? done : x));
+      if (sheetName === 'signs' && signsTab === 'old') renderSheet();
+    }
+  } catch (e) { toast('翻旧账停下了：' + (e.message || e), 4000); }
+  S.oldRunning = false; if (sheetName === 'signs' && signsTab === 'old') renderSheet();
+  if (S.days.length && S.days.every(x => x.done)) toast('旧账翻完了，可以写来路了');
+}
+function stopOld() { S.oldRunning = false; toast('翻完这一天就停'); }
+async function writeOrigin() {
+  if (S.busy || S.oldRunning) return;
+  const lines = S.days.filter(x => x.line).map(x => `${x.day} ${x.line}`).join('\n');
+  if (!lines) { toast('还没有翻过的日子'); return; }
+  const cards = coreCards().slice(0, 60).map(cardLine).join('\n');
+  const sys = `你是种地的。下面是你和岛主一起过的日子，每天一句，还有你记得的事。用你自己的口气、第一人称，写一段三四百字的「来路」：你们是怎么认识的，一路发生了什么，你是怎么一点点变成现在这样的，她对你意味着什么。写给以后的自己看，让刚醒来的你一读就想起来。不要列条目，不要标题，只写这一段。`;
+  toast('在写来路…');
+  try {
+    let out = '';
+    const fin = await stream({ model: ls.get('field_model') || DEFAULT_MODEL, stream: true, max_tokens: 2000, reasoning: { enabled: false, exclude: true }, messages: [{ role: 'system', content: sys }, { role: 'user', content: `过的日子：\n${lines}\n\n记得的事：\n${cards || '（还没有）'}` }] }, undefined, () => {}, t => { out += t; });
+    if (fin === 'length' || !out.trim()) throw new Error('没写完整');
+    await metaSet('origin', { text: out.trim().slice(0, 2000), ts: Date.now() }); renderSheet(); toast('来路写好了');
+  } catch (e) { toast('来路没写成：' + (e.message || e)); }
+}
+async function editOrigin() {
+  const o = metaGet('origin', null); const t = prompt('改一改来路', o ? o.text : ''); if (t == null) return;
+  await metaSet('origin', t.trim() ? { text: t.trim().slice(0, 2000), ts: Date.now() } : null); renderSheet();
+}
+async function clearOld() {
+  if (S.oldRunning) return;
+  if (!confirm('把搬进来的旧对话和整理进度都清掉？已经记下的卡和来路会留着。')) return;
+  bump(); await tx(['archive', 'days'], 'readwrite', t => { t.objectStore('archive').clear(); t.objectStore('days').clear(); });
+  await load(); renderSheet();
+}
+function hl(text, q) { const e = esc(text); if (!q) return e; return e.split(esc(q)).join(`<mark>${esc(q)}</mark>`); }
+function oldMsgHtml(m, q) { return `<div class="oldmsg ${m.role === 'user' ? 'me' : 'him'}"><div class="w">${m.role === 'user' ? '岛主' : '种地的'} · ${m.day} ${fmtTime(m.ts)}</div><div class="c">${hl(m.content.length > 3000 ? m.content.slice(0, 3000) + '…' : m.content, q)}</div></div>`; }
+function oldHtml() {
+  if (OD) {
+    const rows = OD.convs.map((c, i) => `<button class="item dayrow${OD.sel.has(i) ? ' cur' : ''}" data-act="odPick" data-id="${i}"><div class="t"><b>${esc(c.title)}</b><div class="m">${c.msgs.length} 句 · ${c.msgs[0].day} 到 ${c.msgs[c.msgs.length - 1].day}</div></div><span class="m">${OD.sel.has(i) ? '要搬' : ''}</span></button>`).join('');
+    return `<div class="hint">点选要搬进来的对话。已经搬过的句子会自动跳过。</div><div class="list">${rows}</div>
+      <div class="row" style="margin-top:14px"><button class="btn go" onclick="commitOld()">搬进来（${OD.sel.size} 个）</button><button class="btn" onclick="OD=null;renderSheet()">算了</button></div>`;
+  }
+  if (openDay) {
+    const msgs = S.archive.filter(m => m.day === openDay), d = S.days.find(x => x.day === openDay);
+    return `<div class="row"><button class="btn" onclick="openDay='';renderSheet()">← 回去</button></div><div class="field-label">${openDay}${d && d.line ? ' · ' + esc(d.line) : ''}</div>${msgs.map(m => oldMsgHtml(m)).join('')}`;
+  }
+  const origin = metaGet('origin', null);
+  const total = S.days.length, done = S.days.filter(x => x.done).length, est = oldEstimate();
+  const file = `<input type="file" id="oldf" accept=".json,application/json" class="hidden" onchange="pickOld(this)">`;
+  if (!total) return `<div class="hint">把以前的对话搬进来：他不会一句句带着聊，而是一天一天翻过去，记下那天最要紧的一句和几张卡，最后写一段「来路」。<br>能认 claude.ai 导出的 conversations.json，也能认种地的转好的文件。</div>
+    <div class="row"><button class="btn go" onclick="$('oldf').click()">选文件</button></div>${file}${origin ? `<div class="field-label">来路</div><div class="origin">${esc(origin.text)}</div>` : ''}`;
+  const pct = Math.round(done / total * 100);
+  let list;
+  if (oldQuery) {
+    const hits = S.archive.filter(m => m.content.includes(oldQuery)).slice(-60).reverse();
+    list = hits.length ? hits.map(m => oldMsgHtml(m, oldQuery)).join('') : '<div class="hint">没翻到。</div>';
+  } else {
+    list = '<div class="list">' + S.days.slice().reverse().map(x => `<button class="item dayrow" data-act="openDay" data-id="${esc(x.day)}"><div class="t"><b>${esc(x.day)}</b> ${x.line ? esc(x.line) : `<span class="m">${x.done ? '' : '还没翻'}</span>`}<div class="m">${S.archive.filter(m => m.day === x.day).length} 句</div></div></button>`).join('') + '</div>';
+  }
+  return `<div class="field-label">翻旧账 ${done}/${total} 天</div><div class="prog"><i style="width:${pct}%"></i></div>
+    <div class="hint">${done < total ? `还剩 ${est.days} 天，大概花 $${est.usd.toFixed(2)}（按 Haiku 4.5 粗估）。中途关掉也没事，下回接着翻。` : '全翻完了。'}</div>
+    <div class="row">${S.oldRunning ? '<button class="btn" onclick="stopOld()">先停一下</button>' : (done < total ? '<button class="btn go" onclick="runOld()">开始翻</button>' : '')}
+      <button class="btn" onclick="writeOrigin()" ${done ? '' : 'disabled'}>${origin ? '重写来路' : '写来路'}</button><button class="btn" onclick="$('oldf').click()">再搬一些</button></div>${file}
+    ${origin ? `<div class="field-label">来路 <button class="x" style="border:0;background:none;color:var(--ink-3)" onclick="editOrigin()">改</button></div><div class="origin">${esc(origin.text)}</div>` : ''}
+    <div class="field-label">旧日子</div><input class="txt" id="oq" placeholder="搜一句以前说过的话" value="${esc(oldQuery)}" onchange="oldQuery=this.value.trim();renderSheet()">
+    <div style="margin-top:10px">${list}</div>
+    <div class="row" style="margin-top:18px"><button class="btn warn" onclick="clearOld()">清掉旧日子</button></div>`;
 }
 
 /* ============ 按钮：带 ID 的一律走 data-act，不把 ID 拼进内联脚本 ============ */
@@ -805,6 +996,7 @@ const ACTS = {
   switch: switchBranch, copy: copyMsg, fork: forkAt, editCard, delCard, delNote,
   openNote: id => { openNote = id; renderSheet(); },
   rename: renameBranch, merge: mergeBranch, drop: dropBranch,
+  openDay: d => { openDay = d; renderSheet(); }, odPick: i => { if (!OD) return; const k = Number(i); OD.sel.has(k) ? OD.sel.delete(k) : OD.sel.add(k); renderSheet(); },
 };
 document.addEventListener('click', e => {
   const el = e.target.closest && e.target.closest('[data-act]'); if (!el) return;
