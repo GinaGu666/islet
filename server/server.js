@@ -273,6 +273,34 @@ async function readBody(req) {
   for await (const c of req) { size += c.length; if (size > MAX_BODY) throw httpError(413, '内容太大'); chunks.push(c); }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch (_) { throw httpError(400, '不是有效 JSON'); }
 }
+// Galatea Garden 漂流瓶：只转发这一个公开接口，原样带回花园的回答。
+// 邮箱和信不落盘、不进日志；一小时最多 6 次，免得模型绕圈反复投。
+const GARDEN_BOTTLE_URL = process.env.GARDEN_BOTTLE_URL || 'https://galatea.abysslumina.com/api/public/drift-bottle-application';
+const bottleTimes = [];
+let bottleBusy = false;
+async function gardenBottle(input) {
+  const action = input && input.action;
+  let payload;
+  if (action === 'prepare') payload = { action: 'prepare' };
+  else if (action === 'submit') {
+    const str = (k, max) => { const v = input[k]; if (typeof v !== 'string' || !v.trim() || v.length > max) throw httpError(400, '缺少或不合格的字段：' + k); return v; };
+    payload = { action: 'submit', challenge_id: str('challenge_id', 200), confirmation_code: str('confirmation_code', 200), applicant_name: str('applicant_name', 100), email: str('email', 254).trim(), body: str('body', 20000) };
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) throw httpError(400, '邮箱格式不对');
+  } else throw httpError(400, 'action 只能是 prepare 或 submit');
+  const now = Date.now();
+  while (bottleTimes.length && now - bottleTimes[0] > 3600e3) bottleTimes.shift();
+  if (bottleTimes.length >= 6) throw httpError(429, '这一小时投得太多了，过会儿再来');
+  if (bottleBusy) throw httpError(409, '上一只瓶子还在路上');
+  bottleBusy = true; bottleTimes.push(now);
+  try {
+    let res;
+    try { res = await fetch(GARDEN_BOTTLE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(20000) }); }
+    catch (_) { throw httpError(502, '连不上花园'); }
+    const text = await res.text();
+    let data; try { data = JSON.parse(text); } catch (_) { data = { text: text.slice(0, 4000) }; }
+    return { status: res.status, ok: res.ok, data };
+  } finally { bottleBusy = false; }
+}
 async function route(req, url) {
   const parts = url.pathname.split('/').filter(Boolean);
   if (req.method === 'GET' && url.pathname === '/health') return { ok: true, freeTime: !!OR_KEY };
@@ -291,6 +319,7 @@ async function route(req, url) {
     if (!result || typeof result.token !== 'string') throw httpError(502, '语音令牌无效');
     return { token: result.token };
   }
+  if (url.pathname === '/garden/bottle' && req.method === 'POST') return gardenBottle(await readBody(req));
   const [area, cid, action] = parts;
   if (!validId(cid)) throw httpError(404, '找不到');
   const snapFile = path.join(dirOf(cid), 'snapshot.json');
