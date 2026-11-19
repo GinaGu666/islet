@@ -115,6 +115,10 @@ echo "记忆库钥匙：$MEMKEY"   # 交给 Mimi，别贴到公开的地方
   `curl -X POST -H "X-Islet-Key: $KEY" https://$HOST/own/<角色id>/read-now`
 - 数据目录在 `/var/lib/islet-server`。要备份，就把这个目录整个拷走。
 
+## 漂流瓶（Galatea's Garden）
+
+小岛的 `drift_bottle` 工具经 `POST /garden/bottle` 转发到 `https://galatea.abysslumina.com/api/public/drift-bottle-application`。不需要新钥匙或配置，更新代码后重启就有。服务器不保存邮箱和信，也不写进日志；一小时最多 6 次请求。
+
 ## 安全
 
 - SSH 只用密钥登录，关掉密码登录。
