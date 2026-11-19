@@ -1023,7 +1023,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-19 · 漂流瓶</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-19 · 漂流瓶回执留在上下文</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -4880,6 +4880,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (m.role === 'assistant' && m.call && m.call.interrupted) content += '\n（这次通话回答在这里被打断。）';
       if (m.role === 'assistant' && m.freeNote) content = '（这是你之前空闲时主动留给她的话）\n' + content;
       if (m.mergedFrom) content = '（以下这段接自另一条分支「' + m.mergedFrom + '」，和上面那段是平行发生的）\n' + content;
+      // 漂流瓶的回执留在上下文里：工具往返不进存储，不留的话下一轮 TA 看不到自己投没投成
+      if (m.role === 'assistant' && Array.isArray(m.tools)) { const b = m.tools.filter(t => t && t.name === 'drift_bottle' && t.label); if (b.length) content += '\n（这条回复里你用了漂流瓶工具：' + b.map(t => t.label + (t.args && t.args.action === 'submit' ? '，花园回执：' + String(t.result || '').slice(0, 300) : '')).join('；') + '）'; }
       if (m.role === 'assistant' && Array.isArray(m.diaryShares)) content += m.diaryShares.map(s => validSharedDiary(s) ? '\n【已主动分享的日记 ' + s.date + ' · ' + s.title + '】\n' + s.body : '').join('');
       if (m.role === 'user' && m.drawn) content = '（她这次是从「随机掉落」抽卡进来的——在几个人里抽中了你。）\n' + content;
       if (m.role === 'user' && m.files && m.files.length) {
