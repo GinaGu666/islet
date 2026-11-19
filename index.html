@@ -1023,7 +1023,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-19 · 工具往返带回思考（Fable 缓存）</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-19 · 工具往返不重拼开头（缓存）</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -5763,6 +5763,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const onServed = makeServedHandler(h, model, sm => { servedModel = sm; });
     // 工具往返：extra 是发给模型的往返消息（不进存储，每轮重建）；toolLog 存进消息供回看；roundStart 标记本轮正文起点
     let tools = (toolsActive() && modelSupportsTools(model)) ? activeToolDefs(sid) : null;
+    let turnBase = null;   // 本轮回复的开头（system + 历史），工具往返复用
     const extra = [], toolLog = [], cacheUsage = Array.isArray(previousCacheUsage) ? previousCacheUsage.slice() : [];
     let rounds = 0, roundStart = 0, replyCompleted = false;
     while (true) {
@@ -5771,7 +5772,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       holdReason = !diaryReasonPrivate && !!(tools && tools.some(t => /^(read_diary|share_diary)$/.test(t.function.name)));
       pendingReason = '';
       const requestAt = Date.now();
-      const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid, extra), myAbort.signal, onReason, onContent, onServed, { tools, toolChoice: rounds >= MAX_TOOL_ROUNDS ? 'none' : 'auto' });
+      // 同一轮回复只拼一次开头：工具（比如 remember）会改记忆卡，重拼的话 system 变了，整段缓存作废、按写入价重算
+      if (!turnBase) turnBase = await buildApiMessages(msgsRef, sid, []);
+      const res = await streamCompletion(model, turnBase.concat(extra), myAbort.signal, onReason, onContent, onServed, { tools, toolChoice: rounds >= MAX_TOOL_ROUNDS ? 'none' : 'auto' });
       if (holdReason) {
         const privateCall = (res.toolCalls || []).some(t => /^(read_diary|share_diary)$/.test(t.name));
         if (privateCall) diaryReasonPrivate = true;   // 后续轮次已经接触日记，也不公开思考

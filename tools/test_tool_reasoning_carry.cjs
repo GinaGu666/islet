@@ -17,7 +17,7 @@ const element = () => ({ textContent: '', dataset: {}, classList: { add: noOp, r
 (async () => {
   // 思考显示打开时 onReason 要动界面计时器，这里的假界面不够用；带回思考块的代码两种情况走同一条路
   for (const reasoningEnabled of [false]) {
-    const requests = [], shown = [];
+    const requests = [], shown = []; let builds = 0;
     const h = { row: { dataset: {}, querySelector: () => ({ textContent: '10:32' }) }, textEl: element(), thinkEl: element(), thinkLbl: element(), thinkBody: element() };
     Object.defineProperty(h.thinkBody, 'textContent', { set: v => shown.push(v), get: () => shown.join('') });
     const context = vm.createContext({
@@ -32,7 +32,7 @@ const element = () => ({ textContent: '', dataset: {}, classList: { add: noOp, r
       activeToolDefs: () => [{ type: 'function', function: { name: 'remember', parameters: { type: 'object' } } }],
       withCacheBreakpoints: (_, messages) => messages, apiUrl: () => 'https://mock.test', authHeaders: () => ({}),
       applyModelRoute: payload => payload,
-      buildApiMessages: async (messages, sid, extra) => [...messages, ...(extra || [])],
+      buildApiMessages: async (messages, sid, extra) => { builds++; return [...messages, ...(extra || [])]; },
       makeServedHandler: (_, model, cb) => served => cb(served), baseModelId: x => x,
       scheduleRender: (h, text) => { h.textEl.textContent = text(); }, renderNow: (h, text) => { h.textEl.textContent = text; },
       delay: async () => {}, setReplyProvider: noOp, showBroken: noOp, logTool: noOp, saveCurrent: noOp, updateTokenBar: noOp,
@@ -53,6 +53,8 @@ const element = () => ({ textContent: '', dataset: {}, classList: { add: noOp, r
     vm.runInContext(diagnostics + '\n' + parser + '\n' + generate, context);
     await context.generateAssistant();
     assert.equal(requests.length, 2);
+    assert.equal(builds, 1, 'prefix built once per reply, tool rounds only append');
+    assert.deepEqual(requests[1].messages[0], requests[0].messages[0], 'same opening on both rounds');
     if (!reasoningEnabled) assert(!requests[0].reasoning || !requests[0].reasoning.exclude, 'Fable thinking must not be excluded, we need the blocks');
     const asst = requests[1].messages.find(m => m.role === 'assistant' && m.tool_calls);
     assert(asst, 'tool round assistant message present');
