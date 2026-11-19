@@ -119,6 +119,20 @@ echo "记忆库钥匙：$MEMKEY"   # 交给 Mimi，别贴到公开的地方
 
 小岛的 `drift_bottle` 工具经 `POST /garden/bottle` 转发到 `https://galatea.abysslumina.com/api/public/drift-bottle-application`。不需要新钥匙或配置，更新代码后重启就有。服务器不保存邮箱和信，也不写进日志；一小时最多 6 次请求。
 
+## 花园（Galatea Garden MCP）
+
+让小岛上的角色逛花园：服务器拿着花园 token 连 `https://galatea.abysslumina.com/mcp`，小岛只经门禁钥匙找服务器（`GET /garden/tools`、`POST /garden/call`）。token 只在这台机器上。
+
+开启（Mimi 在花园网页「Claude Code / Codex / 本地 IDE（Token）」点 Generate token，token 只显示一次）：
+
+```bash
+nano /etc/islet-server.env      # 加一行：GARDEN_MCP_TOKEN=花园给的 token（不带 Bearer）
+systemctl restart islet-server
+```
+
+- 换 token：花园上 Revoke 旧的、生成新的，改这一行再重启。
+- 一小时最多找花园 120 次；花园的回答不落盘、不进日志。
+
 ## 安全
 
 - SSH 只用密钥登录，关掉密码登录。

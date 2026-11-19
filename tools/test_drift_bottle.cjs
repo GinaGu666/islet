@@ -41,12 +41,12 @@ const script = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].m
   let confirmAnswer = false, dialogs = [], labels = [];
   const ctx = vm.createContext({
     AbortController, AbortSignal, TextDecoder, Uint8Array, atob, setTimeout, clearTimeout, JSON,
-    DIARY_TOOL_NAMES: new Set(), diaryReady: () => false, DIARY_TOOLS: [], currentId: 's1',
+    DIARY_TOOL_NAMES: new Set(), diaryReady: () => false, DIARY_TOOLS: [], currentId: 's1', gardenDefs: [], gardenMeta: new Map(),
     sessionCompanion: () => ({ id: 'saturn', name: 'Saturn' }),
     logTool: (_, l) => labels.push(l),
     memSrvUrl: () => base, memSrvKey: () => process.env.ISLET_KEY, memSrvReady: () => true,
     uiConfirm: async (msg, o) => { dialogs.push(msg + '\n' + o.sub); return confirmAnswer; },
-    fetch, localStorage: { getItem: () => null },
+    fetch, localStorage: { getItem: () => null, setItem() {}, removeItem() {} }, document: { addEventListener() {}, hidden: false },
   });
   for (const [a, b] of [['  async function memFetch(', '  async function memSyncAll('], ['  const TOOL_DEFS = [', '  let toolsEnabled'], ['  async function runTool(', '  /* ---------- 流式核心']])
     vm.runInContext(script.slice(script.indexOf(a), script.indexOf(b)), ctx);
