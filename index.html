@@ -1023,7 +1023,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-19 · 花园 MCP</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-19 · 工具往返带回思考（Fable 缓存）</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -5037,8 +5037,23 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
   // 返回 {ended:'done'|'aborted'|'http'|'network', error?}
   // onServed（可选）：第一次拿到响应里的 model 字段时回调一次，用于「请求 A 实际是 B」的路由检测
+  // 流式里的思考块按 index 拼起来：文字分片累加，签名/id/格式取到就留
+  function mergeReasoningDetail(list, x) {
+    if (!x || typeof x !== 'object') return;
+    const i = Number.isInteger(x.index) ? x.index : null;
+    const last = list[list.length - 1];
+    let cur = i != null ? list.find(d => d.index === i) : (last && last.type === x.type && (!x.id || !last.id || last.id === x.id) ? last : null);
+    if (!cur) { cur = {}; list.push(cur); }
+    for (const [k, v] of Object.entries(x)) {
+      if ((k === 'text' || k === 'summary' || k === 'data') && typeof v === 'string') cur[k] = (cur[k] || '') + v;
+      else if (v != null && v !== '') cur[k] = v;
+    }
+  }
   async function streamCompletion(model, msgs, signal, onReason, onContent, onServed, opts) {
     let gotContent = false, sawDone = false, usage = null, finish = null, served = null, toolsDropped = false, generationId = '', providerName = '';
+    // 思考块原样收齐（含签名）：用工具时要随 tool_calls 一起传回，否则 Anthropic 那边这次请求的思考设置对不上，整段缓存作废
+    const reasoningDetails = [];
+    let quietReason = false;   // Fable 一类关不掉思考：思考照收（工具往返要用），但用户关了显示就不往界面上放
     const toolCalls = [];   // 流里分片到达的 tool_calls，按 index 拼装：{id, name, args}
     let ctx = requestContext(model), res = null;
     try {
@@ -5051,7 +5066,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       if (modelSupportsReasoning(model)) {
         // 按力度分配思考预算时，OpenRouter 按 max_tokens 的比例算（high 约八成），8192 会把正文挤没，高档放宽
         if (reasoningEnabled) { payload.reasoning = reasoningEffort ? { effort: reasoningEffort } : { enabled: true }; if (reasoningEffort === 'high') payload.max_tokens = 16384; }
-        else if (/fable|mythos/i.test(model)) payload.reasoning = { exclude: true };
+        else if (/fable|mythos/i.test(model)) quietReason = true;   // 不传 exclude：上游思考设置不变，但要拿到思考块好在工具往返时带回去
         else payload.reasoning = { enabled: false, exclude: true };
       }
       // 通话：平时开着思考才降到低档；平时关着就保持关（上面已按关处理），免得一打电话反而变慢变贵
@@ -5106,7 +5121,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           let r = delta.reasoning;
           if (r == null && delta.reasoning_content) r = delta.reasoning_content;
           if (r == null && Array.isArray(delta.reasoning_details)) r = delta.reasoning_details.map(x => x.text || x.summary || '').join('');
-          if (r) onReason(r);
+          if (r && !quietReason) onReason(r);
+          if (Array.isArray(delta.reasoning_details)) for (const x of delta.reasoning_details) mergeReasoningDetail(reasoningDetails, x);
           if (Array.isArray(delta.tool_calls)) {
             for (const tc of delta.tool_calls) {
               const i = tc.index != null ? tc.index : toolCalls.length;
@@ -5125,7 +5141,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         if (sawDone || done) break;
       }
       const calls = toolCalls.filter(Boolean).map((t, i) => ({ id: t.id || ('call_' + Date.now().toString(36) + i), name: t.name, args: t.args }));
-      if (sawDone || finish) return { ended: 'done', usage, finish, served, toolCalls: calls, toolsDropped, generationId, providerName };
+      if (sawDone || finish) return { ended: 'done', usage, finish, served, toolCalls: calls, toolsDropped, generationId, providerName, reasoningDetails };
       let unexpected; try { unexpected = JSON.parse(wireText); } catch (_) {}
       if (unexpected && unexpected.error) { const failure = requestFailure(ctx, res, unexpected); return { ended:'http', error:failureText(failure), failure, usage, served, generationId, providerName }; }
       const failure = requestFailure(ctx, res, {message: gotContent || calls.length ? '回复流提前结束，没有收到完成标记。' : wireText.trim() ? '接口没有返回可识别的 SSE 回复事件。' : '连接已结束，但没有收到有效回复。'}, gotContent || calls.length ? 'network' : wireText.trim() ? 'format' : 'empty');
@@ -5781,7 +5797,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         if (res.toolCalls && res.toolCalls.length) {
           rounds++;
           const roundText = contentText.slice(roundStart);
-          extra.push({ role: 'assistant', content: roundText || null, tool_calls: res.toolCalls.map(t => ({ id: t.id, type: 'function', function: { name: t.name, arguments: t.args || '{}' } })) });
+          extra.push({ role: 'assistant', content: roundText || null, tool_calls: res.toolCalls.map(t => ({ id: t.id, type: 'function', function: { name: t.name, arguments: t.args || '{}' } })), ...(res.reasoningDetails && res.reasoningDetails.length ? { reasoning_details: res.reasoningDetails } : {}) });
           for (const t of res.toolCalls) {
             if (myAbort.signal.aborted) break;
             const r = await runTool(t, sid, h, myAbort.signal);
