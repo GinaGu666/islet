@@ -53,6 +53,7 @@
   - `lsSet()` 写 localStorage 失败：第一次弹窗，并在顶部挂常驻提示（`#storage-warn`，点它导出备份），直到下一次写入成功才收起。`saveCurrent()` 写失败就不更新索引里的条数，返回 false。
   - 导入备份（`importBackup`）：确认后先自动 `exportBackup()`，她确认文件存好才继续。备份里与本机重名的块换新 id（同步改 `forkSid`、记忆 `epis.sid`、`currentId`），新块逐块写入读回核对；全部通过才替换日记、写角色和 `islet_idx`（提交点），之后才删旧块和没人引用的旧附件。提交前失败：删掉本次新块，日记、角色、索引还原。备份文件格式不变。设置里的存储表仍按硬编码的 5 MB 算百分比，没换成 `navigator.storage.estimate()`（待办，需她同意再动）。
   - **漂流瓶**（`drift_bottle`，Galatea's Garden 的公开交友信）：填了记忆库服务器才发给模型；经服务器 `POST /garden/bottle` 转发到花园公开接口（不需要 token）。确认码只留在页面内存，不给模型；投递前必须 `uiConfirm` 弹窗让她过目邮箱和全文，她不点「投出去」就不发；工具日志只留 `action`，邮箱和信不落盘。服务器不存不记，一小时最多 6 次、同时只有一只。测试：`node tools/test_drift_bottle.cjs`。
+  - **花园**（Galatea Garden MCP）：服务器 `server/garden-mcp.js` 拿 `GARDEN_MCP_TOKEN` 连花园（Streamable HTTP，支持 SSE 回答、会话过期重连一次）；小岛 `loadGardenTools()` 取工具清单，变成 `garden_<名字>` 函数，清单缓存在 `islet_garden_tools`（不含 token）。花园标了 `readOnlyHint` 的直接用，其余每次先 `uiChoice` 问岛主（可选「这块聊天里都不用问了」，只在内存里、按 sid）。结果标注为资料不是指令；用过的花园工具和漂流瓶回执接在那条回复后面进上下文。测试：`node tools/test_garden_mcp.cjs`。
 - **备份 / 归档**：导出备份 = 全量（`app: 'islet'`，v2 起带附件）；归档 = 把久未活动的旧块导出成 `islet-archive` 文件、她确认文件存好了才从本机删；两种都能导回来，格式要保持向后兼容，她手上有旧文件。导入时一块都不能静默丢：localStorage 放不下就进 IndexedDB，两边都不行就报出来、不进索引。
 
 ## 改动约定

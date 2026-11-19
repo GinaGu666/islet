@@ -10,12 +10,14 @@
 //   FREE_MODEL       自由时间固定用的模型；不填就用小岛同步过来的角色聊天模型
 //   FREE_WINDOW      每天随机读书的时段（本地时间，按 TZ），默认 10-22
 //   OPENROUTER_URL   测试用，可指向本地假接口
+//   GARDEN_MCP_TOKEN Galatea Garden 给的 MCP token（花园网页「Claude Code / Codex / 本地 IDE（Token）」生成）；不填就不开花园
 //   CLAUDE_MEM_KEY   Mimi 记忆库（claude.ai 连接器 + /claude 小页面）的钥匙，至少 24 位；不填就不开这个功能
 'use strict';
 const http = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const gardenMcp = require('./garden-mcp');         // Galatea Garden 的 MCP，token 只在服务器上
 const claudeMemory = require('./claude-memory');   // Mimi 的记忆库（给 claude.ai 用），和 Saturn 的数据分开
 
 const KEY = process.env.ISLET_KEY || '';
@@ -320,6 +322,8 @@ async function route(req, url) {
     return { token: result.token };
   }
   if (url.pathname === '/garden/bottle' && req.method === 'POST') return gardenBottle(await readBody(req));
+  if (url.pathname === '/garden/tools' && req.method === 'GET') return gardenMcp.listTools();
+  if (url.pathname === '/garden/call' && req.method === 'POST') return gardenMcp.callTool(await readBody(req));
   const [area, cid, action] = parts;
   if (!validId(cid)) throw httpError(404, '找不到');
   const snapFile = path.join(dirOf(cid), 'snapshot.json');
