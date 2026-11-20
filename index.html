@@ -1023,7 +1023,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-19 · 工具往返不重拼开头（缓存）</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-20 · 新记的卡先挂末尾（缓存）</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -4809,12 +4809,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (out == null) throw failureError(requestFailure(ctx, res, {message: '返回 JSON 中没有回复正文。'}, 'empty'));
     return String(out);
   }
-  function buildSystemContent(sid) {
+  function buildSystemContent(sid, keepIds) {   // keepIds：只把这些卡写进常驻记忆（其余是聊天中途新记的，挂在末尾）
     const about = sharedAbout();
     const c = sessionCompanion(sid == null ? currentId : sid);
     const persona = (c.persona || '').trim();
     const rel = (c.rel || '').trim();
-    const core = memCoreParts(c);
+    const core = memCoreParts(keepIds ? { ...c, cards: memCardsOf(c).filter(k => keepIds.has(k.id)) } : c);
     const epi = epiInjectText(c);
     const parts = [];
     if (about || persona || rel || core.text || epi) {
@@ -4892,12 +4892,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   }
   const IMG_CTX = 3;      // 最多把最近几张图发给模型（图片按 token 计费很贵，旧图自动退出上下文）
   const FILE_CTX = 3;     // 最多把最近几个文件的全文随行（同理，旧文件退成一句提示，结论靠记忆卡）
+  const coreFreeze = new Map();            // sid → { cid, start, ids, at }：system 里常驻记忆用的是哪一批卡
+  const CORE_FREEZE_IDLE = 5 * 60e3;       // Anthropic 缓存默认 5 分钟；隔这么久缓存本来就没了，顺手把新卡并进 system
   function packSystem(sys) { return sys ? [{ role: 'system', content: sys }] : []; }
   async function buildApiMessages(msgList, sid, extra) {   // extra：本轮回复里已发生的工具往返（assistant.tool_calls + tool 结果），追加在最后
     const list = msgList || messages;
     memRefreshOwn((sessionCompanion(sid == null ? currentId : sid) || {}).id);   // 后台刷新，不等；结果下一轮用
-    let sys = buildSystemContent(sid);
-    const turnNotes = buildTurnNotes(sid);
+    let turnNotes = buildTurnNotes(sid);
     let _all = list.filter(m => m.role !== 'system');
     // 阶梯窗口按整条河算起点，而不是按当前块：刚换块时上游补进来的那段，起点也只每 CTX_STEP 条动一次。
     // 之前是"补到凑满 N+20 条"，当前块每长 2 条上游就从最前面掉 2 条，窗口首条每轮都变，
@@ -4906,6 +4907,19 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const _start = ctxStart(_up + _all.length);
     if (_start < _up) _all = (await riverTail(sid, _up - _start)).concat(_all);
     const win = _start < _up ? _all : _all.slice(_start - _up);
+    // 聊天中途新记的卡（remember 工具、后台蒸馏）先不进 system：system 在缓存最前面，多一张卡整段四万多 token 就得按写入价重算。
+    // 先挂在末尾【此刻】里；等缓存反正要失效时（隔了 5 分钟以上、或历史窗口挪了一段）再并进 system。
+    const _fc = sessionCompanion(sid == null ? currentId : sid);
+    const _fkey = sid == null ? currentId : sid;
+    let _fz = coreFreeze.get(_fkey);
+    if (!_fz || _fz.cid !== _fc.id || Date.now() - _fz.at > CORE_FREEZE_IDLE || _fz.start !== _start) {
+      _fz = { cid: _fc.id, start: _start, ids: new Set(memCardsOf(_fc).map(k => k.id)) };
+      coreFreeze.set(_fkey, _fz);
+    }
+    _fz.at = Date.now();
+    const _fresh = memCardsOf(_fc).filter(k => !_fz.ids.has(k.id));
+    let sys = buildSystemContent(sid, _fz.ids);
+    if (_fresh.length) turnNotes = '这次聊天里你刚记下的（已经存好，之后会并进上面的记忆）：\n' + _fresh.map(k => '- ' + (memVow(k) ? '【约定】' : '') + k.t).join('\n') + (turnNotes ? '\n\n' + turnNotes : '');
     let budget = IMG_CTX, fileBudget = FILE_CTX;
     // 时间戳：窗口里第一条用户消息、以及和上一条用户消息不在同一天的，带上日期；其余只带时分。
     // 否则历史里全是 [13:42]，隔了三天和隔了三小时在模型眼里没区别。日期从存好的 ts 算，每轮不变，不扰动前缀缓存。
@@ -4967,7 +4981,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     // 这样缓存断点能打在浮现块之前；否则下一轮历史里这条消息没有浮现块，前缀从这里失配，整段历史按全价重算。
     try {
       const _mc = sessionCompanion(sid == null ? currentId : sid);
-      const _lines = memRecall(_mc, win, memCoreParts(_mc).ids);
+      const _skip = memCoreParts({ ..._mc, cards: memCardsOf(_mc).filter(k => _fz.ids.has(k.id)) }).ids; _fresh.forEach(k => _skip.add(k.id));
+      const _lines = memRecall(_mc, win, _skip);
       if (_lines.length) {
         for (let i = out.length - 1; i >= 0; i--) {
           if (out[i].role !== 'user') continue;
