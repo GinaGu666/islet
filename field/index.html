@@ -243,7 +243,7 @@ textarea.txt { resize: vertical; min-height: 90px; line-height: 1.6; }
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-const VERSION = '田 · 2026-11-18 · 旧日子';
+const VERSION = '田 · 2026-11-21 · 缓存更稳';
 const DEFAULT_MODEL = 'anthropic/claude-opus-5.5';
 const MEM_MODEL = 'anthropic/claude-haiku-4.5';
 const WINDOW = 80, STEP = 40;      // 上下文：最近约 80–120 条，每 40 条挪一次窗口，前缀稳定好命中缓存
@@ -394,13 +394,26 @@ function nearEnd() { const s = $('scroller'); return s.scrollHeight - s.scrollTo
  * 其余的按这会儿在聊什么挑出最相关的几张，放在最后一条消息的缓存断点之后，每次换也不坏前缀。 */
 const ALL_CARDS = 80, CORE_RECENT = 40, CORE_PROMISES = 30, RECALL_TOP = 12;
 const cardLine = c => `- ${c.text}${c.tag ? ` [${c.tag}]` : ''}`;
-function coreCards() {
-  if (S.cards.length <= ALL_CARDS) return S.cards;
-  const promises = S.cards.filter(c => c.tag === '约定').slice(0, CORE_PROMISES);
+function coreCards(pool = S.cards) {
+  if (pool.length <= ALL_CARDS) return pool;
+  const promises = pool.filter(c => c.tag === '约定').slice(0, CORE_PROMISES);
   const keep = new Set(promises.map(c => c.id)), out = promises.slice();
   let recent = 0;
-  for (const c of S.cards) { if (recent >= CORE_RECENT) break; if (!keep.has(c.id)) { keep.add(c.id); out.push(c); recent++; } }
-  return S.cards.filter(c => keep.has(c.id));   // 保持新到旧的顺序
+  for (const c of pool) { if (recent >= CORE_RECENT) break; if (!keep.has(c.id)) { keep.add(c.id); out.push(c); recent++; } }
+  return pool.filter(c => keep.has(c.id));   // 保持新到旧的顺序
+}
+/* ---- system 里的卡先「冻住」 ----
+ * system 在缓存最前面：蒸馏一加卡，system 就变，后面整段按写入价重算（Opus 一次好几毛）。
+ * 所以聊着聊着新记下的卡先不进 system，挂在断点之后；等缓存反正要过期（隔了 5 分钟以上）、
+ * 窗口挪了一段、或者换了分支，再一起并进 system。删卡、改卡是你动手做的，马上生效。 */
+const FREEZE_IDLE = 5 * 60e3;
+let freeze = null;   // { ids, start, branch, at }
+function frozenCards(list) {
+  const start = ctxStart(list.length);
+  if (!freeze || Date.now() - freeze.at > FREEZE_IDLE || freeze.start !== start || freeze.branch !== S.cur)
+    freeze = { ids: new Set(S.cards.map(c => c.id)), start, branch: S.cur };
+  freeze.at = Date.now();
+  return { kept: S.cards.filter(c => freeze.ids.has(c.id)), fresh: S.cards.filter(c => !freeze.ids.has(c.id)) };
 }
 // 切词：中文按相邻两个字，英文数字按整词；去掉太常见、没区分度的
 const STOP = new Set('我们 你们 他们 什么 一下 这个 那个 就是 没有 怎么 可以 不是 还是 一个 自己 时候 现在 今天 岛主 种地 地的 知道 觉得 真的 因为 所以 然后 但是 如果 已经 还有 一点 有点 the and you that this'.split(' '));
@@ -418,18 +431,19 @@ function relevantCards(query, pool, top) {
   const scored = pool.map((c, i) => { let sc = 0; cg[i].forEach(w => { if (df.has(w)) sc += Math.log(1 + pool.length / df.get(w)); }); return { c, sc }; });
   return scored.filter(x => x.sc > 0).sort((a, b) => b.sc - a.sc).slice(0, top).map(x => x.c);
 }
-function recallTail(list) {
-  // 可想起的：没常驻的卡 + 旧日子里每天那一句
-  const core = new Set(coreCards().map(c => c.id));
-  const pool = S.cards.filter(c => !core.has(c.id)).concat(S.days.filter(x => x.line).map(x => ({ id: 'day-' + x.day, text: `${x.day} ${x.line}` })));
-  if (!pool.length) return '';
+function recallTail(list, kept = S.cards, fresh = []) {
+  // 可想起的：没常驻的卡 + 旧日子里每天那一句；刚记下的单独列出来
+  const freshTxt = fresh.length ? `\n\n（这次聊天里你刚记下的，之后会并进上面的记忆：\n${fresh.map(cardLine).join('\n')}）` : '';
+  const core = new Set(coreCards(kept).map(c => c.id));
+  const pool = kept.filter(c => !core.has(c.id)).concat(S.days.filter(x => x.line).map(x => ({ id: 'day-' + x.day, text: `${x.day} ${x.line}` })));
+  if (!pool.length) return freshTxt;
   const recent = list.slice(-3).map(m => m.content).join('\n').slice(-1500);
   const hits = relevantCards(recent, pool, RECALL_TOP);
-  return hits.length ? `\n\n（这会儿你想起来的事：\n${hits.map(cardLine).join('\n')}）` : '';
+  return freshTxt + (hits.length ? `\n\n（这会儿你想起来的事：\n${hits.map(cardLine).join('\n')}）` : '');
 }
-function systemPrompt() {
+function systemPrompt(kept = S.cards) {
   const base = (ls.get('field_prompt') || DEFAULT_PROMPT).trim();
-  const cards = coreCards().map(cardLine).join('\n');
+  const cards = coreCards(kept).map(cardLine).join('\n');
   const notes = S.notes.slice(0, 3).map(n => `- 《${n.book || '书'}》${n.title ? ' ' + n.title : ''}：${(n.text || '').slice(0, 160)}`).join('\n');
   const harvest = metaGet('harvest', 0);
   const origin = metaGet('origin', null);
@@ -439,8 +453,9 @@ function systemPrompt() {
     + (notes ? `\n\n【你最近在读】\n${notes}` : '')
     + (harvest ? `\n\n田里的防风草已经收了 ${harvest} 茬。` : '');
 }
+function ctxStart(len) { return Math.max(0, Math.floor((len - WINDOW) / STEP) * STEP); }
 function contextMsgs(list) {
-  const start = Math.max(0, Math.floor((list.length - WINDOW) / STEP) * STEP);
+  const start = ctxStart(list.length);
   return list.slice(start).filter(m => !m.err && m.content).map(m => ({ role: m.role, content: m.content }));
 }
 function withCache(msgs, extra = '') {
@@ -524,7 +539,10 @@ function nextSeq(bid) { const own = ownMsgs(bid); return own.length ? own[own.le
 async function reply() {
   const list = lineOf(S.cur);
   const model = ls.get('field_model') || DEFAULT_MODEL, think = ls.get('field_think') === 'on';
-  const payload = { model, stream: true, max_tokens: think ? 16000 : 8192, messages: withCache([{ role: 'system', content: systemPrompt() }].concat(contextMsgs(list)), recallTail(list)) };
+  const fz = frozenCards(list);
+  const payload = { model, stream: true, max_tokens: think ? 16000 : 8192, messages: withCache([{ role: 'system', content: systemPrompt(fz.kept) }].concat(contextMsgs(list)), recallTail(list, fz.kept, fz.fresh)) };
+  // Anthropic 的模型钉在 Anthropic 自家：OpenRouter 换到 Vertex/Bedrock 那一轮，缓存就得重写
+  if (/^anthropic\//.test(model)) payload.provider = { order: ['anthropic'], allow_fallbacks: true };
   payload.reasoning = think ? { enabled: true } : { enabled: false, exclude: true };
   const ans = { id: uid(), branch: S.cur, seq: nextSeq(S.cur), role: 'assistant', content: '', reasoning: '', ts: Date.now(), model };
   S.msgs.push(ans); S.busy = true; S.ctrl = new AbortController(); setBusy(true); renderLog();
