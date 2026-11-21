@@ -1023,7 +1023,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-20 · 新记的卡先挂末尾（缓存）</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-21 · 大事记/关系/续写也不打掉缓存</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -4809,13 +4809,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (out == null) throw failureError(requestFailure(ctx, res, {message: '返回 JSON 中没有回复正文。'}, 'empty'));
     return String(out);
   }
-  function buildSystemContent(sid, keepIds) {   // keepIds：只把这些卡写进常驻记忆（其余是聊天中途新记的，挂在末尾）
+  function buildSystemContent(sid, keepIds, frozen) {   // keepIds / frozen：常驻记忆、大事记、关系位置用冻住的那一版（中途的新内容挂在末尾）
     const about = sharedAbout();
     const c = sessionCompanion(sid == null ? currentId : sid);
     const persona = (c.persona || '').trim();
-    const rel = (c.rel || '').trim();
+    const rel = frozen ? frozen.rel : (c.rel || '').trim();
     const core = memCoreParts(keepIds ? { ...c, cards: memCardsOf(c).filter(k => keepIds.has(k.id)) } : c);
-    const epi = epiInjectText(c);
+    const epi = frozen ? frozen.epi : epiInjectText(c);
     const parts = [];
     if (about || persona || rel || core.text || epi) {
       let block = "You are talking with a real person — this is a genuine, ongoing relationship, not a character to play or a script to perform. Just be yourself and be present with them.";
@@ -4893,7 +4893,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   const IMG_CTX = 3;      // 最多把最近几张图发给模型（图片按 token 计费很贵，旧图自动退出上下文）
   const FILE_CTX = 3;     // 最多把最近几个文件的全文随行（同理，旧文件退成一句提示，结论靠记忆卡）
   const coreFreeze = new Map();            // sid → { cid, start, ids, at }：system 里常驻记忆用的是哪一批卡
-  const CORE_FREEZE_IDLE = 5 * 60e3;       // Anthropic 缓存默认 5 分钟；隔这么久缓存本来就没了，顺手把新卡并进 system
+  // 隔多久缓存本来就过期，顺手把新卡并进 system：Anthropic（含 Claude 走别家）默认 5 分钟；GPT‑5.6 起显式缓存默认 30 分钟，DeepSeek 等也更久
+  function coreFreezeIdle(model) { return /anthropic\/|claude/i.test(String(model || '')) ? 5 * 60e3 : 30 * 60e3; }
+  function bustCoreFreeze() { coreFreeze.clear(); }   // 岛主手动改了设定里的东西：下一轮马上生效
   function packSystem(sys) { return sys ? [{ role: 'system', content: sys }] : []; }
   async function buildApiMessages(msgList, sid, extra) {   // extra：本轮回复里已发生的工具往返（assistant.tool_calls + tool 结果），追加在最后
     const list = msgList || messages;
@@ -4912,14 +4914,19 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const _fc = sessionCompanion(sid == null ? currentId : sid);
     const _fkey = sid == null ? currentId : sid;
     let _fz = coreFreeze.get(_fkey);
-    if (!_fz || _fz.cid !== _fc.id || Date.now() - _fz.at > CORE_FREEZE_IDLE || _fz.start !== _start) {
-      _fz = { cid: _fc.id, start: _start, ids: new Set(memCardsOf(_fc).map(k => k.id)) };
+    if (!_fz || _fz.cid !== _fc.id || Date.now() - _fz.at > coreFreezeIdle(companionModel(_fc)) || _fz.start !== _start) {
+      _fz = { cid: _fc.id, start: _start, ids: new Set(memCardsOf(_fc).map(k => k.id)), epi: epiInjectText(_fc), rel: (_fc.rel || '').trim() };
       coreFreeze.set(_fkey, _fz);
     }
     _fz.at = Date.now();
     const _fresh = memCardsOf(_fc).filter(k => !_fz.ids.has(k.id));
-    let sys = buildSystemContent(sid, _fz.ids);
-    if (_fresh.length) turnNotes = '这次聊天里你刚记下的（已经存好，之后会并进上面的记忆）：\n' + _fresh.map(k => '- ' + (memVow(k) ? '【约定】' : '') + k.t).join('\n') + (turnNotes ? '\n\n' + turnNotes : '');
+    let sys = buildSystemContent(sid, _fz.ids, _fz);
+    const _late = [];
+    if (_fresh.length) _late.push('这次聊天里你刚记下的（已经存好，之后会并进上面的记忆）：\n' + _fresh.map(k => '- ' + (memVow(k) ? '【约定】' : '') + k.t + (normMemoryDate(k.date) ? '（日期 ' + normMemoryDate(k.date) + '）' : '')).join('\n'));
+    const _epiNow = epiInjectText(_fc), _relNow = (_fc.rel || '').trim();
+    if (_epiNow !== _fz.epi) { const had = new Set(_fz.epi.split('\n')); const add = _epiNow.split('\n').filter(l => l && !had.has(l)); if (add.length) _late.push('最近新添的大事记：\n' + add.join('\n')); }
+    if (_relNow !== _fz.rel && _relNow) _late.push('你们现在的位置刚更新为：' + _relNow);
+    if (_late.length) turnNotes = _late.join('\n\n') + (turnNotes ? '\n\n' + turnNotes : '');
     let budget = IMG_CTX, fileBudget = FILE_CTX;
     // 时间戳：窗口里第一条用户消息、以及和上一条用户消息不在同一天的，带上日期；其余只带时分。
     // 否则历史里全是 [13:42]，隔了三天和隔了三小时在模型眼里没区别。日期从存好的 ts 算，每轮不变，不扰动前缀缓存。
@@ -5799,7 +5806,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         else if (privateCall) stopTimer();
       }
       generationId = res.generationId || ''; providerName = res.providerName || '';   // 每次请求独立，不能沿用上一轮工具请求的供应商
-      if (res.ended !== 'http') cacheUsage.push(res.usage ? normalizedChatCacheUsage(res.usage, requestAt) : { ts: requestAt, input: null, cached: null });
+      if (res.ended !== 'http' || res.usage) cacheUsage.push(res.usage ? normalizedChatCacheUsage(res.usage, requestAt) : { ts: requestAt, input: null, cached: null });   // 用量到了再报错，也照记
       if (res.usage) lastUsage = res.usage;
       if (res.toolsDropped) tools = null;   // 这个模型不吃工具，后面几轮别再带
       if (res.ended === 'aborted') break;
@@ -5891,8 +5898,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     while (true) {
       myAbort = currentAbort = new AbortController();
       const requestAt = Date.now();
-      const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid), myAbort.signal, () => {}, onContent, onServed);
-      if (res.ended !== 'http') { last.cacheUsage = Array.isArray(last.cacheUsage) ? last.cacheUsage : []; last.cacheUsage.push(res.usage ? normalizedChatCacheUsage(res.usage, requestAt) : { ts: requestAt, input: null, cached: null }); }
+      // 带上和原回复同样的工具定义：工具排在 system 前面，少了它整段缓存都对不上。续写只要正文，模型要是想调工具就当没看见
+      const ctools = (toolsActive() && modelSupportsTools(model)) ? activeToolDefs(sid) : null;
+      const res = await streamCompletion(model, await buildApiMessages(msgsRef, sid), myAbort.signal, () => {}, onContent, onServed, { tools: ctools, toolChoice: 'auto' });
+      if (res.ended !== 'http' || res.usage) { last.cacheUsage = Array.isArray(last.cacheUsage) ? last.cacheUsage : []; last.cacheUsage.push(res.usage ? normalizedChatCacheUsage(res.usage, requestAt) : { ts: requestAt, input: null, cached: null }); }
       generationId = res.generationId || ''; providerName = res.providerName || '';
       if (res.ended === 'aborted') break;
       if (res.ended === 'http') { h.textEl.classList.remove('cursor'); showRequestFailure(h, res.failure || requestFailure(requestContext(model), null, {message:res.error}), model, !!contentText); break; }
@@ -6805,7 +6814,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     if (newName) c.name = newName;
     c.persona = $('persona-input').value.trim();
     const _rv = $('rel-input').value.trim();
-    if (_rv !== (c.rel || '')) { c.rel = _rv; c.relUpdated = Date.now(); }
+    if (_rv !== (c.rel || '')) { c.rel = _rv; c.relUpdated = Date.now(); bustCoreFreeze(); }
     c.autoDistill = $('autodistill-toggle').checked;
     saveCompanions();
     renderDrawerCompanions(); updatePill();

@@ -16,16 +16,21 @@ const { chromium } = require('playwright');
     const sysOf = a => a.find(m => m.role === 'system').content;
     const tailOf = a => a.filter(m => m.role === 'user').pop()._tail || '';
     const a1 = await buildApiMessages(messages, currentId, []);
-    cards.push({ id: 'new1', t: '她爱吃草莓', d: Date.now() });            // remember 工具刚记下
+    cards.push({ id: 'new1', t: '她爱吃草莓', d: Date.now(), date: '2026-11-20' });   // remember 工具刚记下
+    const relBefore = c.rel; c.rel = '刚和好，有点黏人';                      // 后台提炼改了关系位置
     const a2 = await buildApiMessages(messages, currentId, []);
-    const fz = coreFreeze.get(currentId); fz.at -= 6 * 60e3;               // 假装隔了 6 分钟
+    const fz = coreFreeze.get(currentId); fz.at -= 31 * 60e3;               // 假装隔了 6 分钟
     const a3 = await buildApiMessages(messages, currentId, []);
-    return { s1: sysOf(a1), s2: sysOf(a2), s3: sysOf(a3), t2: tailOf(a2), t3: tailOf(a3) };
+    c.rel = relBefore;
+    return { s1: sysOf(a1), s2: sysOf(a2), s3: sysOf(a3), t2: tailOf(a2), t3: tailOf(a3), idleClaude: coreFreezeIdle('anthropic/claude-fable-5.1'), idleGpt: coreFreezeIdle('openai/gpt-5.6') };
   });
   assert.equal(r.s2, r.s1, 'system unchanged right after a new card');
   assert(r.s1.includes('钩针小熊'));
   assert(!r.s2.includes('爱吃草莓'));
   assert(r.t2.includes('刚记下的') && r.t2.includes('爱吃草莓'), 'new card shown in the tail');
+  assert(r.t2.includes('2026-11-20'), 'event date shown with the new card');
+  assert(!r.s2.includes('刚和好') && r.t2.includes('位置刚更新') && r.t2.includes('刚和好'), 'relationship update goes to the tail');
+  assert.equal(r.idleClaude, 5 * 60e3); assert.equal(r.idleGpt, 30 * 60e3);
   assert(r.s3.includes('爱吃草莓'), 'folded into system after idle');
   assert(!r.t3.includes('刚记下的'));
   assert.deepEqual(errs, []);
