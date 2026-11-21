@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#152519">
+<title>防风草保卫战</title>
+<style>
+:root{color-scheme:dark;--ink:#f9efce;--muted:#c7caa6;--lime:#e2f097;--gold:#ffd46b;--line:#536049}
+*{box-sizing:border-box}body{margin:0;min-height:100svh;background:radial-gradient(ellipse at 50% 0%,#364933,#152519 60%,#101e15);color:var(--ink);font:16px/1.5 system-ui,sans-serif}
+button{font:inherit;color:inherit;cursor:pointer;touch-action:manipulation}button:focus-visible{outline:3px solid white;outline-offset:3px}
+main{width:min(100%,590px);margin:auto;padding:22px clamp(12px,4vw,24px) 24px}
+header{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:16px}h1,h2,p{margin:0}h1{font-size:clamp(24px,6.1vw,42px);letter-spacing:.04em;line-height:1.2;font-weight:900}
+.sound{padding:7px 10px;border:1px solid var(--line);background:#233625;border-radius:10px;white-space:nowrap;font-size:14px}
+.hud{display:grid;grid-template-columns:1fr 1.15fr 1fr;gap:8px;margin-bottom:10px;text-align:center}
+.hud>div{background:#1c2c20;border:1px solid var(--line);border-radius:12px;padding:6px 2px}.hud span{display:block;color:var(--muted);font-size:14px}.hud output{font-size:clamp(21px,5vw,31px);font-weight:850;font-variant-numeric:tabular-nums;line-height:1.25}.hud .urgent{color:#ff9f8e}#combo{color:var(--gold)}
+.field{position:relative;isolation:isolate;border:1px solid #68734b;border-radius:18px;padding:11px;background:repeating-linear-gradient(135deg,#415437 0 9px,#3c5034 9px 18px);box-shadow:0 9px 0 #102018,0 20px 38px #101b1590}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(4,1fr);gap:8px;touch-action:none;user-select:none}
+.plot{position:relative;min-width:0;height:clamp(60px,12svh,103px);border:1px solid #9a6a44;border-radius:13px;overflow:hidden;padding:0;background:repeating-linear-gradient(0deg,#774b32 0 13px,#6a402e 13px 15px);box-shadow:inset 0 3px 0 #b686544f,inset 0 -5px 0 #44291e88;display:grid;place-items:center}
+.plot::before{content:"";position:absolute;inset:9px;border:1px dashed #d4ab6b40;border-radius:8px;pointer-events:none}.plot:focus-visible{z-index:2;outline-offset:-4px}
+.actor{position:relative;display:grid;place-items:center;pointer-events:none;font-size:clamp(27px,7vw,50px);line-height:1;filter:drop-shadow(0 4px 2px #29170f75)}
+.root{display:block;width:.65em;height:.73em;background:linear-gradient(100deg,#fff3c8,#f5d898 55%,#c38f53);clip-path:polygon(0 5%,100% 5%,85% 49%,58% 94%,40% 100%,15% 60%);border-radius:35%;position:relative}
+.root::after{content:"";position:absolute;inset:30% 16%;background:repeating-linear-gradient(0deg,transparent 0 5px,#98572d45 5px 7px)}
+.leaves{position:relative;width:.75em;height:.31em;margin-bottom:-.03em;background:radial-gradient(ellipse at 26% 40%,#98d45c 0 32%,transparent 35%),radial-gradient(ellipse at 74% 40%,#73bd51 0 32%,transparent 35%),radial-gradient(ellipse at 50% 36%,#b4df78 0 40%,transparent 43%)}
+.gold .root{background:linear-gradient(110deg,#fff3a6,#ffc843 55%,#ed8926)}.gold{filter:drop-shadow(0 0 10px #ffd767);animation:gold 1s ease-in-out infinite alternate}.bomb{filter:drop-shadow(0 -7px 5px #c68af5);animation:gold .55s infinite alternate}.sprout{animation:grow .8s ease-out both}
+@keyframes grow{from{transform:scale(.35)}to{transform:scale(1)}}@keyframes gold{to{transform:translateY(-3px);opacity:.76}}
+.bubble{position:absolute;left:50%;bottom:4px;transform:translateX(-50%);width:65%;height:5px;border-radius:5px;background:#2e1814;overflow:hidden;pointer-events:none}.bubble i{display:block;height:100%;width:100%;transform-origin:left;background:#ffb86c}
+.pot{position:absolute;top:-.2em;font-size:.65em;left:50%;transform:translateX(-50%)}.dizzy{opacity:.7;transform:rotate(-14deg)}.grid.hammer,.grid.hammer .plot{cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Ctext x='1' y='34' font-size='34'%3E🔨%3C/text%3E%3C/svg%3E") 14 14, crosshair}
+.tools{display:grid;grid-template-columns:1.12fr 1fr;gap:9px;margin-top:17px}.tools button{padding:10px 5px;border:1px solid #637351;border-radius:11px;background:#253c2b;font-weight:750;min-height:44px}.tools button[aria-pressed=true]{background:var(--lime);color:#23301a;border-color:var(--lime)}.tools button:disabled{opacity:.55;cursor:default}
+.energy{margin-top:12px}.energy>div:first-child{display:flex;justify-content:space-between;font-weight:700}.track{height:9px;background:#102018;border:1px solid #64754d;border-radius:9px;overflow:hidden;margin-top:4px}.track i{display:block;width:0;height:100%;background:linear-gradient(90deg,#8ac057,var(--gold))}.fever .field{border-color:var(--gold);box-shadow:0 0 24px #ffd46b70,0 9px 0 #102018}.fever #hammer[aria-pressed=true]{background:var(--gold)}
+.hint{color:var(--muted);margin-top:9px;font-size:14px;text-align:center}
+.overlay{position:absolute;inset:0;z-index:4;display:grid;place-items:center;border-radius:inherit;background:#16231bd9;padding:16px}.overlay[hidden]{display:none}.card{width:min(100%,350px);text-align:center;background:#233726;border:1px solid #728154;border-radius:18px;padding:clamp(14px,4vw,28px);box-shadow:0 12px 30px #101b17}.card h2{font-size:clamp(22px,5vw,31px);line-height:1.2}.card p{margin:9px 0 15px;color:#ebe6c3;font-size:15px}.card-art{display:block;font-size:38px;margin-bottom:6px;line-height:1}.primary{background:var(--lime);color:#26351e;border:0;border-radius:10px;width:100%;padding:9px;font-weight:850}
+.fx{position:absolute;inset:0;z-index:3;pointer-events:none;overflow:hidden;border-radius:inherit}.float,.flying,.dirt{position:absolute;pointer-events:none}.float{color:#fff0a7;text-shadow:0 2px 3px #150e09;font-weight:900;white-space:nowrap;animation:float .68s ease-out both}.flying{font-size:44px;animation:fly .54s ease-in both}.dirt{width:7px;height:7px;background:#d79b61;border-radius:2px;animation:dirt .38s ease-out both}.stunned .fx{box-shadow:inset 0 0 38px 15px #ff554f}.strike{position:absolute;width:55px;height:55px;display:grid;place-items:center;font-size:40px;transform:translate(-50%,-50%);animation:strike .23s ease-out both}.strike.big{font-size:100px}.shake{animation:shake 150ms linear}
+@keyframes float{0%{transform:translate(-50%,-20%)}to{transform:translate(-50%,-170%);opacity:0}}@keyframes fly{from{transform:translate(-50%,-55%)}to{transform:translate(var(--dx),-390px) rotate(540deg) scale(.12);opacity:0}}@keyframes dirt{to{transform:translate(var(--dx),var(--dy)) rotate(110deg);opacity:0}}@keyframes strike{0%{rotate:-35deg;opacity:1}60%{rotate:15deg}100%{opacity:0}}@keyframes shake{25%,75%{transform:translate(4px,-3px)}50%{transform:translate(-4px,3px)}}
+@media(prefers-reduced-motion:reduce){.shake,.gold,.bomb,.sprout{animation:none}.flying,.dirt,.strike{animation-duration:.08s}}
+</style>
+</head>
+<body>
+<main id="game">
+<header><h1>防风草保卫战</h1><button class="sound" id="sound" type="button" aria-pressed="false">🔊 音效开</button></header>
+<section class="hud" aria-label="战况">
+<div><span>剩余时间</span><output id="clock" aria-live="off">60.0 秒</output></div>
+<div><span>得分</span><output id="score" aria-live="off">0</output></div>
+<div><span>连击</span><output id="combo" aria-live="off">×1</output></div>
+</section>
+<section class="field" id="field" aria-label="防风草农田">
+<div class="grid" id="grid"></div><div class="fx" id="fx" aria-hidden="true"></div>
+<div class="overlay" id="overlay"><div class="card"><span class="card-art" aria-hidden="true">🌱</span><h2 id="prompt">守住这片田</h2><p id="summary">用手套拔成熟防风草，用木锤赶走偷菜小人。小心冒烟的炸弹芜菁！</p><button id="start" type="button" class="primary">开始保卫战</button></div></div>
+</section>
+<div class="tools" aria-label="工具"><button id="glove" type="button" aria-pressed="true" disabled>🧤 手套 · 拔草</button><button id="hammer" type="button" aria-pressed="false" disabled>🔨 木锤 · 防守</button></div>
+<section class="energy" aria-label="狂暴能量"><div><span id="energyLabel">狂暴能量</span><span id="energyValue">0%</span></div><div class="track" aria-hidden="true"><i id="energyBar"></i></div></section>
+<p class="hint">手套可划过连续拔草 · 空格换工具 · 右键直接挥锤</p>
+</main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const grid=$('grid'), field=$('field'), fx=$('fx'), game=$('game');
+const plotCount=12, columns=3;
+const names={empty:'空地',growing:'正在发芽',normal:'成熟防风草',gold:'黄金防风草',bomb:'炸弹芜菁',farmer:'种地小人',helmet:'铁锅头盔小人'};
+const plots=Array.from({length:plotCount},(_,index)=>{
+  const button=document.createElement('button');
+  button.className='plot';button.type='button';button.dataset.index=index;
+  button.innerHTML='<span class="actor" aria-hidden="true"></span><span class="bubble" aria-hidden="true" hidden><i></i></span>';
+  grid.append(button);
+  return {index,button,actor:button.firstElementChild,bubble:button.lastElementChild,kind:'',drawn:''};
+});
+let state='ready',mode='glove',time=60,points=0,combo=1,energy=0,fever=0;
+let stun=0,hitstop=0,cooldown=0,last=0,drag=null,muted=false,audio=null;
+const tones=new Set();
+function unlock(){
+  if(muted)return;
+  try{
+    if(!audio)audio=new (window.AudioContext||window.webkitAudioContext)();
+    if(audio.state==='suspended')audio.resume().catch(()=>{});
+  }catch{}
+}
+function tone(from,to,length,type='sine',delay=0){
+  if(muted||audio?.state!=='running')return;
+  const oscillator=audio.createOscillator(),gain=audio.createGain(),at=audio.currentTime+delay;
+  oscillator.type=type;oscillator.frequency.setValueAtTime(from,at);
+  oscillator.frequency.exponentialRampToValueAtTime(to,at+length);
+  gain.gain.setValueAtTime(.085,at);gain.gain.exponentialRampToValueAtTime(.001,at+length);
+  oscillator.connect(gain).connect(audio.destination);tones.add(oscillator);
+  oscillator.onended=()=>{tones.delete(oscillator);oscillator.disconnect();gain.disconnect()};
+  oscillator.start(at);oscillator.stop(at+length);
+}
+function silence(){for(const note of tones)note.stop();tones.clear()}
+function sound(kind){
+  switch(kind){
+    case 'pop':tone(680,330,.11,'triangle');break;
+    case 'appear':tone(460,680,.09,'square');tone(560,770,.08,'triangle',.1);break;
+    case 'hit':tone(145,42,.19,'triangle');tone(180,585,.16,'sine',.035);break;
+    case 'pot':tone(1420,625,.19,'triangle');tone(710,316,.14,'square');break;
+    case 'miss':tone(240,72,.14,'triangle');break;
+    case 'bomb':tone(155,37,.28,'sawtooth');break;
+    case 'fever':tone(440,660,.15,'triangle');tone(740,1200,.22,'triangle',.1);break;
+  }
+}
+$('sound').onclick=()=>{
+  muted=!muted;
+  if(muted)silence();else unlock();
+  $('sound').textContent=muted?'🔇 音效关':'🔊 音效开';
+  $('sound').setAttribute('aria-pressed',String(muted));
+};
+function tile(plot,kind,remaining=0){
+  plot.kind=kind;plot.remaining=remaining;plot.reinforced=kind==='helmet';plot.dizzy=0;
+}
+function isCrop(plot){return ['normal','gold','bomb'].includes(plot.kind)}
+function isFarmer(plot){return plot.kind==='farmer'||plot.kind==='helmet'}
+function setMode(next){
+  mode=next;drag=null;
+  grid.classList.toggle('hammer',mode==='hammer');
+  $('glove').setAttribute('aria-pressed',String(mode==='glove'));
+  $('hammer').setAttribute('aria-pressed',String(mode==='hammer'));
+}
+function paint(){
+  $('clock').textContent=time.toFixed(1)+' 秒';$('clock').classList.toggle('urgent',time<=10);
+  $('score').textContent=points;$('combo').textContent='×'+combo;
+  $('energyLabel').textContent=fever>0?'狂暴大锤':'狂暴能量';
+  $('energyValue').textContent=fever>0?fever.toFixed(1)+' 秒':energy+'%';
+  $('energyBar').style.width=(fever>0?fever*20:energy)+'%';
+  game.classList.toggle('fever',fever>0);field.classList.toggle('stunned',stun>0);
+  for(const plot of plots){
+    if(plot.drawn!==plot.kind){
+      plot.drawn=plot.kind;
+      plot.button.setAttribute('aria-label','第 '+(plot.index+1)+' 块地，'+names[plot.kind]);
+      plot.actor.className='actor '+plot.kind;
+      if(plot.kind==='normal'||plot.kind==='gold')plot.actor.innerHTML='<i class="leaves"></i><i class="root"></i>';
+      else if(plot.kind==='helmet')plot.actor.innerHTML='👨‍🌾<span class="pot">🍳</span>';
+      else plot.actor.textContent=({growing:'🌱',bomb:'💣',farmer:'👨‍🌾'})[plot.kind]||'';
+      plot.actor.classList.toggle('sprout',plot.kind==='growing');
+      plot.bubble.hidden=!isFarmer(plot);
+    }
+    if(isFarmer(plot))plot.bubble.firstElementChild.style.transform='scaleX('+Math.max(0,plot.remaining/2.5)+')';
+    plot.actor.classList.toggle('dizzy',plot.dizzy>0);
+  }
+}
+function effect(plot,kind,text='',dx=0,dy=0){
+  const el=document.createElement('span'),bounds=field.getBoundingClientRect(),box=plot.button.getBoundingClientRect();
+  el.className=kind;el.textContent=text;
+  el.style.left=(box.left-bounds.left+box.width/2)+'px';
+  el.style.top=(box.top-bounds.top+box.height/2)+'px';
+  el.style.setProperty('--dx',dx+'px');el.style.setProperty('--dy',dy+'px');
+  fx.append(el);el.addEventListener('animationend',()=>el.remove(),{once:true});
+}
+function dirt(plot){
+  for(let i=0;i<7;i++)effect(plot,'dirt','',(Math.random()-.5)*95,(Math.random()-.7)*64);
+}
+function resetCombo(){combo=1;energy=0}
+function harvest(plot){
+  if(isFarmer(plot)){
+    if(plot.dizzy<=0){plot.dizzy=.5;effect(plot,'float','快换木锤！');sound('appear')}
+    return;
+  }
+  if(!isCrop(plot))return;
+  dirt(plot);
+  if(plot.kind==='bomb'){
+    tile(plot,'empty',1.2);stun=1;drag=null;
+    effect(plot,'float','眩晕 1 秒');sound('bomb');return;
+  }
+  const golden=plot.kind==='gold',value=(golden?50:10)*combo;
+  points+=value;combo=Math.min(5,combo+1);
+  effect(plot,'float','+'+value);sound('pop');
+  if(golden||Math.random()<.3){tile(plot,golden?'helmet':'farmer',2.5);sound('appear')}
+  else tile(plot,'empty',1.2);
+}
+function neighbors(plot,distance){
+  return plots.filter(other=>Math.abs(other.index%columns-plot.index%columns)<=distance&&
+    Math.abs(Math.floor(other.index/columns)-Math.floor(plot.index/columns))<=distance);
+}
+function shake(){
+  field.classList.remove('shake');void field.offsetWidth;field.classList.add('shake');
+}
+function hammer(plot){
+  if(cooldown>0||hitstop>0)return;
+  const raging=fever>0;
+  effect(plot,raging?'strike big':'strike','🔨');
+  let hit=false,readyToFever=false;
+  for(const target of raging?neighbors(plot,1):[plot]){
+    if(!isFarmer(target))continue;
+    hit=true;
+    if(target.kind==='helmet'&&!raging){
+      target.kind='farmer';target.remaining=2.5;target.dizzy=0;
+      effect(target,'flying','🍳',85);effect(target,'float','铁锅飞了！');sound('pot');continue;
+    }
+    const armored=target.reinforced,value=(armored?250:100)*combo,bonus=armored?3:1.5;
+    tile(target,'empty',1.2);points+=value;time+=bonus;combo=Math.min(5,combo+1);
+    if(!raging){energy=Math.min(100,energy+34);readyToFever=energy===100}
+    effect(target,'flying','👨‍🌾',target.index%columns===0?115:-115);
+    effect(target,'float','+'+value+' · +'+bonus.toFixed(1)+'秒');sound('hit');
+  }
+  if(hit){hitstop=.05;shake()}
+  else{
+    cooldown=.2;
+    if(!raging&&(isCrop(plot)||plot.kind==='growing')){
+      tile(plot,'empty',1.2);resetCombo();dirt(plot);
+      effect(plot,'float','误伤 · 连击清零');sound('hit');
+    }else sound('miss');
+  }
+  if(readyToFever){fever=5;energy=0;effect(plot,'float','狂暴开启！');sound('fever')}
+}
+function escape(plot){
+  const crops=neighbors(plot,1).filter(other=>other!==plot&&(other.kind==='normal'||other.kind==='gold'));
+  if(crops.length){
+    const stolen=crops[Math.floor(Math.random()*crops.length)];
+    tile(stolen,'empty',1.2);effect(stolen,'float','被偷走了');
+  }
+  tile(plot,'empty',1.2);points-=50;resetCombo();effect(plot,'float','逃走了 · −50');
+}
+function act(button,forceHammer=false){
+  if(state!=='playing'||stun>0||hitstop>0||!button)return;
+  unlock();
+  const plot=plots[Number(button.dataset.index)];
+  if(forceHammer||mode==='hammer')hammer(plot);else harvest(plot);
+  paint();
+}
+function setTools(active){
+  $('glove').disabled=$('hammer').disabled=!active;
+  for(const plot of plots)plot.button.disabled=!active;
+}
+function showOverlay(title,description,action){
+  $('prompt').textContent=title;$('summary').textContent=description;$('start').textContent=action;
+  $('overlay').hidden=false;$('start').focus();
+}
+function start(){
+  unlock();silence();state='playing';time=60;points=0;combo=1;energy=fever=stun=hitstop=cooldown=0;
+  setMode('glove');last=0;fx.replaceChildren();field.classList.remove('shake');
+  for(const plot of plots)tile(plot,'empty',1.2);
+  $('overlay').hidden=true;setTools(true);paint();plots[0].button.focus({preventScroll:true});
+}
+$('start').onclick=()=>{
+  if(state==='paused'){
+    unlock();state='playing';last=0;$('overlay').hidden=true;setTools(true);plots[0].button.focus({preventScroll:true});
+  }else start();
+};
+for(const tool of ['glove','hammer']){
+  const button=$(tool);
+  button.onclick=()=>setMode(tool);
+  button.addEventListener('pointerup',event=>{
+    if(event.pointerType==='touch'&&state==='playing'&&button.contains(document.elementFromPoint(event.clientX,event.clientY)))setMode(tool);
+  });
+}
+window.addEventListener('keydown',event=>{
+  if(event.code!=='Space'||state!=='playing'||event.target.closest('#sound'))return;
+  event.preventDefault();if(!event.repeat)setMode(mode==='glove'?'hammer':'glove');
+});
+grid.addEventListener('click',event=>{
+  if(event.detail===0)act(event.target.closest('.plot'));
+});
+grid.addEventListener('contextmenu',event=>{
+  const button=event.target.closest('.plot');if(!button)return;
+  event.preventDefault();
+  // Mouse right-button acts on pointerdown. This handles keyboard context menu events.
+  if(event.button!==2&&event.pointerType!=='touch')act(button,true);
+});
+grid.addEventListener('pointerdown',event=>{
+  const button=event.target.closest('.plot');
+  if(!button||state!=='playing')return;
+  if(event.button===2){event.preventDefault();act(button,true);return}
+  if(event.button!==0||!event.isPrimary)return;
+  if(mode==='glove'&&stun<=0){
+    grid.setPointerCapture(event.pointerId);
+    drag={id:event.pointerId,visited:new Set([button]),x:event.clientX,y:event.clientY};
+  }
+  act(button);
+});
+grid.addEventListener('pointermove',event=>{
+  if(drag?.id!==event.pointerId)return;
+  const gesture=drag,dx=event.clientX-gesture.x,dy=event.clientY-gesture.y;
+  const steps=Math.ceil(Math.hypot(dx,dy)/18);
+  for(let step=1;step<=steps&&drag;step++){
+    const hit=document.elementFromPoint(gesture.x+dx*step/steps,gesture.y+dy*step/steps)?.closest('.plot');
+    if(!hit||!grid.contains(hit)||gesture.visited.has(hit))continue;
+    gesture.visited.add(hit);act(hit);
+  }
+  gesture.x=event.clientX;gesture.y=event.clientY;
+});
+for(const type of ['pointerup','pointercancel','lostpointercapture']){
+  grid.addEventListener(type,event=>{if(drag?.id===event.pointerId)drag=null});
+}
+function pause(){
+  if(state!=='playing')return;
+  state='paused';drag=null;silence();setTools(false);
+  showOverlay('农田已暂停','继续后，倒计时和作物会从暂停处恢复。','继续保卫战');
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)pause()});
+window.addEventListener('blur',pause);
+function update(dt){
+  if(state!=='playing')return;
+  if(hitstop>0){hitstop=Math.max(0,hitstop-dt);return}
+  time=Math.max(0,time-dt);stun=Math.max(0,stun-dt);
+  cooldown=Math.max(0,cooldown-dt);fever=Math.max(0,fever-dt);
+  if(time===0){
+    state='over';drag=null;setTools(false);
+    showOverlay('保卫战结束','最终得分 '+points+' 分','再守一局');paint();return;
+  }
+  for(const plot of plots){
+    if(plot.kind==='empty'||plot.kind==='growing'){
+      plot.remaining-=dt;
+      if(plot.remaining>0)continue;
+      if(plot.kind==='empty')tile(plot,'growing',.8);
+      else{
+        const roll=Math.random();
+        tile(plot,roll<.8?'normal':roll<.95?'gold':'bomb');
+      }
+    }else if(isFarmer(plot)){
+      const dazed=Math.min(dt,plot.dizzy);
+      plot.dizzy-=dazed;plot.remaining-=dt-dazed;
+      if(plot.remaining<=0)escape(plot);
+    }
+  }
+  paint();
+}
+function frame(ms){
+  const dt=last?Math.min(.05,(ms-last)/1000):0;
+  last=ms;update(dt);requestAnimationFrame(frame);
+}
+for(const plot of plots)tile(plot,'empty',1.2);
+setTools(false);paint();requestAnimationFrame(frame);
+</script>
+</body>
+</html>
