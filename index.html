@@ -1023,7 +1023,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-22 · 正文排得紧凑些</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-22 · 聊天界面去掉消息条数</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -6041,17 +6041,16 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   }
   function renderTokenBar() {
     const bar = $('token-bar'); if (!bar) return;
-    const total = Math.max(riverTotal(activeCompanionId), messages.length);
-    if (!total) { bar.style.display = 'none'; return; }
-    const _vis = total - ctxStart(total);
-    let html = `第 <b>${total}</b> 条` + (_vis < total ? `（模型可见最近 ${_vis} 条）` : '');
+    // 聊天界面不再显示「第 N 条」，只留本轮用量
     const u = (lastUsage && lastUsageSid === currentId) ? lastUsage : null;
-    if (u) {
+    if (!u) { bar.style.display = 'none'; return; }
+    let html = '';
+    {
       const total = u.total_tokens || ((u.prompt_tokens || 0) + (u.completion_tokens || 0));
       let cached = 0;
       if (u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens) cached = u.prompt_tokens_details.cached_tokens;
       else if (u.cache_read_input_tokens) cached = u.cache_read_input_tokens;
-      html += ` · 本轮 <b>${fmtNum(total)}</b> tok` + (cached ? ` · <span class="cache">缓存命中 ${fmtNum(cached)}</span>` : '');
+      html += `本轮 <b>${fmtNum(total)}</b> tok` + (cached ? ` · <span class="cache">缓存命中 ${fmtNum(cached)}</span>` : '');
     }
     bar.style.display = 'block';
     bar.innerHTML = html;
