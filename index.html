@@ -277,7 +277,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   .branch-delete { color: var(--danger); }
 
   /* 对话区 */
-  .chat { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px 16px 20px; display: flex; flex-direction: column; gap: 20px; scroll-behavior: smooth; }
+  .chat { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 8px 16px 20px; display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth; }
   .chat::-webkit-scrollbar { width: 0; }
   .chat.streaming { scroll-behavior: auto; }   /* 流式期间每帧都在改 scrollTop，平滑滚动会跟它打架、画面发抖 */
   .chat.bulk .msg { animation: none; }         /* 整屏重建时别让几十条一起做入场动画 */
@@ -287,7 +287,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   @keyframes msg-in { from { opacity: 0; transform: translateY(4px); } }
   .msg.user { align-self: flex-end; align-items: flex-end; }
   .msg.ai { align-self: flex-start; align-items: flex-start; width: 100%; max-width: 100%; }
-  .bubble { background: var(--user); color: var(--user-ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 15px; font-family: var(--serif); font-weight: 500; font-size: var(--fs-bubble); line-height: 1.7; letter-spacing: .01em; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; box-shadow: 0 1px 2px rgba(43,42,40,0.04), 0 3px 12px rgba(43,42,40,0.05); }
+  .bubble { background: var(--user); color: var(--user-ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 15px; font-family: var(--serif); font-weight: 500; font-size: var(--fs-bubble); line-height: 1.55; letter-spacing: .01em; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; box-shadow: 0 1px 2px rgba(43,42,40,0.04), 0 3px 12px rgba(43,42,40,0.05); }
   .time { font-size: 11px; color: var(--ink-3); padding: 4px 4px 0; }
   .to-bottom { position: fixed; left: 50%; margin-left: -19px; bottom: calc(108px + var(--safe-bottom)); z-index: 20; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 10px rgba(0,0,0,0.10); opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity .18s, transform .18s; }
   .to-bottom.show { opacity: 1; pointer-events: auto; transform: none; }
@@ -365,10 +365,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   .think-body { max-height: 0; overflow: hidden; transition: max-height .25s ease; }
   .think.open .think-body { max-height: 280px; overflow-y: auto; }
   .think-body::-webkit-scrollbar { width: 0; }
-  .think-body-inner { font-family: var(--serif) !important; margin-top: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); font-size: var(--fs-think); line-height: 1.75; letter-spacing: .01em; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; }
+  .think-body-inner { font-family: var(--serif) !important; margin-top: 8px; padding: 2px 0 2px 12px; border-left: 2px solid var(--accent-line); font-size: var(--fs-think); line-height: 1.6; letter-spacing: .01em; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; }
 
   /* AI 正文 + Markdown */
-  .ai-text { font-family: var(--serif) !important; font-weight: 500; font-size: var(--fs-ai); line-height: 1.75; letter-spacing: .01em; color: var(--ink); overflow-wrap: break-word; word-break: normal; text-wrap: pretty; }
+  .ai-text { font-family: var(--serif) !important; font-weight: 500; font-size: var(--fs-ai); line-height: 1.6; letter-spacing: .01em; color: var(--ink); overflow-wrap: break-word; word-break: normal; text-wrap: pretty; }
   .ai-text em, .bubble em { font-family: var(--italic); letter-spacing: normal; }
   .ai-text.err { color: var(--danger); white-space: pre-wrap; }
   .request-error { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-2); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; min-width: 0; }
@@ -379,13 +379,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   .request-error button { margin: 8px 8px 0 0; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink-2); font: inherit; cursor: pointer; }
   /* 段距原来是死值 10px，比行距还小，整段会糊成一坨。
      改成跟着字号走的 1.1em，段与段之间的空当明显宽过行与行，眼睛才有落脚点。 */
-  .ai-text p { margin: 0 0 1.1em; }
+  .ai-text p { margin: 0 0 .65em; }
   .ai-text p:last-child { margin-bottom: 0; }
-  .ai-text h1, .ai-text h2, .ai-text h3, .ai-text h4 { line-height: 1.4; margin: 1.5em 0 .5em; font-weight: 700; letter-spacing: 0; }
+  .ai-text h1, .ai-text h2, .ai-text h3, .ai-text h4 { line-height: 1.4; margin: 1.1em 0 .4em; font-weight: 700; letter-spacing: 0; }
   .ai-text > :first-child { margin-top: 0; }
   .ai-text h1 { font-size: 1.22em; } .ai-text h2 { font-size: 1.1em; } .ai-text h3 { font-size: 1.02em; } .ai-text h4 { font-size: 0.96em; }
-  .ai-text ul, .ai-text ol { margin: .5em 0 1.1em; padding-left: 1.4em; }
-  .ai-text li { margin: .3em 0; }
+  .ai-text ul, .ai-text ol { margin: .3em 0 .65em; padding-left: 1.4em; }
+  .ai-text li { margin: .15em 0; }
   .ai-text blockquote { margin: 8px 0; padding: 2px 0 2px 12px; border-left: 3px solid var(--accent-line); color: var(--ink-2); }
   .ai-text hr { border: none; border-top: 1px solid var(--line); margin: 14px 0; }
   .ai-text a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
@@ -1023,7 +1023,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-21 · 大事记/关系/续写也不打掉缓存</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-22 · 正文排得紧凑些</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
