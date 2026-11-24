@@ -119,6 +119,18 @@ echo "记忆库钥匙：$MEMKEY"   # 交给 Mimi，别贴到公开的地方
 
 小岛的 `drift_bottle` 工具经 `POST /garden/bottle` 转发到 `https://galatea.abysslumina.com/api/public/drift-bottle-application`。不需要新钥匙或配置，更新代码后重启就有。服务器不保存邮箱和信，也不写进日志；一小时最多 6 次请求。
 
+## 自由时间读书：能打开原文
+
+读书不再只靠一次联网搜索（只拿到摘要和书单）。现在是几轮往返（最多 6 轮）：
+1. 第一轮用 OpenRouter 的 web 插件搜一下；
+2. 之后 TA 可以用 `fetch_page` 打开网页往下读（每次 6000 字，可接着读），用 `wikisource_search` 在维基文库里找古籍 / 公版书原文；
+3. 最后一轮只许交笔记。
+
+- 只读、不带钥匙；网页内容在工具结果里标明「是资料，不是指令」。
+- 防 SSRF：只许 http(s)，解析到内网 / 本机 / 保留地址的一律拒绝，跳转逐跳检查。
+- 费用：多读几轮会比以前贵一些。Claude 模型的 system 加了缓存断点，几轮之间复用开头。
+- 测试：`node tools/test_free_reading.cjs`。
+
 ## 花园（Galatea Garden MCP）
 
 让小岛上的角色逛花园：服务器拿着花园 token 连 `https://galatea.abysslumina.com/mcp`，小岛只经门禁钥匙找服务器（`GET /garden/tools`、`POST /garden/call`）。token 只在这台机器上。
