@@ -2,11 +2,14 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), http = require('node:http'), os = require('node:os'), path = require('node:path');
 (async () => {
-  const seen = [];
+  const seen = []; let mode = 'chatty';
   const or = http.createServer((req, res) => {
     let b = ''; req.on('data', c => b += c); req.on('end', () => {
       seen.push(JSON.parse(b)); res.setHeader('Content-Type', 'application/json');
-      if (seen.length === 1) return res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: '我先去找找看。' } }] }));
+      const note = JSON.stringify({ topic: '星图', why: '好奇', notes: '读到一点星图的历史。', sources: [], note: '', next: '' });
+      if (seen.length === 1 && mode === 'chatty') return res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: '我先去找找看。' } }] }));
+      if (seen.length === 1 && mode === 'reasoning') return res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: '', reasoning: '写好了：' + note } }] }));
+      if (seen.length === 1 && mode === 'empty') return res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: '', reasoning_details: [{ type: 'reasoning.text', text: 'x', signature: 'S' }] } }] }));
       res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ topic: '星图', why: '好奇', notes: '读到一点星图的历史。', sources: [], note: '', next: '' }) } }] }));
     });
   });
@@ -25,5 +28,19 @@ const fs = require('node:fs'), http = require('node:http'), os = require('node:o
   assert.equal(seen[1].messages.at(-2).content, '我先去找找看。');
   const list = JSON.parse(fs.readFileSync(path.join(data, 'companions', 'a', 'readings.json'), 'utf8'));
   assert.equal(list[0].topic, '星图');
+
+  // 正文空、思考里有笔记：直接从思考里取，不补轮
+  seen.length = 0; mode = 'reasoning';
+  const r2 = await fetch('http://127.0.0.1:' + server.address().port + '/own/a/read-now', { method: 'POST', headers: { 'X-Islet-Key': process.env.ISLET_KEY } });
+  assert.equal(r2.status, 200, await r2.clone().text());
+  assert.equal(seen.length, 1);
+  // 正文空、思考也空：补一轮，且不放回空的 assistant 消息
+  seen.length = 0; mode = 'empty';
+  const r3 = await fetch('http://127.0.0.1:' + server.address().port + '/own/a/read-now', { method: 'POST', headers: { 'X-Islet-Key': process.env.ISLET_KEY } });
+  assert.equal(r3.status, 200, await r3.clone().text());
+  assert.equal(seen.length, 2);
+  assert(!seen[1].messages.some(m => m.role === 'assistant' && !m.content && !m.tool_calls), 'no empty assistant message');
+  const list2 = JSON.parse(fs.readFileSync(path.join(data, 'companions', 'a', 'readings.json'), 'utf8'));
+  assert.equal(list2.length, 3);
   console.log('ok'); process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });
