@@ -263,6 +263,17 @@ function nextSlot(now = new Date()) {
   const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
   return randomSlot(tomorrow);
 }
+function daysAhead(ms, now = new Date()) { return -daysSince(localDay(new Date(ms)), now); }   // 某个时刻是今天之后的第几天
+// 改了频率之后重排：上次读完还没满新间隔，就排到满的那天；已经该读了，今天时段里还有时间就在剩下的时间里随机挑，没有就明天
+function rescheduleFor(lastReadDay, every, now = new Date()) {
+  const wait = lastReadDay ? every - daysSince(lastReadDay, now) : 0;
+  if (wait > 0) return tomorrowSlot(now, wait);
+  const from = new Date(now); from.setHours(WIN_FROM, 0, 0, 0);
+  const end = new Date(now); end.setHours(WIN_TO, 0, 0, 0);
+  const start = Math.max(from.getTime(), now.getTime() + 60e3);
+  if (end.getTime() - start > 10 * 60e3) return start + Math.floor(Math.random() * (end.getTime() - start));
+  return nextSlot(now);
+}
 // 她正在和 TA 聊天时先不去读书（读完的留言会插在聊天中间）：最近 20 分钟说过话就往后推 20 分钟。
 // 小岛最多每 10 分钟上报一次说话时间，所以 20 分钟足够覆盖一段连着的聊天。
 // 最多推到当天时段结束后 90 分钟；再晚还在聊，就照常读，免得聊一整天就一天不读。
@@ -284,10 +295,23 @@ async function tick() {
     if (!snap || !snap.freeTime || !OR_KEY) continue;
     const stateFile = path.join(dirOf(cid), 'state.json');
     const state = await readJson(stateFile, {}).catch(() => ({}));
-    if (!state.nextAt) { await writeJson(stateFile, { ...state, nextAt: nextSlot() }); continue; }
-    if (Date.now() < state.nextAt) continue;
-    // 离上次读还没满间隔（今天已读、或刚从每天改成每周）：不读，排到间隔满的那天
     const every = cleanEvery(snap.freeEvery);
+    if (!state.nextAt) { await writeJson(stateFile, { ...state, nextAt: nextSlot(), every }); continue; }
+    // 频率改了（比如从每周改成每天）：按旧频率排好的时间作废，按上次读的日期和新频率重排。
+    // 以前只在到点时检查间隔，改短了就要干等到旧频率排的那天（每周读完排到 7 天后，改成每天也照样等）。
+    // 旧版的 state 没记 every：只在排的时间比新频率该读的那天还晚一天以上时重排，其余照旧，补记上 every。
+    if (state.every !== every) {
+      const due = state.lastReadDay ? Math.max(0, every - daysSince(state.lastReadDay)) : 0;
+      if (state.every !== undefined || daysAhead(state.nextAt) > due + 1) {
+        await writeJson(stateFile, { ...state, nextAt: rescheduleFor(state.lastReadDay, every), every });
+        log('读书频率改了，重新排', cid, 'every=' + every);
+        continue;
+      }
+      state.every = every;
+      await writeJson(stateFile, state);
+    }
+    if (Date.now() < state.nextAt) continue;
+    // 离上次读还没满间隔（今天已读）：不读，排到间隔满的那天
     if (state.lastReadDay && daysSince(state.lastReadDay) < every) {
       await writeJson(stateFile, { ...state, nextAt: tomorrowSlot(new Date(), every - daysSince(state.lastReadDay)) }); continue;
     }
@@ -297,7 +321,7 @@ async function tick() {
     running.add(cid);
     try {
       await readNow(cid);
-      await writeJson(stateFile, { ...state, nextAt: tomorrowSlot(new Date(), every), lastReadDay: localDay(new Date()), lastOk: Date.now(), lastError: '' });
+      await writeJson(stateFile, { ...state, nextAt: tomorrowSlot(new Date(), every), every, lastReadDay: localDay(new Date()), lastOk: Date.now(), lastError: '' });
     } catch (e) {
       // 失败一小时后再试，最多拖到当天时段结束；再失败就等明天
       const retry = Date.now() + 3600e3, end = new Date(); end.setHours(WIN_TO, 0, 0, 0);
@@ -431,7 +455,8 @@ async function route(req, url) {
       // 手动读也算今天这一次，免得当天再自动读一次
       const stateFile = path.join(dirOf(cid), 'state.json'), state = await readJson(stateFile, {}).catch(() => ({}));
       const snap = await readJson(snapFile, null).catch(() => null);
-      await writeJson(stateFile, { ...state, nextAt: tomorrowSlot(new Date(), cleanEvery(snap && snap.freeEvery)), lastReadDay: r.date, lastOk: Date.now(), lastError: '' });
+      const every = cleanEvery(snap && snap.freeEvery);
+      await writeJson(stateFile, { ...state, nextAt: tomorrowSlot(new Date(), every), every, lastReadDay: r.date, lastOk: Date.now(), lastError: '' });
       return { ok: true, date: r.date };
     } finally { running.delete(cid); }
   }
@@ -454,4 +479,4 @@ if (require.main === module) {
   setInterval(() => tick().catch(e => log('调度出错', e.message)), 5 * 60e3).unref();
   setTimeout(() => tick().catch(() => {}), 5e3).unref();
 }
-module.exports = { server, tick, parseReading, nextSlot, tomorrowSlot, daysSince, cleanSnapshot, postponeFor };
+module.exports = { server, tick, parseReading, nextSlot, tomorrowSlot, daysSince, cleanSnapshot, postponeFor, rescheduleFor, daysAhead };
