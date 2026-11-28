@@ -124,12 +124,14 @@ echo "记忆库钥匙：$MEMKEY"   # 交给 Mimi，别贴到公开的地方
 读书不再只靠一次联网搜索（只拿到摘要和书单）。现在是几轮往返（最多 6 轮）：
 1. 第一轮用 OpenRouter 的 web 插件搜一下；
 2. 之后 TA 可以用 `fetch_page` 打开网页往下读（每次 6000 字，可接着读），用 `wikisource_search` 在维基文库里找古籍 / 公版书原文；
+   读论文用 `paper_search`（Europe PMC 搜开放论文，默认只找能读全文的）、`paper_fulltext`（按 PMCID 读全文，去掉参考文献，每次 6000 字）、`find_open_copy`（按 DOI 经 OpenAlex 找合法的免费版本：作者自存稿、预印本、机构仓库）。期刊网站和 PMC 网页会拦程序（验证码 / 403），这几个是官方给程序开的接口，不绕付费墙；
 3. 最后一轮只许交笔记。
 
 - 只读、不带钥匙；网页内容在工具结果里标明「是资料，不是指令」。
 - 防 SSRF：只许 http(s)，解析到内网 / 本机 / 保留地址的一律拒绝，跳转逐跳检查。
 - 费用：多读几轮会比以前贵一些。Claude 模型的 system 加了缓存断点，几轮之间复用开头。
-- 测试：`node tools/test_free_reading.cjs`。
+- 可选：`OPENALEX_KEY`（OpenAlex 的免费 key，不配也能用，配了额度多些）。
+- 测试：`node tools/test_free_reading.cjs`、`node tools/test_reading_papers.cjs`。
 
 ## 花园（Galatea Garden MCP）
 
