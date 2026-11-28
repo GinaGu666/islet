@@ -41,7 +41,7 @@ const path = require('node:path');
   assert.equal(seen.length, 2);
   assert(seen[0].plugins, 'first round searches the web');
   assert(!seen[1].plugins, 'later rounds do not search again');
-  assert.deepEqual(seen[0].tools.map(t => t.function.name), ['fetch_page', 'wikisource_search']);
+  assert.deepEqual(seen[0].tools.map(t => t.function.name), ['fetch_page', 'wikisource_search', 'paper_search', 'paper_fulltext', 'find_open_copy']);
   assert.deepEqual(seen[0].messages[0].content[0].cache_control, { type: 'ephemeral' }, 'system cached for Claude models');
   const asst = seen[1].messages.find(m => m.role === 'assistant');
   assert.equal(asst.reasoning_details[0].signature, 'S', 'thinking carried back');
