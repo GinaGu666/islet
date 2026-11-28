@@ -310,6 +310,17 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   .img-strip .thumb { position: relative; flex-shrink: 0; }
   .img-strip img { width: 56px; height: 56px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); display: block; }
   .img-strip .rm { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; border: none; background: var(--ink); color: var(--bg); font-size: 12px; line-height: 18px; padding: 0; }
+  .moment-draft-imgs { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  .moment-draft-imgs .thumb { position: relative; }
+  .moment-draft-imgs img { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); display: block; }
+  .moment-draft-imgs .rm { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: none; background: var(--ink); color: var(--bg); font-size: 12px; line-height: 20px; padding: 0; }
+  .moment-item { padding: 14px 2px; border-bottom: 1px solid var(--line); }
+  .moment-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; font-size: 15px; }
+  .moment-imgs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .moment-imgs img { width: 92px; height: 92px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); display: block; cursor: zoom-in; }
+  .moment-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--ink-3); }
+  .moment-meta .seen { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .moment-meta button { border: 0; background: none; color: var(--ink-3); font: inherit; font-size: 12px; padding: 4px 2px; cursor: pointer; }
   .msg-imgs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-bottom: 6px; }
   .msg-imgs img { max-width: 170px; max-height: 220px; border-radius: 12px; border: 1px solid var(--line); display: block; }
   .img-viewer { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; }
@@ -874,6 +885,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 01-10 0V4z"/><path d="M7 6H4a3 3 0 003 3M17 6h3a3 3 0 01-3 3"/></svg>
         活动
       </button>
+      <button class="foot-row" type="button" onclick="openMoments()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></svg>
+        动态
+      </button>
       <button class="foot-row" onclick="openQuotes()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><path d="M8 9h8M8 13h5"/></svg>
         名场面
@@ -1023,7 +1038,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
       <div class="store-meter" id="store-meter"></div>
       <button class="comp-tab habit-add" type="button" id="free-space-btn" onclick="freeUpSpace()">腾空间：把旧对话挪进大仓库</button>
-      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-22 · 聊天界面去掉总条数</div>
+      <div class="tg-sub" style="padding:10px 2px 0;opacity:.6">islet · 2026-11-28 · 动态</div>
       <button class="btn-primary" onclick="saveSetup()">保存</button>
       <div class="form-note">Key 只保存在本机浏览器，不会上传到任何服务器</div>
     </div>
@@ -1096,6 +1111,27 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div id="habit-list"></div>
       <button class="comp-tab habit-add" type="button" onclick="addHabit()">＋ 新建打卡项</button>
       <div class="form-note">打卡只存在本机；你的坚持，角色们看得见 🪴</div>
+    </div>
+  </div>
+</div>
+<!-- 动态：岛主发给小岛上所有人看的，角色下次聊天时看到 -->
+<div class="overlay" id="moments-overlay">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">动态</div>
+      <button class="sheet-x" type="button" aria-label="关闭动态" onclick="closeMoments()">×</button>
+    </div>
+    <div class="form">
+      <textarea class="field" id="moment-text" placeholder="想让大家看到点什么…" style="height:80px"></textarea>
+      <div class="moment-draft-imgs" id="moment-draft-imgs"></div>
+      <input type="file" id="moment-file" accept="image/*" multiple style="display:none" onchange="pickMomentImgs(this)">
+      <div style="display:flex;gap:10px">
+        <button class="comp-tab" type="button" style="margin-top:18px" onclick="document.getElementById('moment-file').click()">＋ 图片</button>
+        <button class="btn-primary" type="button" id="moment-post" style="flex:1" onclick="postMoment()">发布</button>
+      </div>
+      <div class="form-note">小岛上的每个角色下次和你聊天时会看到（不用 TA 回复、不额外发请求）。两周前的不再递过去。</div>
+      <div id="moments-list" style="margin-top:6px"></div>
     </div>
   </div>
 </div>
@@ -1902,6 +1938,133 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     return `用户的打卡（自我坚持的小项目）：${parts.join('；')}。可以自然地关心进展或在合适时刻鼓励，但不要每次都提。`;
   }
 
+  /* ---------- 动态 ----------
+     岛主发给小岛上所有人看的（文字 + 最多 3 张图）。不当场请求模型：哪个角色下次收到她的消息，
+     就把 TA 还没看过的（两周内、最多 3 条）快照挂在那条用户消息的 moments 上，存进聊天记录，
+     所以之后的上下文里一直在，缓存前缀也不变。已看到的位置记在角色的 momentSeen（时间戳）。
+     图片放 IndexedDB 的 imgs，归动态所有：删消息不删它，删动态才删。 */
+  const MOMENT_IMGS = 3, MOMENT_FRESH = 14 * 864e5, MOMENT_BATCH = 3;
+  let moments = [];
+  try { moments = JSON.parse(localStorage.getItem('islet_moments') || '[]'); } catch (e) { moments = []; }
+  if (!Array.isArray(moments)) moments = [];
+  function saveMoments() { return lsSet('islet_moments', JSON.stringify(moments)); }
+  let momentDraft = [];   // [{id, blob, url}]
+  function openMoments() { renderMomentDraft(); renderMoments(); show('moments-overlay'); closeDrawer(); }
+  function closeMoments() { hide('moments-overlay'); }
+  async function pickMomentImgs(inp) {
+    const files = Array.from(inp.files || []);
+    try { inp.value = ''; } catch (e) {}
+    for (const f of files) {
+      if (!f.type.startsWith('image/')) continue;
+      if (momentDraft.length >= MOMENT_IMGS) { toast('一条动态最多 ' + MOMENT_IMGS + ' 张图'); break; }
+      try { const { blob } = await compressImage(f, 1024, 0.8); momentDraft.push({ id: genId(), blob, url: URL.createObjectURL(blob) }); }
+      catch (e) { toast('这张图读不了：' + (e.message || e)); }
+    }
+    renderMomentDraft();
+  }
+  function renderMomentDraft() {
+    const w = $('moment-draft-imgs'); if (!w) return;
+    w.innerHTML = '';
+    momentDraft.forEach(p => {
+      const d = document.createElement('div'); d.className = 'thumb';
+      const img = document.createElement('img'); img.src = p.url; img.alt = '';
+      const rm = document.createElement('button'); rm.className = 'rm'; rm.type = 'button'; rm.textContent = '×'; rm.setAttribute('aria-label', '去掉这张图');
+      rm.onclick = () => { URL.revokeObjectURL(p.url); momentDraft = momentDraft.filter(x => x !== p); renderMomentDraft(); };
+      d.appendChild(img); d.appendChild(rm); w.appendChild(d);
+    });
+  }
+  let momentPosting = false;
+  async function postMoment() {
+    if (momentPosting) return;
+    const text = $('moment-text').value.trim();
+    if (!text && !momentDraft.length) { toast('写点什么或加张图'); return; }
+    momentPosting = true; $('moment-post').disabled = true;
+    const draft = momentDraft.slice();
+    try {
+      for (const p of draft) {   // 图先写进库并读回，确认存好了再发
+        await imgPut({ id: p.id, blob: p.blob, created: Date.now() });
+        if (!(await imgGet(p.id))) throw new Error('图片没存进本机');
+      }
+      const post = { id: 'mo_' + genId(), ts: Date.now(), text, imgs: draft.map(p => p.id) };
+      moments.unshift(post);
+      if (!saveMoments()) { moments.shift(); throw new Error('本机存储写不进去'); }
+      draft.forEach(p => imgUrlCache.set(p.id, p.url));
+      momentDraft = []; $('moment-text').value = '';
+      renderMomentDraft(); renderMoments();
+      toast('发好了，大家下次聊天时会看到');
+    } catch (e) {
+      for (const p of draft) await idbDel('imgs', p.id).catch(() => {});
+      uiAlert('没发出去：' + (e && e.message || e));
+    } finally { momentPosting = false; $('moment-post').disabled = false; }
+  }
+  async function deleteMoment(id) {
+    const post = moments.find(p => p.id === id); if (!post) return;
+    if (!(await uiConfirm('删掉这条动态？', { sub: '图片一起删。已经看到过的角色，聊天记录里还留着这条的文字。', ok: '删除', danger: true }))) return;
+    moments = moments.filter(p => p.id !== id);
+    if (!saveMoments()) { moments.push(post); moments.sort((a, b) => b.ts - a.ts); return; }
+    for (const i of post.imgs || []) {
+      const u = imgUrlCache.get(i); if (u) { URL.revokeObjectURL(u); imgUrlCache.delete(i); }
+      await idbDel('imgs', i).catch(() => {});
+    }
+    renderMoments();
+  }
+  function fmtMomentTime(ts) {
+    const d = new Date(ts), now = new Date(), pad = n => String(n).padStart(2, '0');
+    const hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
+    if (dayKey(d) === dayKey(now)) return '今天 ' + hm;
+    return (d.getFullYear() !== now.getFullYear() ? d.getFullYear() + '年' : '') + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + hm;
+  }
+  function renderMoments() {
+    const list = $('moments-list'); if (!list) return;
+    if (!moments.length) { list.innerHTML = '<div class="habit-empty">还没发过动态</div>'; return; }
+    list.innerHTML = '';
+    moments.forEach(p => {
+      const div = document.createElement('div'); div.className = 'moment-item';
+      if (p.text) { const t = document.createElement('div'); t.className = 'moment-text'; t.textContent = p.text; div.appendChild(t); }
+      if (p.imgs && p.imgs.length) {
+        const w = document.createElement('div'); w.className = 'moment-imgs';
+        p.imgs.forEach(id => {
+          const im = document.createElement('img'); im.alt = '';
+          imgUrl(id).then(u => { if (u) { im.src = u; im.onclick = () => viewImg(u); } else im.remove(); });
+          w.appendChild(im);
+        });
+        div.appendChild(w);
+      }
+      const seen = companions.filter(c => (c.momentSeen || 0) >= p.ts).map(c => c.name);
+      const stale = Date.now() - p.ts > MOMENT_FRESH;
+      const meta = document.createElement('div'); meta.className = 'moment-meta';
+      meta.innerHTML = '<span></span><span class="seen"></span><button type="button">删除</button>';
+      meta.children[0].textContent = fmtMomentTime(p.ts);
+      meta.children[1].textContent = seen.length ? '👀 ' + seen.join('、') : (stale ? '没人看到，已过两周' : '还没人看到');
+      meta.children[2].onclick = () => deleteMoment(p.id);
+      div.appendChild(meta);
+      list.appendChild(div);
+    });
+  }
+  // 这个角色还没看过的动态（两周内、最多 3 条，旧的在前）；取走就推进 momentSeen
+  function takeUnseenMoments(c) {
+    if (!c) return null;
+    const since = c.momentSeen || 0, now = Date.now();
+    const fresh = moments.filter(p => p.ts > since && now - p.ts <= MOMENT_FRESH).sort((a, b) => a.ts - b.ts);
+    const newest = moments.reduce((n, p) => Math.max(n, p.ts), 0);
+    if (newest > since) { c.momentSeen = newest; saveCompanions(); }
+    if (!fresh.length) return null;
+    return fresh.slice(-MOMENT_BATCH).map(p => ({ id: p.id, ts: p.ts, text: p.text || '', imgs: (p.imgs || []).slice() }));
+  }
+  // 发给模型的那段说明。只用消息里存的快照，动态后来删了也不变，前缀缓存稳
+  function momentContextText(list) {
+    const lines = list.map(p => '- ' + dayKey(new Date(p.ts)) + ' ' + new Date(p.ts).toTimeString().slice(0, 5) + '：' + (p.text ? '「' + p.text + '」' : '（没写字）') + (p.imgs && p.imgs.length ? '，配图 ' + p.imgs.length + ' 张' : ''));
+    return '（她在小岛上发了动态，是给岛上所有人看的，不是专门发给你；你是这会儿才看到。图如果还在，就随这条消息附上了。自然的话可以提一句，不必刻意。）\n' + lines.join('\n');
+  }
+  function markMomentRow(row, list) {
+    if (!row || !Array.isArray(list) || !list.length) return;
+    const mr = row.querySelector('.meta-row'); if (!mr || mr.querySelector('.moment-tag')) return;
+    const tag = document.createElement('span'); tag.className = 'drawn-tag moment-tag';
+    tag.textContent = '👀 TA 看到了' + (list.length > 1 ? ' ' + list.length + ' 条' : '') + '动态';
+    tag.title = list.map(p => p.text || '（图片）').join(' / ');
+    mr.insertBefore(tag, mr.querySelector('.time'));
+  }
+
   /* ---------- 名场面语录 ---------- */
   let quotes = [];
   try { quotes = JSON.parse(localStorage.getItem('islet_quotes') || '[]'); } catch(e) { quotes = []; }
@@ -2086,10 +2249,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     try { diaries = await allDiaries(); } catch (e) { await uiAlert('日记未能完整读取，本次备份没有生成，请重试'); return false; }
     const sessionMsgs = {};
     for (const s of sessions) sessionMsgs[s.id] = await loadChunk(s.id);   // 冷块在 IndexedDB 里，一并读出
-    const attachments = await collectAttachments(Object.values(sessionMsgs));   // v2 起带图片与文件
+    const attachments = await collectAttachments(Object.values(sessionMsgs).concat([moments.map(p => ({ imgs: p.imgs || [] }))]));   // v2 起带图片与文件；动态的图也带上
     const data = {
       app: 'islet', version: 2, exportedAt: new Date().toISOString(),
-      companions, sessions, sessionMsgs, attachments, diaries,
+      companions, sessions, sessionMsgs, attachments, diaries, moments,
       quotes, quotePeople, habits, arena: loadArenaLog(),
       about: localStorage.getItem('islet_about') || '',
       activeCompanionId: localStorage.getItem('islet_active_companion') || '',
@@ -2277,6 +2440,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           if (Array.isArray(data.quotePeople)) localStorage.setItem('islet_quote_people', JSON.stringify(data.quotePeople));
           if (Array.isArray(data.habits)) localStorage.setItem('islet_habits', JSON.stringify(data.habits));
           if (Array.isArray(data.arena)) localStorage.setItem('islet_arena', JSON.stringify(data.arena));
+          if (Array.isArray(data.moments)) {   // 旧备份没有动态：本机的原样留着
+            const keepImg = new Set(data.moments.flatMap(p => p.imgs || []));
+            const oldMo = moments;
+            localStorage.setItem('islet_moments', JSON.stringify(data.moments));
+            for (const p of oldMo) for (const i of (p.imgs || [])) if (!keepImg.has(i)) await idbDel('imgs', i).catch(() => {});
+          }
         } catch (e) {}
         // 最后清旧块和新数据里没人引用的旧附件
         const keep = new Set(idx.map(x => x.id));
@@ -3510,6 +3679,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       else if (m.role === 'user') addUser(m.content, m.time, i, m.imgs, m.files, target, m.drawn);
       else addAi(m.content, m.thinking, m.thinkSec, m.model, m.time, true, m.reqModel, target, m.tools, m.providerName, m.diaryShares);
       const last = target.lastElementChild; if (last) { last.dataset.midx = i; last.dataset.sid = sid; }
+      if (m.role === 'user' && m.moments && last) markMomentRow(last, m.moments);
       if (m.call && last) { const t = last.querySelector('.t'); if (t) t.textContent += m.call.interrupted ? ' · ☎ 被打断' : ' · ☎'; }
       if (m.role === 'assistant' && m.freeNote && last) markNoteRow(last);
     }
@@ -4968,10 +5138,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           content = (content ? content + ' ' : '') + '[此前发过文件：' + m.files.map(f => f.name).join('、') + '，内容已不在上下文]';
         }
       }
-      if (m.role === 'user' && m.imgs && m.imgs.length) {
+      const _mo = m.role === 'user' && Array.isArray(m.moments) && m.moments.length ? m.moments : null;
+      if (_mo) content = momentContextText(_mo) + '\n\n' + content;
+      const _ids = (m.role === 'user' && m.imgs ? m.imgs : []).concat(_mo ? _mo.flatMap(p => p.imgs || []) : []);   // 她自己发的图优先占名额
+      if (m.role === 'user' && _ids.length) {
         const parts = [];
         if (budget > 0) {
-          for (const id of m.imgs.slice(0, budget)) {
+          for (const id of _ids.slice(0, budget)) {
             const rec = await imgGet(id).catch(() => null);
             if (rec) parts.push({ type: 'image_url', image_url: { url: await blobToDataURL(rec.blob) } });
           }
@@ -5753,9 +5926,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     const msg = { role: 'user', content: text, time: t, ts };
     if (imgs) msg.imgs = imgs;
     if (docs) msg.files = docs;
+    const seenMoments = takeUnseenMoments(sessionCompanion(currentId));   // TA 还没看过的动态，跟着这条消息一起递过去
+    if (seenMoments) msg.moments = seenMoments;
     messages.push(msg);
     addUser(text, t, messages.length - 1, msg.imgs, msg.files);
-    const _lr = $('chat').lastElementChild; if (_lr) { _lr.dataset.midx = messages.length - 1; _lr.dataset.sid = currentId; }
+    const _lr = $('chat').lastElementChild; if (_lr) { _lr.dataset.midx = messages.length - 1; _lr.dataset.sid = currentId; markMomentRow(_lr, msg.moments); }
     if (!renderFrom) { renderFrom = { sid: currentId, idx: 0 }; renderFirstTs = ts; }
     saveCurrent();
     generateAssistant();
