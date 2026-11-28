@@ -57,6 +57,7 @@
   - **新记的卡先挂末尾**：`buildApiMessages` 用 `coreFreeze`（按 sid）冻住 system 里的常驻记忆、大事记、关系位置。聊天中途新加的卡（带日期）、后台提炼新添的大事记、改了的关系位置，都挂在最后一条用户消息的【此刻】里；隔够久（`coreFreezeIdle`：Claude 5 分钟、其他 30 分钟，缓存本来就过期）或历史窗口挪动时才并进 system。冻住的是卡的那一版（后台把约定标成已兑现只在【此刻】里说一句）。岛主手动改关系位置、改/删/置顶卡、删大事记、恢复归档、回退提炼，都会 `bustCoreFreeze()` 马上生效。续写也带和原回复同样的工具定义（工具排在 system 前面，少了整段失效）；模型续写时要调工具，就再要一次并设 `tool_choice: none`。用量先到、上游再报错时也照记。测试：`NODE_PATH=$(npm root -g) node tools/test_fresh_cards_tail.cjs`。
   - **工具往返不重拼开头**：`generateAssistant` 每轮回复只调一次 `buildApiMessages`（`turnBase`），工具往返只在末尾接 `extra`。以前每次往返都重拼，`remember` 加的卡、记忆热度一变 system 就变，整段缓存作废（Fable 每次约 0.6 美元）。
   - **工具往返带回思考**：`streamCompletion` 把流里的 `reasoning_details`（含签名）按 index 拼好返回；工具往返时随 `tool_calls` 放进那条 assistant 消息。不带的话，Anthropic 的思考模型（Fable）在第二次请求里思考设置对不上，整段缓存作废、四万多 token 全按写入价重算。Fable 关不掉思考：用户关了思考显示时不再传 `exclude`（要拿到思考块），只是不往界面放。测试：`node tools/test_tool_reasoning_carry.cjs`。
+  - **动态**（`islet_moments`，侧栏「动态」）：岛主发给岛上所有角色看的文字 + 最多 3 张图（图在 IndexedDB `imgs`，归动态所有，删消息不删、删动态才删）。不请求模型：角色下次收到她的消息时，`takeUnseenMoments` 把 TA 没看过的（两周内、最多 3 条）快照存进那条用户消息的 `moments`，推进角色的 `momentSeen`；`buildApiMessages` 按快照写一段说明，图和她自己的图共用 `IMG_CTX` 名额（她的图优先）。快照在聊天记录里，之后的上下文一直在，前缀缓存不变。界面上那条消息标「👀 TA 看到了动态」。完整备份带 `moments` 和它的图；旧备份没有这个字段就保留本机的。语音通话、活动、编辑旧消息不递动态。
 - **备份 / 归档**：导出备份 = 全量（`app: 'islet'`，v2 起带附件）；归档 = 把久未活动的旧块导出成 `islet-archive` 文件、她确认文件存好了才从本机删；两种都能导回来，格式要保持向后兼容，她手上有旧文件。导入时一块都不能静默丢：localStorage 放不下就进 IndexedDB，两边都不行就报出来、不进索引。
 
 ## 改动约定
